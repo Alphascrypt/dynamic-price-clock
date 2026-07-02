@@ -18,6 +18,14 @@ Das Standardschema ("Default 4MB with spiffs") reicht nicht aus – der Sketch b
 
 Nach dem Flashen läuft das Gerät beim ersten Start als WLAN-Access-Point ("Tibber-Display-Setup") zur Erstkonfiguration.
 
+## Setup-WLAN-Passwort
+
+Für den Setup-Access-Point gibt es **kein festes Passwort im Code**. Jedes Gerät erzeugt beim ersten Start automatisch ein eigenes, zufälliges 10-stelliges Passwort und zeigt es an:
+- auf dem Display (TFT 1), solange kein Heim-WLAN verbunden ist,
+- in der seriellen Konsole (115200 Baud) beim Boot.
+
+Das Passwort kann danach jederzeit im Web-Dashboard unter **Konto → Setup-WLAN-Passwort** geändert werden.
+
 ## Lizenz
 
 Siehe [LICENSE](LICENSE) (GNU Affero General Public License v3.0).
