@@ -126,6 +126,64 @@ uint8_t matrixRows[MATRIX_DEVICE_COUNT][8] = {
 };
 
 // -----------------------------------------------------------------------------
+// WLAN-Konfiguration
+// -----------------------------------------------------------------------------
+
+// Setup-Access-Point
+const char* AP_SSID = "Tibber-Display-Setup";
+String apPassword = "";
+
+// Kein Default-WLAN im Code. Erstkonfiguration laeuft ueber den
+// Setup-Access-Point (siehe ensureWifiConnectedRobust()).
+const char* DEFAULT_WIFI_SSID = "";
+const char* DEFAULT_WIFI_PASSWORD = "";
+
+String wifiSsid = "";
+String wifiPassword = "";
+bool apMode = false;
+
+const char* DEFAULT_WIFI_SETUP_AP_SSID = "Tibber Strompreis";
+String setupApSsid = "Tibber Strompreis";
+const unsigned long WIFI_SETUP_AP_TIMEOUT = 300000UL;
+bool setupApActive = false;
+bool setupApPermanent = false;
+unsigned long setupApStartedAt = 0;
+unsigned long lastWifiStatusDisplay = 0;
+bool pendingWifiReconnect = false;
+unsigned long pendingWifiReconnectAt = 0;
+unsigned long lastAutoReconnectTry = 0;
+const unsigned long AUTO_RECONNECT_INTERVAL = 60000UL;
+
+// Nicht-blockierender WLAN-Verbindungsaufbau (manuell ausgeloest ueber
+// Speichern/Verbinden im Webinterface oder beim Boot). Statt einer
+// while(){delay()}-Schleife wird der Status bei jedem loop()-Durchlauf
+// einmal kurz geprueft, damit der Webserver waehrend des Verbindens
+// weiter erreichbar bleibt.
+bool wifiConnectActive = false;
+String wifiConnectSsid = "";
+String wifiConnectPasswordAttempt = "";
+unsigned long wifiConnectStartedAt = 0;
+unsigned long wifiConnectTimeoutMs = 45000UL;
+wl_status_t wifiConnectLastStatus = WL_IDLE_STATUS;
+unsigned long wifiConnectLastStatusPrintAt = 0;
+
+// Sanfter Reconnect (kurze Verbindungsaussetzer im laufenden Betrieb),
+// ebenfalls nicht-blockierend nach demselben Prinzip.
+bool wifiSoftReconnectActive = false;
+unsigned long wifiSoftReconnectStartedAt = 0;
+
+bool wifiMacRotationEnabled = false;
+
+int wifiBandPreference = 0;
+bool wifiStaticIpEnabled = false;
+bool wifiAutoFifthLastIpEnabled = false;
+String wifiStaticIpText = "";
+String wifiGatewayText = "";
+String wifiSubnetText = "255.255.255.0";
+String wifiDns1Text = "";
+String wifiDns2Text = "";
+
+// -----------------------------------------------------------------------------
 // Web / Speicher / Sicherheit
 // -----------------------------------------------------------------------------
 
@@ -180,65 +238,11 @@ String githubRootCaPem = "";
 String githubLatestVersion = "";
 String githubLatestUrl = "";
 
-// Setup-Access-Point
-const char* AP_SSID = "Tibber-Display-Setup";
-String apPassword = "";
-
-// Kein Default-WLAN im Code. Erstkonfiguration laeuft ueber den
-// Setup-Access-Point (siehe ensureWifiConnectedRobust()).
-const char* DEFAULT_WIFI_SSID = "";
-const char* DEFAULT_WIFI_PASSWORD = "";
-
-String wifiSsid = "";
-String wifiPassword = "";
-bool apMode = false;
-
 String tibberToken = "";
 String selectedHomeId = "";
 
 String lastError = "Noch kein Update";
 String webInterfaceName = "Dynamic Price Clock";
-
-const char* DEFAULT_WIFI_SETUP_AP_SSID = "Tibber Strompreis";
-String setupApSsid = "Tibber Strompreis";
-const unsigned long WIFI_SETUP_AP_TIMEOUT = 300000UL;
-bool setupApActive = false;
-bool setupApPermanent = false;
-unsigned long setupApStartedAt = 0;
-unsigned long lastWifiStatusDisplay = 0;
-bool pendingWifiReconnect = false;
-unsigned long pendingWifiReconnectAt = 0;
-unsigned long lastAutoReconnectTry = 0;
-const unsigned long AUTO_RECONNECT_INTERVAL = 60000UL;
-
-// Nicht-blockierender WLAN-Verbindungsaufbau (manuell ausgeloest ueber
-// Speichern/Verbinden im Webinterface oder beim Boot). Statt einer
-// while(){delay()}-Schleife wird der Status bei jedem loop()-Durchlauf
-// einmal kurz geprueft, damit der Webserver waehrend des Verbindens
-// weiter erreichbar bleibt.
-bool wifiConnectActive = false;
-String wifiConnectSsid = "";
-String wifiConnectPasswordAttempt = "";
-unsigned long wifiConnectStartedAt = 0;
-unsigned long wifiConnectTimeoutMs = 45000UL;
-wl_status_t wifiConnectLastStatus = WL_IDLE_STATUS;
-unsigned long wifiConnectLastStatusPrintAt = 0;
-
-// Sanfter Reconnect (kurze Verbindungsaussetzer im laufenden Betrieb),
-// ebenfalls nicht-blockierend nach demselben Prinzip.
-bool wifiSoftReconnectActive = false;
-unsigned long wifiSoftReconnectStartedAt = 0;
-
-bool wifiMacRotationEnabled = false;
-
-int wifiBandPreference = 0;
-bool wifiStaticIpEnabled = false;
-bool wifiAutoFifthLastIpEnabled = false;
-String wifiStaticIpText = "";
-String wifiGatewayText = "";
-String wifiSubnetText = "255.255.255.0";
-String wifiDns1Text = "";
-String wifiDns2Text = "";
 
 // -----------------------------------------------------------------------------
 // Zeiten
