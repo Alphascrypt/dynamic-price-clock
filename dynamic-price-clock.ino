@@ -71,7 +71,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "1.1.1"
+#define FIRMWARE_VERSION "1.1.2"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -130,7 +130,7 @@ uint8_t matrixRows[MATRIX_DEVICE_COUNT][8] = {
 // -----------------------------------------------------------------------------
 
 // Setup-Access-Point
-const char* AP_SSID = "Tibber-Display-Setup";
+const char* AP_SSID = "Dynamic-Price-Clock-Setup";
 String apPassword = "";
 
 // Kein Default-WLAN im Code. Erstkonfiguration laeuft ueber den
@@ -227,7 +227,7 @@ bool authBootstrapped = false;
 // Die Root-CA-PEM (letztes Zertifikat der Kette) hier im Webinterface einfuegen.
 String tibberRootCaPem = "";
 
-// GitHub-Update: "besitzer/repo" (z.B. "coca2609/tibber-display"), optionales
+// GitHub-Update: "besitzer/repo" (z.B. "Alphascrypt/dynamic-price-clock"), optionales
 // Token (fuer private Repos oder hoehere Rate-Limits) und optionales
 // Root-CA-Zertifikat fuer api.github.com. Ohne Zertifikat faellt die
 // Verbindung bewusst-protokolliert auf setInsecure() zurueck, exakt wie bei
@@ -794,7 +794,7 @@ void configureWifiRadio() {
   WiFi.persistent(false);
   WiFi.setSleep(false);
   WiFi.setAutoReconnect(false);
-  WiFi.setHostname("tibber-display");
+  WiFi.setHostname("dynamic-price-clock");
   WiFi.setTxPower(WIFI_POWER_19_5dBm);
   esp_wifi_set_ps(WIFI_PS_NONE);
   applyWifiBandPreference();
@@ -1066,7 +1066,7 @@ void printWifiStatusLine(const char* prefix) {
 }
 
 void printStartupDiagnostics() {
-  printSerialDivider("STARTDIAGNOSE ESP32-C5 TIBBER DISPLAY");
+  printSerialDivider("STARTDIAGNOSE ESP32-C5 DYNAMIC PRICE CLOCK");
   Serial.print("Hardware-Profil: "); Serial.println(HARDWARE_PROFILE);
   Serial.print("Free Heap: "); Serial.println(ESP.getFreeHeap());
   printWifiStatusLine("WLAN direkt nach Start:");
@@ -1973,7 +1973,7 @@ bool checkGithubUpdate() {
     return false;
   }
 
-  http.addHeader("User-Agent", "tibber-display-esp32");
+  http.addHeader("User-Agent", "dynamic-price-clock-esp32");
   http.addHeader("Accept", "application/vnd.github+json");
   if (githubToken.length() > 0) {
     http.addHeader("Authorization", "Bearer " + githubToken);

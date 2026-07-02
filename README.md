@@ -51,7 +51,7 @@ Das Standardschema ("Default 4MB with spiffs") reicht nicht aus – der Sketch b
 - Adafruit GC9A01A
 - Adafruit NeoPixel
 
-Nach dem Flashen läuft das Gerät beim ersten Start als WLAN-Access-Point ("Tibber-Display-Setup") zur Erstkonfiguration.
+Nach dem Flashen läuft das Gerät beim ersten Start als WLAN-Access-Point ("Dynamic-Price-Clock-Setup") zur Erstkonfiguration.
 
 ## Setup-WLAN-Passwort
 
