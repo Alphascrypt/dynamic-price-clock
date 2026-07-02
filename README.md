@@ -2,6 +2,12 @@
 
 ESP32-C5-Firmware für ein Tibber-Strompreis-Display mit zwei runden GC9A01-Bildschirmen, WS2812B-LED-Tagesring und optionaler MAX7219-Matrix – inkl. Web-Dashboard mit Layout-Editor, Hell/Dunkel-Modus und GitHub-OTA-Updates.
 
+## Fertiges Gerät
+
+![Dynamic Price Clock, fertig aufgebaut](docs/photos/geraet.jpg)
+
+> **Bekannter Defekt:** Das obere Display (Display 1, Preisverlauf-Ansicht) hat einen Hardware-Defekt und zeigt Bildfehler/Verzerrungen. Display 2 (unten, Preis-Uhr) funktioniert einwandfrei.
+
 ## Web-Dashboard
 
 | Übersicht | Layout Editor |
