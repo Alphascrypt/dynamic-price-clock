@@ -1,0 +1,98 @@
+<!DOCTYPE html><html><head>
+<meta charset='utf-8'>
+<meta name='viewport' content='width=device-width, initial-scale=1'>
+<title>Dynamic Price Clock - Pinout</title>
+<script>(function(){try{var qp=new URLSearchParams(location.search).get('theme');if(qp==='dark'||(!qp&&localStorage.getItem('theme')==='dark')){document.documentElement.setAttribute('data-theme','dark');}}catch(e){}})();</script>
+<link rel='stylesheet' href='style.css'>
+</head><body><main class='shell'>
+<section class='hero' style='background:linear-gradient(120deg,rgba(52,211,153,.20),rgba(94,234,212,.14))'><h1>Pinout / Verdrahtung</h1><p>GPIO-Belegung fuer ESP32-C5, zwei GC9A01 TFTs, MAX7219 Matrix und WS2812B/WS2818 Tagesring.</p></section>
+<nav class='nav'><span class='badge okb'>Dynamic Price Clock</span>
+<a href='index.html'><button class='navbtn'><svg viewBox='0 0 24 24' width='18' height='18'><path d='M3 11l9-8 9 8M5 10v10h5v-6h4v6h5V10' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/></svg><span>Übersicht</span></button></a>
+<span class='navDivider'></span>
+<a href='wifi.html'><button class='navbtn'><svg viewBox='0 0 24 24' width='18' height='18'><path d='M2 8.5a16 16 0 0 1 20 0M5.5 12.5a11 11 0 0 1 13 0M9 16.5a6 6 0 0 1 6 0' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round'/><circle cx='12' cy='20' r='1.3' fill='currentColor'/></svg><span>WLAN</span></button></a>
+<a href='account.html'><button class='navbtn'><svg viewBox='0 0 24 24' width='18' height='18'><circle cx='8' cy='8' r='4' fill='none' stroke='currentColor' stroke-width='2'/><path d='M11 11l9 9m-4-4l3-3m-6 2l2-2' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg><span>Konto</span></button></a>
+<a href='#'><button class='navbtn active'><svg viewBox='0 0 24 24' width='18' height='18'><rect x='6' y='6' width='12' height='12' rx='2' fill='none' stroke='currentColor' stroke-width='2'/><path d='M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg><span>Pinout</span></button></a>
+<span class='navDivider'></span>
+<a href='displays.html'><button class='navbtn'><svg viewBox='0 0 24 24' width='18' height='18'><rect x='3' y='4' width='18' height='12' rx='2' fill='none' stroke='currentColor' stroke-width='2'/><path d='M8 20h8M12 16v4' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg><span>Displays</span></button></a>
+<a href='ledring.html'><button class='navbtn'><svg viewBox='0 0 24 24' width='18' height='18'><circle cx='12' cy='12' r='4' fill='none' stroke='currentColor' stroke-width='2'/><path d='M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg><span>Tagesring</span></button></a>
+<a href='matrix.html'><button class='navbtn'><svg viewBox='0 0 24 24' width='18' height='18'><rect x='3' y='3' width='4' height='4' fill='currentColor'/><rect x='10' y='3' width='4' height='4' fill='currentColor'/><rect x='17' y='3' width='4' height='4' fill='currentColor'/><rect x='3' y='10' width='4' height='4' fill='currentColor'/><rect x='10' y='10' width='4' height='4' fill='currentColor'/><rect x='17' y='10' width='4' height='4' fill='currentColor'/><rect x='3' y='17' width='4' height='4' fill='currentColor'/><rect x='10' y='17' width='4' height='4' fill='currentColor'/><rect x='17' y='17' width='4' height='4' fill='currentColor'/></svg><span>Matrix</span></button></a>
+<a href='layout.html'><button class='navbtn'><svg viewBox='0 0 24 24' width='18' height='18'><path d='M4 6h10M4 12h16M4 18h7' stroke='currentColor' stroke-width='2' stroke-linecap='round'/><circle cx='16' cy='6' r='2' fill='currentColor'/><circle cx='9' cy='18' r='2' fill='currentColor'/></svg><span>Layout</span></button></a>
+<span class='navDivider'></span>
+<button type='button' class='themeToggle' onclick='toggleTheme()' title='Hell/Dunkel umschalten'><svg class='iconSun' viewBox='0 0 24 24'><circle cx='12' cy='12' r='5' fill='currentColor'/><path d='M12 1v2M12 21v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M1 12h2M21 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg><svg class='iconMoon' viewBox='0 0 24 24'><path d='M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5z' fill='currentColor'/></svg><span>Theme</span></button>
+</nav>
+
+<section class='card'><div class='panelTitle'><h2>Schaltplan</h2><span class='badge okb'>8 GPIOs belegt</span></div>
+<svg viewBox='0 0 700 400' xmlns='http://www.w3.org/2000/svg' style='font-family:Inter,system-ui,sans-serif'>
+<rect x='0' y='0' width='700' height='400' fill='#0b1224' rx='16'/>
+<rect x='260' y='30' width='180' height='340' rx='18' fill='#141c30' stroke='#26324f' stroke-width='2'/>
+<rect x='280' y='60' width='140' height='110' rx='6' fill='#333c52' stroke='#4b566e' stroke-width='1.5'/>
+<text x='350' y='110' fill='#e6ecff' font-size='14' font-weight='800' text-anchor='middle'>ESP32-C5</text>
+<text x='350' y='128' fill='#9aa8c7' font-size='11' text-anchor='middle'>WROOM-1</text>
+<rect x='320' y='362' width='60' height='16' rx='3' fill='#5b6685'/>
+<text x='350' y='392' fill='#64748b' font-size='10' text-anchor='middle'>USB-C</text>
+<line x1='246' y1='70' x2='120' y2='70' stroke='#94a3b8' stroke-width='1.5'/><rect x='246' y='66' width='14' height='8' rx='2' fill='#94a3b8'/><text x='115' y='64' fill='#94a3b8' font-size='12' font-weight='700' text-anchor='end'>3V3</text><text x='115' y='80' fill='#9aa8c7' font-size='10' text-anchor='end'>Versorgung TFT/Matrix/LEDs</text>
+<line x1='246' y1='130' x2='120' y2='130' stroke='#94a3b8' stroke-width='1.5'/><rect x='246' y='126' width='14' height='8' rx='2' fill='#94a3b8'/><text x='115' y='124' fill='#94a3b8' font-size='12' font-weight='700' text-anchor='end'>GND</text><text x='115' y='140' fill='#9aa8c7' font-size='10' text-anchor='end'>Gemeinsame Masse</text>
+<line x1='246' y1='190' x2='120' y2='190' stroke='#60a5fa' stroke-width='1.5'/><rect x='246' y='186' width='14' height='8' rx='2' fill='#60a5fa'/><text x='115' y='184' fill='#60a5fa' font-size='12' font-weight='700' text-anchor='end'>GPIO4</text><text x='115' y='200' fill='#9aa8c7' font-size='10' text-anchor='end'>TFT SCLK + Matrix CLK</text>
+<line x1='246' y1='250' x2='120' y2='250' stroke='#60a5fa' stroke-width='1.5'/><rect x='246' y='246' width='14' height='8' rx='2' fill='#60a5fa'/><text x='115' y='244' fill='#60a5fa' font-size='12' font-weight='700' text-anchor='end'>GPIO5</text><text x='115' y='260' fill='#9aa8c7' font-size='10' text-anchor='end'>TFT MOSI + Matrix DIN</text>
+<line x1='246' y1='310' x2='120' y2='310' stroke='#60a5fa' stroke-width='1.5'/><rect x='246' y='306' width='14' height='8' rx='2' fill='#60a5fa'/><text x='115' y='304' fill='#60a5fa' font-size='12' font-weight='700' text-anchor='end'>GPIO8</text><text x='115' y='320' fill='#9aa8c7' font-size='10' text-anchor='end'>TFT DC (beide Displays)</text>
+<line x1='454' y1='70' x2='580' y2='70' stroke='#60a5fa' stroke-width='1.5'/><rect x='440' y='66' width='14' height='8' rx='2' fill='#60a5fa'/><text x='585' y='64' fill='#60a5fa' font-size='12' font-weight='700' text-anchor='start'>GPIO9</text><text x='585' y='80' fill='#9aa8c7' font-size='10' text-anchor='start'>TFT RST (beide Displays)</text>
+<line x1='454' y1='130' x2='580' y2='130' stroke='#60a5fa' stroke-width='1.5'/><rect x='440' y='126' width='14' height='8' rx='2' fill='#60a5fa'/><text x='585' y='124' fill='#60a5fa' font-size='12' font-weight='700' text-anchor='start'>GPIO10</text><text x='585' y='140' fill='#9aa8c7' font-size='10' text-anchor='start'>TFT 1 Chip-Select</text>
+<line x1='454' y1='190' x2='580' y2='190' stroke='#a78bfa' stroke-width='1.5'/><rect x='440' y='186' width='14' height='8' rx='2' fill='#a78bfa'/><text x='585' y='184' fill='#a78bfa' font-size='12' font-weight='700' text-anchor='start'>GPIO21</text><text x='585' y='200' fill='#9aa8c7' font-size='10' text-anchor='start'>Matrix Chip-Select</text>
+<line x1='454' y1='250' x2='580' y2='250' stroke='#60a5fa' stroke-width='1.5'/><rect x='440' y='246' width='14' height='8' rx='2' fill='#60a5fa'/><text x='585' y='244' fill='#60a5fa' font-size='12' font-weight='700' text-anchor='start'>GPIO23</text><text x='585' y='260' fill='#9aa8c7' font-size='10' text-anchor='start'>TFT 2 Chip-Select</text>
+<line x1='454' y1='310' x2='580' y2='310' stroke='#5eead4' stroke-width='1.5'/><rect x='440' y='306' width='14' height='8' rx='2' fill='#5eead4'/><text x='585' y='304' fill='#5eead4' font-size='12' font-weight='700' text-anchor='start'>GPIO24</text><text x='585' y='320' fill='#9aa8c7' font-size='10' text-anchor='start'>LED-Ring DIN</text>
+</svg>
+<p class='small' style='margin-top:10px'>Schematische Uebersicht, keine exakte Silkscreen-Abbildung deines konkreten ESP32-C5-Boards. Pruefe die GPIO-Nummern immer zusaetzlich gegen die Beschriftung auf deinem Board.</p>
+</section>
+
+<section class='card'><div class='panelTitle'><h2>Wichtigste Pins</h2><span class='badge okb'>6 Verbindungen</span></div>
+<div class='gridCards'>
+<div class='metric'><div class='label'>SPI-Takt (SCLK) / SPI-Daten (MOSI)</div><div class='value' style='font-size:22px'>GPIO4 / GPIO5</div><div class='sub'>Gemeinsamer Datenbus fuer beide Displays UND die LED-Matrix</div></div>
+<div class='metric'><div class='label'>Display Data/Command (DC) / Reset (RST)</div><div class='value' style='font-size:22px'>GPIO8 / GPIO9</div><div class='sub'>Gemeinsam fuer beide Displays, fest im Code</div></div>
+<div class='metric'><div class='label'>Display 1 Chip-Select</div><div class='value'>GPIO10</div><div class='sub'>Waehlt Display 1 auf dem SPI-Bus aus, fest im Code</div></div>
+<div class='metric'><div class='label'>Display 2 Chip-Select</div><div class='value'>GPIO23</div><div class='sub'>Waehlt Display 2 auf dem SPI-Bus aus, fest im Code</div></div>
+<div class='metric'><div class='label'>Tagesring Datenleitung (DIN)</div><div class='value'>GPIO24</div><div class='sub'>WS2812B/WS2818, 60 LEDs</div></div>
+<div class='metric'><div class='label'>LED-Matrix Daten / Takt / Chip-Select</div><div class='value' style='font-size:20px'>GPIO5 / GPIO4 / GPIO21</div><div class='sub'>MAX7219 Daisy-Chain, teilt sich Takt/Daten mit den Displays</div></div>
+</div>
+<p class='small' style='margin-top:14px'>Gemeinsame Masse fuer ESP32-C5, Matrix, TFTs und LED-Ring verwenden. Niemals 5V auf den 3V3-Pin geben.</p></section>
+
+<section class='card'><div class='panelTitle'><h2>GPIO-Zuordnung aendern</h2><span class='badge warnb'>Fortgeschritten</span></div>
+<p class='small'>Hier aenderst du, welchen GPIO die Firmware fuer eine Funktion verwendet - das aendert nicht die Verkabelung selbst. Du musst das jeweilige Kabel danach passend an den neuen Pin umstecken, sonst funktioniert diese Funktion nicht mehr. Ein Neustart ist nach dem Speichern noetig, damit die Aenderung wirkt. Die WLAN-/Web-Verwaltung bleibt davon unberuehrt, auch wenn ein Display oder der Tagesring wegen einer falschen Zuordnung nicht mehr reagiert.</p>
+<p class='small'><b>Hinweis zur Liste:</b> Die Auswahl umfasst GPIO0-27. Welche Pins auf deinem konkreten ESP32-C5-Board tatsaechlich herausgefuehrt bzw. fuer internen Flash reserviert sind, kann je nach Modul/Board variieren - pruefe bei Unsicherheit das Datenblatt oder die Beschriftung deines Boards. GPIO0 ist bei den meisten ESP32-Chips ein Boot-Strapping-Pin und wird deshalb markiert.</p>
+<form><div class='formGrid'>
+<div class='field'><label title='Gemeinsamer Taktleitung des SPI-Busses. Aendern betrifft Display 1, Display 2 und die LED-Matrix gleichzeitig.'>SPI-Takt (SCLK) - fuer beide Displays und die Matrix</label><select name='tftSclkPin' title='Gemeinsamer Taktleitung des SPI-Busses. Aendern betrifft Display 1, Display 2 und die LED-Matrix gleichzeitig.'>
+<option value='0'>GPIO0 - meist Boot-Strapping-Pin, eher vermeiden</option>
+<option value='4' selected>GPIO4</option>
+<option value='5'>GPIO5 - aktuell belegt: SPI-Daten (MOSI)</option>
+<option value='8'>GPIO8 - aktuell belegt: Display Data/Command</option>
+<option value='9'>GPIO9 - aktuell belegt: Display Reset</option>
+<option value='21'>GPIO21 - aktuell belegt: LED-Matrix Chip-Select</option>
+</select></div>
+<div class='field'><label title='Gemeinsame Datenleitung des SPI-Busses. Aendern betrifft Display 1, Display 2 und die LED-Matrix gleichzeitig.'>SPI-Daten (MOSI) - fuer beide Displays und die Matrix</label><select name='tftMosiPin' title='Gemeinsame Datenleitung des SPI-Busses. Aendern betrifft Display 1, Display 2 und die LED-Matrix gleichzeitig.'>
+<option value='4'>GPIO4 - aktuell belegt: SPI-Takt (SCLK)</option>
+<option value='5' selected>GPIO5</option>
+<option value='8'>GPIO8 - aktuell belegt: Display Data/Command</option>
+</select></div>
+<div class='field'><label title='Steuert die WS2812B/WS2818 LED-Kette des Tagesrings.'>Tagesring Datenleitung (DIN)</label><select name='ledRingPin' title='Steuert die WS2812B/WS2818 LED-Kette des Tagesrings.'>
+<option value='23'>GPIO23 - aktuell belegt: Display 2 Chip-Select</option>
+<option value='24' selected>GPIO24</option>
+<option value='27'>GPIO27</option>
+</select></div>
+<div class='field'><label title='Waehlt die MAX7219-Matrixkette auf dem SPI-Bus aus.'>LED-Matrix Chip-Select (CS)</label><select name='matrixCsPin' title='Waehlt die MAX7219-Matrixkette auf dem SPI-Bus aus.'>
+<option value='10'>GPIO10 - aktuell belegt: Display 1 Chip-Select</option>
+<option value='21' selected>GPIO21</option>
+<option value='22'>GPIO22</option>
+</select></div>
+</div>
+<div class='actions'><button type='submit'>GPIOs speichern</button></div></form>
+<div class='formSection' style='margin-top:16px'><h4>Fest im Code (nicht per Web aenderbar)</h4><p class='small'>Diese 4 Pins stecken in den Display-Objekten, die schon vor dem eigentlichen Programmstart angelegt werden. Sie per Web aenderbar zu machen wuerde einen groesseren, riskanten Firmware-Umbau erfordern. Aendere sie stattdessen direkt im Sketch (Konstanten TFT_DC_PIN, TFT_RST_PIN, TFT1_CS_PIN, TFT2_CS_PIN) und flashe neu.</p>
+<div class='gridCards'>
+<div class='metric'><div class='label'>Display Data/Command (DC)</div><div class='value'>GPIO8</div></div>
+<div class='metric'><div class='label'>Display Reset (RST)</div><div class='value'>GPIO9</div></div>
+<div class='metric'><div class='label'>Display 1 Chip-Select</div><div class='value'>GPIO10</div></div>
+<div class='metric'><div class='label'>Display 2 Chip-Select</div><div class='value'>GPIO23</div></div>
+</div></div>
+</section>
+
+<div id='toastHost' class='toastHost'></div>
+<script src='app.js'></script>
+</main></body></html>

@@ -1,0 +1,96 @@
+<!DOCTYPE html><html><head>
+<meta charset='utf-8'>
+<meta name='viewport' content='width=device-width, initial-scale=1'>
+<title>Dynamic Price Clock - Konto</title>
+<script>(function(){try{var qp=new URLSearchParams(location.search).get('theme');if(qp==='dark'||(!qp&&localStorage.getItem('theme')==='dark')){document.documentElement.setAttribute('data-theme','dark');}}catch(e){}})();</script>
+<link rel='stylesheet' href='style.css'>
+</head><body><main class='shell'>
+<section class='hero' style='background:linear-gradient(120deg,rgba(250,204,21,.20),rgba(251,146,60,.14))'><h1>Konto &amp; Sicherheit</h1><p>Admin-Login, Setup-WLAN-Passwort und TLS-Zertifikatspruefung fuer die Tibber-API.</p></section>
+<nav class='nav'><span class='badge okb'>Dynamic Price Clock</span>
+<a href='index.html'><button class='navbtn'><svg viewBox='0 0 24 24' width='18' height='18'><path d='M3 11l9-8 9 8M5 10v10h5v-6h4v6h5V10' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/></svg><span>Übersicht</span></button></a>
+<span class='navDivider'></span>
+<a href='wifi.html'><button class='navbtn'><svg viewBox='0 0 24 24' width='18' height='18'><path d='M2 8.5a16 16 0 0 1 20 0M5.5 12.5a11 11 0 0 1 13 0M9 16.5a6 6 0 0 1 6 0' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round'/><circle cx='12' cy='20' r='1.3' fill='currentColor'/></svg><span>WLAN</span></button></a>
+<a href='#'><button class='navbtn active'><svg viewBox='0 0 24 24' width='18' height='18'><circle cx='8' cy='8' r='4' fill='none' stroke='currentColor' stroke-width='2'/><path d='M11 11l9 9m-4-4l3-3m-6 2l2-2' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg><span>Konto</span></button></a>
+<a href='pinout.html'><button class='navbtn'><svg viewBox='0 0 24 24' width='18' height='18'><rect x='6' y='6' width='12' height='12' rx='2' fill='none' stroke='currentColor' stroke-width='2'/><path d='M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg><span>Pinout</span></button></a>
+<span class='navDivider'></span>
+<a href='displays.html'><button class='navbtn'><svg viewBox='0 0 24 24' width='18' height='18'><rect x='3' y='4' width='18' height='12' rx='2' fill='none' stroke='currentColor' stroke-width='2'/><path d='M8 20h8M12 16v4' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg><span>Displays</span></button></a>
+<a href='ledring.html'><button class='navbtn'><svg viewBox='0 0 24 24' width='18' height='18'><circle cx='12' cy='12' r='4' fill='none' stroke='currentColor' stroke-width='2'/><path d='M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg><span>Tagesring</span></button></a>
+<a href='matrix.html'><button class='navbtn'><svg viewBox='0 0 24 24' width='18' height='18'><rect x='3' y='3' width='4' height='4' fill='currentColor'/><rect x='10' y='3' width='4' height='4' fill='currentColor'/><rect x='17' y='3' width='4' height='4' fill='currentColor'/><rect x='3' y='10' width='4' height='4' fill='currentColor'/><rect x='10' y='10' width='4' height='4' fill='currentColor'/><rect x='17' y='10' width='4' height='4' fill='currentColor'/><rect x='3' y='17' width='4' height='4' fill='currentColor'/><rect x='10' y='17' width='4' height='4' fill='currentColor'/><rect x='17' y='17' width='4' height='4' fill='currentColor'/></svg><span>Matrix</span></button></a>
+<a href='layout.html'><button class='navbtn'><svg viewBox='0 0 24 24' width='18' height='18'><path d='M4 6h10M4 12h16M4 18h7' stroke='currentColor' stroke-width='2' stroke-linecap='round'/><circle cx='16' cy='6' r='2' fill='currentColor'/><circle cx='9' cy='18' r='2' fill='currentColor'/></svg><span>Layout</span></button></a>
+<span class='navDivider'></span>
+<button type='button' class='themeToggle' onclick='toggleTheme()' title='Hell/Dunkel umschalten'><svg class='iconSun' viewBox='0 0 24 24'><circle cx='12' cy='12' r='5' fill='currentColor'/><path d='M12 1v2M12 21v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M1 12h2M21 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg><svg class='iconMoon' viewBox='0 0 24 24'><path d='M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5z' fill='currentColor'/></svg><span>Theme</span></button>
+</nav>
+
+<section class='card'><div class='panelTitle'><h2>Webinterface-Login</h2><span class='badge okb'>Angepasst</span></div>
+<form>
+<div class='formGrid'>
+<div class='field'><label>Benutzername</label><input name='adminUser' maxlength='32' value='admin'></div>
+<div class='field'><label>Neues Passwort (leer lassen = unveraendert)</label><input id='adminPassInput' name='adminPass' type='password' maxlength='64'></div>
+<div class='field'><label>Neues Passwort wiederholen</label><input id='adminPassRepeatInput' name='adminPassRepeat' type='password' maxlength='64'><div id='pwMatchHint' class='small' style='margin-top:6px'></div></div>
+</div>
+<div class='actions'><button type='submit' name='formType' value='account'>Login speichern</button></div>
+</form></section>
+
+<section class='card'><div class='panelTitle'><h2>Setup-WLAN-Passwort</h2><span class='badge okb'>Inaktiv</span></div>
+<p class='small'>Passwort fuer das Setup-WLAN 'Tibber Strompreis' (Ersteinrichtung).</p>
+<form>
+<div class='formGrid'>
+<div class='field'><label>Neues Setup-WLAN-Passwort (min. 8 Zeichen, leer = unveraendert)</label><input name='apPass' type='password' maxlength='64'></div>
+</div>
+<div class='actions'><button type='submit' name='formType' value='appass'>Setup-Passwort speichern</button></div>
+</form></section>
+
+<section class='card'><div class='panelTitle'><h2>TLS-Zertifikatspruefung Tibber-API</h2><span class='badge okb'>Geprueft</span></div>
+<p class='ok'>Root-CA-Zertifikat hinterlegt. TLS-Verbindungen zur Tibber-API werden geprueft.</p>
+<p class='small'>So ermittelst du das aktuelle Zertifikat (auf einem PC, NICHT auf dem ESP32):<br>
+<code>openssl s_client -connect api.tibber.com:443 -showcerts &lt;/dev/null | openssl x509 -outform PEM</code><br>
+Das letzte Zertifikat der ausgegebenen Kette (Root-CA) hier komplett inkl. BEGIN/END-Zeilen einfuegen.</p>
+<form>
+<div class='field'><label>Root-CA PEM</label><textarea name='tibberCa' rows='10' placeholder='-----BEGIN CERTIFICATE-----'>-----BEGIN CERTIFICATE-----
+MIIDrzCCApegAwIBAgIQCDvgVpBCRrGhdWrJWZHHSjANBgkqhkiG9w0BAQUFADBh
+...
+-----END CERTIFICATE-----</textarea></div>
+<div class='actions'><button type='submit' name='formType' value='tibberca'>Zertifikat speichern</button><button type='submit' name='formType' value='tibbercaclear' class='danger'>Zertifikat entfernen</button></div></form></section>
+
+<section class='card'><div class='panelTitle'><h2>Firmware-Update ueber GitHub</h2><span class='badge okb'>Eingerichtet</span></div>
+<p class='small'>Aktuell installierte Version: <b>1.0.1</b>. Ein neues Release wird erkannt, wenn im Repository ein Release mit hoeherem Tag (z.B. 'v1.1.0') und einer angehaengten .bin-Datei veroeffentlicht ist.</p>
+<form><div class='formGrid'>
+<div class='field'><label>GitHub-Repository (besitzer/repo)</label><input name='ghRepo' maxlength='100' placeholder='dein-name/dynamic-price-clock' value='Alphascrypt/dynamic-price-clock'></div>
+<div class='field'><label>Zugriffstoken (optional, nur fuer private Repos)</label><input name='ghToken' type='password' maxlength='100' placeholder='Leer lassen bei oeffentlichem Repo'></div>
+</div>
+<div class='field'><label>Root-CA PEM fuer api.github.com (optional)</label><textarea name='ghCa' rows='6' placeholder='-----BEGIN CERTIFICATE-----'></textarea></div>
+<p class='err'>Kein Root-CA-Zertifikat hinterlegt. Die Verbindung zu GitHub laeuft aktuell OHNE Zertifikatspruefung (setInsecure). Das ist ein Sicherheitsrisiko (Man-in-the-Middle), betrifft auch den Firmware-Download selbst.</p>
+<div class='actions'><button type='submit' name='formType' value='github'>GitHub-Einstellungen speichern</button></div>
+</form>
+<div class='formSection' style='margin-top:16px'>
+<div class='panelTitle'><h4 style='margin:0'>Update pruefen</h4><span id='ghUpdateBadge' class='badge okb'>Aktuell</span></div>
+<p id='ghUpdateMsg' class='small'>Du hast bereits die neueste Version (1.0.1).</p>
+<div class='actions'><button type='button' class='secondary' onclick='return false;'>Auf Updates pruefen</button><button type='button' id='ghUpdateBtn' style='display:none'>Jetzt aktualisieren</button></div>
+</div></section>
+
+<div id='toastHost' class='toastHost'></div>
+<script src='app.js'></script>
+<script>
+(function(){
+  var p1 = document.getElementById('adminPassInput');
+  var p2 = document.getElementById('adminPassRepeatInput');
+  var hint = document.getElementById('pwMatchHint');
+  function check(){
+    if (!p1 || !p2 || !hint) return;
+    if (p2.value.length === 0) { hint.textContent = ''; return; }
+    if (p1.value.length > 0 && p1.value.length < 8) {
+      hint.textContent = 'Mindestens 8 Zeichen';
+      hint.style.color = 'var(--danger)';
+    } else if (p1.value === p2.value) {
+      hint.textContent = 'Passwoerter stimmen ueberein';
+      hint.style.color = 'var(--ok)';
+    } else {
+      hint.textContent = 'Passwoerter stimmen nicht ueberein';
+      hint.style.color = 'var(--danger)';
+    }
+  }
+  if (p1) p1.addEventListener('input', check);
+  if (p2) p2.addEventListener('input', check);
+})();
+</script>
+</main></body></html>

@@ -1,0 +1,179 @@
+<!DOCTYPE html><html><head>
+<meta charset='utf-8'>
+<meta name='viewport' content='width=device-width, initial-scale=1'>
+<title>Dynamic Price Clock - Layout Editor</title>
+<script>(function(){try{var qp=new URLSearchParams(location.search).get('theme');if(qp==='dark'||(!qp&&localStorage.getItem('theme')==='dark')){document.documentElement.setAttribute('data-theme','dark');}}catch(e){}})();</script>
+<link rel='stylesheet' href='style.css'>
+</head><body><main class='shell'>
+<section class='hero' style='background:linear-gradient(120deg,rgba(244,114,182,.22),rgba(167,139,250,.14))'><h1>Layout Editor</h1><p>JavaScript-Editor fuer Display 1 und Display 2.</p></section>
+<nav class='nav'><span class='badge okb'>Dynamic Price Clock</span>
+<a href='index.html'><button class='navbtn'><svg viewBox='0 0 24 24' width='18' height='18'><path d='M3 11l9-8 9 8M5 10v10h5v-6h4v6h5V10' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/></svg><span>Übersicht</span></button></a>
+<span class='navDivider'></span>
+<a href='wifi.html'><button class='navbtn'><svg viewBox='0 0 24 24' width='18' height='18'><path d='M2 8.5a16 16 0 0 1 20 0M5.5 12.5a11 11 0 0 1 13 0M9 16.5a6 6 0 0 1 6 0' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round'/><circle cx='12' cy='20' r='1.3' fill='currentColor'/></svg><span>WLAN</span></button></a>
+<a href='account.html'><button class='navbtn'><svg viewBox='0 0 24 24' width='18' height='18'><circle cx='8' cy='8' r='4' fill='none' stroke='currentColor' stroke-width='2'/><path d='M11 11l9 9m-4-4l3-3m-6 2l2-2' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg><span>Konto</span></button></a>
+<a href='pinout.html'><button class='navbtn'><svg viewBox='0 0 24 24' width='18' height='18'><rect x='6' y='6' width='12' height='12' rx='2' fill='none' stroke='currentColor' stroke-width='2'/><path d='M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg><span>Pinout</span></button></a>
+<span class='navDivider'></span>
+<a href='displays.html'><button class='navbtn'><svg viewBox='0 0 24 24' width='18' height='18'><rect x='3' y='4' width='18' height='12' rx='2' fill='none' stroke='currentColor' stroke-width='2'/><path d='M8 20h8M12 16v4' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg><span>Displays</span></button></a>
+<a href='ledring.html'><button class='navbtn'><svg viewBox='0 0 24 24' width='18' height='18'><circle cx='12' cy='12' r='4' fill='none' stroke='currentColor' stroke-width='2'/><path d='M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg><span>Tagesring</span></button></a>
+<a href='matrix.html'><button class='navbtn'><svg viewBox='0 0 24 24' width='18' height='18'><rect x='3' y='3' width='4' height='4' fill='currentColor'/><rect x='10' y='3' width='4' height='4' fill='currentColor'/><rect x='17' y='3' width='4' height='4' fill='currentColor'/><rect x='3' y='10' width='4' height='4' fill='currentColor'/><rect x='10' y='10' width='4' height='4' fill='currentColor'/><rect x='17' y='10' width='4' height='4' fill='currentColor'/><rect x='3' y='17' width='4' height='4' fill='currentColor'/><rect x='10' y='17' width='4' height='4' fill='currentColor'/><rect x='17' y='17' width='4' height='4' fill='currentColor'/></svg><span>Matrix</span></button></a>
+<a href='#'><button class='navbtn active'><svg viewBox='0 0 24 24' width='18' height='18'><path d='M4 6h10M4 12h16M4 18h7' stroke='currentColor' stroke-width='2' stroke-linecap='round'/><circle cx='16' cy='6' r='2' fill='currentColor'/><circle cx='9' cy='18' r='2' fill='currentColor'/></svg><span>Layout</span></button></a>
+<span class='navDivider'></span>
+<button type='button' class='themeToggle' onclick='toggleTheme()' title='Hell/Dunkel umschalten'><svg class='iconSun' viewBox='0 0 24 24'><circle cx='12' cy='12' r='5' fill='currentColor'/><path d='M12 1v2M12 21v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M1 12h2M21 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg><svg class='iconMoon' viewBox='0 0 24 24'><path d='M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5z' fill='currentColor'/></svg><span>Theme</span></button>
+</nav>
+
+<style>
+.layout-js-wrap{display:grid;gap:18px}
+.layout-actions{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+.layout-box{border:1px solid var(--line);background:var(--overlay-faint);border-radius:18px;padding:14px}
+.layout-box h3{margin:0 0 8px;font-size:16px}.layout-box p{margin:0 0 12px;color:var(--muted);font-size:13px}.layout-box button{width:100%}
+.palette{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:12px 0 16px;max-height:130px;overflow-y:auto;padding:10px;border:1px solid var(--line);border-radius:14px;background:var(--overlay-faint)}
+.palette-hint{width:100%;color:var(--muted);font-size:12px;margin-bottom:2px}
+.palette-group{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.palette-group-label{color:#64748b;font-size:10px;text-transform:uppercase;letter-spacing:.05em;margin-right:1px}
+.palette-chip{background:rgba(96,165,250,.14);border:1px solid rgba(96,165,250,.35);color:var(--text);font-size:11px;font-weight:700;padding:6px 10px;border-radius:999px;cursor:grab;user-select:none;-webkit-user-select:none;touch-action:none}
+.palette-chip:active{cursor:grabbing}
+.editor-shell{display:grid;grid-template-columns:190px 1fr 300px;gap:14px;align-items:start}
+.layer-panel{border:1px solid var(--line);background:var(--overlay-faint);border-radius:16px;padding:10px}
+.panel-label{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px}
+.layer-list{display:grid;gap:4px}
+.layer-row{display:grid;grid-template-columns:16px 18px 1fr 20px;gap:6px;align-items:center;padding:7px 6px;border-radius:10px;cursor:pointer;font-size:12px;border:1px solid transparent;transition:background .15s var(--ease),border-color .15s var(--ease)}
+.layer-row:hover{background:var(--overlay-hover)}
+.layer-row.selected{background:var(--accent-tint-bg);border-color:var(--accent-tint-border)}
+.layer-handle{cursor:grab;color:#64748b;touch-action:none;text-align:center}
+.layer-num{color:#64748b;font-weight:800;text-align:center}
+.layer-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.layer-vis{appearance:none;background:transparent;border:0;box-shadow:none;color:var(--ok);width:auto;min-height:auto;padding:0;font-size:13px;cursor:pointer}
+.layer-vis.off{color:#64748b}
+.canvas-panel{display:flex;flex-direction:column;align-items:center}
+.layout-preview{position:relative;width:240px;height:240px;background-color:#000;background-image:linear-gradient(rgba(255,255,255,.10) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.10) 1px,transparent 1px),linear-gradient(rgba(94,234,212,.18) 1px,transparent 1px),linear-gradient(90deg,rgba(94,234,212,.18) 1px,transparent 1px);background-size:12px 12px,12px 12px,40px 40px,40px 40px;border:2px solid #3b4664;margin:0 auto 8px;border-radius:50%;overflow:hidden;touch-action:none;box-shadow:inset 0 0 24px rgba(96,165,250,.16)}
+.layout-preview:after{content:'240 x 240 rund';position:absolute;right:6px;bottom:4px;color:#64748b;font-size:10px;pointer-events:none}
+.layout-item{position:absolute;color:#fff;border:1px dashed rgba(255,255,255,.42);padding:3px;cursor:grab;user-select:none;-webkit-user-select:none;white-space:nowrap;touch-action:none;background:rgba(96,165,250,.18);border-radius:5px;z-index:20;pointer-events:auto}
+.layout-item.selected{outline:2px solid var(--accent);outline-offset:1px;z-index:35}
+.layout-item-num{position:absolute;left:-7px;top:-9px;background:#0b1224;border:1px solid rgba(255,255,255,.4);color:#9aa8c7;font-size:9px;font-weight:800;border-radius:999px;width:15px;height:15px;display:flex;align-items:center;justify-content:center;line-height:1;z-index:1}
+.resize-handle{position:absolute;right:-6px;bottom:-6px;width:13px;height:13px;background:var(--accent);border:2px solid #0b1224;border-radius:50%;cursor:nwse-resize;z-index:40;touch-action:none}
+.props-panel{border:1px solid var(--line);background:var(--overlay-faint);border-radius:16px;padding:12px;position:sticky;top:92px;min-height:120px}
+.props-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px}
+.props-head strong{font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.card-head-btns{display:flex;gap:4px;align-items:center;flex:none}
+.icon-btn{appearance:none;background:transparent;border:1px solid var(--line);box-shadow:none;width:28px;height:28px;min-height:28px;padding:0;border-radius:8px;color:var(--muted);font-size:13px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
+.layout-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.layout-fields .wide{grid-column:1/3}.layout-fields label:not(.toggle){display:block;color:var(--muted);font-size:12px;margin-bottom:4px}
+.layout-nudge{display:grid;grid-template-columns:repeat(3,42px);gap:6px;justify-content:center;margin-top:10px;padding:10px;border:1px solid var(--line);border-radius:14px;background:var(--overlay-faint)}
+.layout-nudge button{padding:8px 0;border-radius:10px;box-shadow:none;background:var(--btn-muted);margin:0}.layout-nudge .blank{visibility:hidden}
+.layout-floating{position:fixed;right:18px;bottom:18px;z-index:99999;background:var(--float-bg);border:1px solid var(--float-border);border-radius:18px;padding:10px;box-shadow:0 14px 40px var(--shadow-float);display:flex;gap:8px;align-items:center;backdrop-filter:blur(14px)}
+@media(max-width:1080px){.editor-shell{grid-template-columns:170px 1fr 260px}}
+@media(max-width:900px){.editor-shell{grid-template-columns:1fr}.layer-panel{order:2}.layer-list{display:flex;overflow-x:auto;gap:6px}.layer-row{grid-template-columns:14px 16px auto 18px;flex:none;min-width:160px}.canvas-panel{order:1}.props-panel{order:3;position:relative;top:auto}}
+@media(max-width:760px){.layout-floating{left:10px;right:10px;bottom:10px;justify-content:center}.layout-fields{grid-template-columns:1fr}.layout-fields .wide{grid-column:1}}
+</style>
+
+<section class='card'><div class='panelTitle'><h2>Aktionen</h2><span id='saveState' class='badge okb'>Gespeichert</span></div>
+<div class='layout-actions'>
+<div class='layout-box'><h3>Speichern</h3><p>Speichert per AJAX und aktualisiert die Displays direkt.</p><button class='btnSuccess' type='button'>Jetzt speichern</button></div>
+<div class='layout-box'><h3>Export</h3><p>Layout als JSON sichern.</p><form><button class='btnMuted' type='submit'>Layout exportieren</button></form></div>
+<div class='layout-box dangerZone'><h3>Zuruecksetzen</h3><p>Standardlayout wiederherstellen.</p><form><button class='danger' type='submit'>Layout zuruecksetzen</button></form></div>
+</div></section>
+
+<section class='card'><h2>Presets</h2><div class='presetGrid'>
+<form><input type='hidden' name='preset' value='price'><button type='submit'>Preset: Preis gross</button></form>
+<form><input type='hidden' name='preset' value='low2'><button type='submit'>Preset: Tiefpreis + 2. Tiefpreis</button></form>
+<form><input type='hidden' name='preset' value='compact'><button type='submit'>Preset: Kompakt</button></form>
+</div></section>
+
+<section class='card'><h2>Layout importieren</h2><form>
+<textarea name='json' rows='5' placeholder='Exportiertes Layout-JSON hier einfuegen'></textarea>
+<div class='actions'><button type='submit'>Layout importieren</button></div></form></section>
+
+<div id='layoutApp' class='layout-js-wrap'>
+
+<section class='card layoutPanel'><div class='panelTitle'><h2>Display 1</h2><span class='badge okb'>5/8 sichtbar</span></div>
+<div class='palette'>
+<div class='palette-hint'>Element auf die Vorschau ziehen, um es hinzuzufuegen:</div>
+<div class='palette-group'><span class='palette-group-label'>Text</span><span class='palette-chip'>Eigener Text / Ueberschrift</span></div>
+<div class='palette-group'><span class='palette-group-label'>Preis</span><span class='palette-chip'>Aktueller 15-Minuten-Preis jetzt</span><span class='palette-chip'>Tagesdurchschnitt heute</span><span class='palette-chip'>Tiefster 15-Minuten-Preis heute</span></div>
+<div class='palette-group'><span class='palette-group-label'>System</span><span class='palette-chip'>IP-Adresse des ESP32</span><span class='palette-chip'>Aktuelle Uhrzeit des ESP32</span></div>
+</div>
+<div class='editor-shell'>
+<div class='layer-panel'><div class='panel-label'>Ebenen</div><div class='layer-list'>
+<div class='layer-row selected'><span class='layer-handle'>⋮⋮</span><span class='layer-num'>1</span><span class='layer-label'>Aktueller 15-Minuten-Preis jetzt</span><button type='button' class='layer-vis'>●</button></div>
+<div class='layer-row'><span class='layer-handle'>⋮⋮</span><span class='layer-num'>2</span><span class='layer-label'>Beschriftung: Aktueller 15-Minuten-Preis</span><button type='button' class='layer-vis'>●</button></div>
+<div class='layer-row'><span class='layer-handle'>⋮⋮</span><span class='layer-num'>3</span><span class='layer-label'>Aktuelle Uhrzeit des ESP32</span><button type='button' class='layer-vis'>●</button></div>
+<div class='layer-row'><span class='layer-handle'>⋮⋮</span><span class='layer-num'>4</span><span class='layer-label'>Tiefster 15-Minuten-Preis heute</span><button type='button' class='layer-vis'>●</button></div>
+<div class='layer-row'><span class='layer-handle'>⋮⋮</span><span class='layer-num'>5</span><span class='layer-label'>IP-Adresse des ESP32</span><button type='button' class='layer-vis'>●</button></div>
+<div class='layer-row'><span class='layer-handle'>⋮⋮</span><span class='layer-num'>6</span><span class='layer-label'>Eigener Text / Ueberschrift</span><button type='button' class='layer-vis off'>○</button></div>
+<div class='layer-row'><span class='layer-handle'>⋮⋮</span><span class='layer-num'>7</span><span class='layer-label'>Eigener Text / Ueberschrift</span><button type='button' class='layer-vis off'>○</button></div>
+<div class='layer-row'><span class='layer-handle'>⋮⋮</span><span class='layer-num'>8</span><span class='layer-label'>Eigener Text / Ueberschrift</span><button type='button' class='layer-vis off'>○</button></div>
+</div></div>
+<div class='canvas-panel'><div class='layout-preview'>
+<div class='layout-item selected' style='left:70px;top:70px;font-size:40px'><span class='layout-item-num'>1</span><span class='layout-item-text'>32</span><span class='resize-handle'></span></div>
+<div class='layout-item' style='left:74px;top:52px;font-size:12px'><span class='layout-item-num'>2</span><span class='layout-item-text'>Aktuell</span></div>
+<div class='layout-item' style='left:82px;top:180px;font-size:20px'><span class='layout-item-num'>3</span><span class='layout-item-text'>14:12</span></div>
+<div class='layout-item' style='left:20px;top:20px;font-size:12px'><span class='layout-item-num'>4</span><span class='layout-item-text'>18 um 03:15</span></div>
+<div class='layout-item' style='left:20px;top:210px;font-size:10px'><span class='layout-item-num'>5</span><span class='layout-item-text'>192.168.1.42</span></div>
+</div>
+<p class='small' style='text-align:center'>Ziehen zum Verschieben, Punkt unten rechts zum Skalieren.</p></div>
+<div class='props-panel'><div class='props-head'><strong>1. Aktueller 15-Minuten-Preis jetzt</strong><div class='card-head-btns'><button type='button' class='icon-btn' title='Auf Vorschau zeigen'>◎</button><button type='button' class='icon-btn' title='Auf anderes Display kopieren'>⇄</button><button type='button' class='icon-btn' title='Element zuruecksetzen'>↺</button></div></div>
+<div class='layout-fields'>
+<div class='wide'><label>Wert / Anzeigeinhalt</label><select><optgroup label='Preis'><option selected>Aktueller 15-Minuten-Preis jetzt</option><option>Tagesdurchschnitt heute</option></optgroup></select></div>
+<div class='wide'><label>Eigener Text</label><input value=''></div>
+<div><label>Text davor (Praefix)</label><input value=''></div>
+<div><label>Text danach (Suffix)</label><input value=' ct'></div>
+<div><label>Position X (0-239 px)</label><input type='number' value='70'></div>
+<div><label>Position Y (0-239 px)</label><input type='number' value='70'></div>
+<div><label>Schriftgroesse (Stufe 1-4)</label><input type='number' value='4'></div>
+<div><label>Ausrichtung</label><select><option value='0'>Links</option><option value='1' selected>Zentriert</option><option value='2'>Rechts</option></select></div>
+<div class='toggleRow'><label>Automatische Groesse</label><label class='toggle'><input type='checkbox' checked><span class='toggleSlider'></span></label></div>
+<div class='toggleRow'><label>Sichtbar</label><label class='toggle'><input type='checkbox' checked><span class='toggleSlider'></span></label></div>
+</div>
+<div class='layout-nudge'><span class='blank'></span><button type='button'>&uarr;</button><span class='blank'></span><button type='button'>&larr;</button><button type='button'>&darr;</button><button type='button'>&rarr;</button></div>
+</div>
+</div>
+</section>
+
+<section class='card layoutPanel'><div class='panelTitle'><h2>Display 2</h2><span class='badge okb'>4/8 sichtbar</span></div>
+<div class='palette'>
+<div class='palette-hint'>Element auf die Vorschau ziehen, um es hinzuzufuegen:</div>
+<div class='palette-group'><span class='palette-group-label'>Preis</span><span class='palette-chip'>Guenstigster 60-Minuten-Block heute</span></div>
+<div class='palette-group'><span class='palette-group-label'>Uhrzeit</span><span class='palette-chip'>Start guenstigster 60-Minuten-Block</span></div>
+<div class='palette-group'><span class='palette-group-label'>System</span><span class='palette-chip'>Startzeit aktueller Tibber-Preis</span></div>
+</div>
+<div class='editor-shell'>
+<div class='layer-panel'><div class='panel-label'>Ebenen</div><div class='layer-list'>
+<div class='layer-row selected'><span class='layer-handle'>⋮⋮</span><span class='layer-num'>1</span><span class='layer-label'>Guenstigster 60-Minuten-Block heute</span><button type='button' class='layer-vis'>●</button></div>
+<div class='layer-row'><span class='layer-handle'>⋮⋮</span><span class='layer-num'>2</span><span class='layer-label'>Zeitraum: Guenstigster 60-Minuten-Block</span><button type='button' class='layer-vis'>●</button></div>
+<div class='layer-row'><span class='layer-handle'>⋮⋮</span><span class='layer-num'>3</span><span class='layer-label'>Aktuelle Uhrzeit des ESP32</span><button type='button' class='layer-vis'>●</button></div>
+<div class='layer-row'><span class='layer-handle'>⋮⋮</span><span class='layer-num'>4</span><span class='layer-label'>Startzeit aktueller Tibber-Preis</span><button type='button' class='layer-vis'>●</button></div>
+<div class='layer-row'><span class='layer-handle'>⋮⋮</span><span class='layer-num'>5</span><span class='layer-label'>Eigener Text / Ueberschrift</span><button type='button' class='layer-vis off'>○</button></div>
+<div class='layer-row'><span class='layer-handle'>⋮⋮</span><span class='layer-num'>6</span><span class='layer-label'>Eigener Text / Ueberschrift</span><button type='button' class='layer-vis off'>○</button></div>
+<div class='layer-row'><span class='layer-handle'>⋮⋮</span><span class='layer-num'>7</span><span class='layer-label'>Eigener Text / Ueberschrift</span><button type='button' class='layer-vis off'>○</button></div>
+<div class='layer-row'><span class='layer-handle'>⋮⋮</span><span class='layer-num'>8</span><span class='layer-label'>Eigener Text / Ueberschrift</span><button type='button' class='layer-vis off'>○</button></div>
+</div></div>
+<div class='canvas-panel'><div class='layout-preview'>
+<div class='layout-item selected' style='left:78px;top:90px;font-size:30px'><span class='layout-item-num'>1</span><span class='layout-item-text'>19</span><span class='resize-handle'></span></div>
+<div class='layout-item' style='left:70px;top:130px;font-size:14px'><span class='layout-item-num'>2</span><span class='layout-item-text'>03:15-04:15</span></div>
+<div class='layout-item' style='left:90px;top:20px;font-size:20px'><span class='layout-item-num'>3</span><span class='layout-item-text'>14:12</span></div>
+<div class='layout-item' style='left:20px;top:200px;font-size:10px'><span class='layout-item-num'>4</span><span class='layout-item-text'>14:00</span></div>
+</div>
+<p class='small' style='text-align:center'>Ziehen zum Verschieben, Punkt unten rechts zum Skalieren.</p></div>
+<div class='props-panel'><div class='props-head'><strong>1. Guenstigster 60-Minuten-Block heute</strong><div class='card-head-btns'><button type='button' class='icon-btn' title='Auf Vorschau zeigen'>◎</button><button type='button' class='icon-btn' title='Auf anderes Display kopieren'>⇄</button><button type='button' class='icon-btn' title='Element zuruecksetzen'>↺</button></div></div>
+<div class='layout-fields'>
+<div class='wide'><label>Wert / Anzeigeinhalt</label><select><optgroup label='Preis'><option selected>Guenstigster 60-Minuten-Block heute</option></optgroup></select></div>
+<div class='wide'><label>Eigener Text</label><input value=''></div>
+<div><label>Text davor (Praefix)</label><input value=''></div>
+<div><label>Text danach (Suffix)</label><input value=' ct'></div>
+<div><label>Position X (0-239 px)</label><input type='number' value='78'></div>
+<div><label>Position Y (0-239 px)</label><input type='number' value='90'></div>
+<div><label>Schriftgroesse (Stufe 1-4)</label><input type='number' value='3'></div>
+<div><label>Ausrichtung</label><select><option value='0'>Links</option><option value='1' selected>Zentriert</option><option value='2'>Rechts</option></select></div>
+<div class='toggleRow'><label>Automatische Groesse</label><label class='toggle'><input type='checkbox' checked><span class='toggleSlider'></span></label></div>
+<div class='toggleRow'><label>Sichtbar</label><label class='toggle'><input type='checkbox' checked><span class='toggleSlider'></span></label></div>
+</div>
+<div class='layout-nudge'><span class='blank'></span><button type='button'>&uarr;</button><span class='blank'></span><button type='button'>&larr;</button><button type='button'>&darr;</button><button type='button'>&rarr;</button></div>
+</div>
+</div>
+</section>
+
+</div>
+<div class='layout-floating'><button class='btnSuccess' type='button'>Speichern</button><span id='floatSaveState' class='badge okb'>Gespeichert</span></div>
+
+<div id='toastHost' class='toastHost'></div>
+<script src='app.js'></script>
+</main></body></html>

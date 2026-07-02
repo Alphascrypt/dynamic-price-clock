@@ -1,0 +1,76 @@
+<!DOCTYPE html><html><head>
+<meta charset='utf-8'>
+<meta name='viewport' content='width=device-width, initial-scale=1'>
+<title>Dynamic Price Clock - Matrix</title>
+<script>(function(){try{var qp=new URLSearchParams(location.search).get('theme');if(qp==='dark'||(!qp&&localStorage.getItem('theme')==='dark')){document.documentElement.setAttribute('data-theme','dark');}}catch(e){}})();</script>
+<link rel='stylesheet' href='style.css'>
+</head><body><main class='shell'>
+<section class='hero' style='background:linear-gradient(120deg,rgba(163,230,53,.20),rgba(52,211,153,.12))'><h1>8x8 Matrix</h1><p>Bis zu 4 MAX7219 LED-Matrixmodule in Daisy-Chain, jedes einzeln konfigurierbar.</p></section>
+<nav class='nav'><span class='badge okb'>Dynamic Price Clock</span>
+<a href='index.html'><button class='navbtn'><svg viewBox='0 0 24 24' width='18' height='18'><path d='M3 11l9-8 9 8M5 10v10h5v-6h4v6h5V10' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/></svg><span>Übersicht</span></button></a>
+<span class='navDivider'></span>
+<a href='wifi.html'><button class='navbtn'><svg viewBox='0 0 24 24' width='18' height='18'><path d='M2 8.5a16 16 0 0 1 20 0M5.5 12.5a11 11 0 0 1 13 0M9 16.5a6 6 0 0 1 6 0' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round'/><circle cx='12' cy='20' r='1.3' fill='currentColor'/></svg><span>WLAN</span></button></a>
+<a href='account.html'><button class='navbtn'><svg viewBox='0 0 24 24' width='18' height='18'><circle cx='8' cy='8' r='4' fill='none' stroke='currentColor' stroke-width='2'/><path d='M11 11l9 9m-4-4l3-3m-6 2l2-2' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg><span>Konto</span></button></a>
+<a href='pinout.html'><button class='navbtn'><svg viewBox='0 0 24 24' width='18' height='18'><rect x='6' y='6' width='12' height='12' rx='2' fill='none' stroke='currentColor' stroke-width='2'/><path d='M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg><span>Pinout</span></button></a>
+<span class='navDivider'></span>
+<a href='displays.html'><button class='navbtn'><svg viewBox='0 0 24 24' width='18' height='18'><rect x='3' y='4' width='18' height='12' rx='2' fill='none' stroke='currentColor' stroke-width='2'/><path d='M8 20h8M12 16v4' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg><span>Displays</span></button></a>
+<a href='ledring.html'><button class='navbtn'><svg viewBox='0 0 24 24' width='18' height='18'><circle cx='12' cy='12' r='4' fill='none' stroke='currentColor' stroke-width='2'/><path d='M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg><span>Tagesring</span></button></a>
+<a href='#'><button class='navbtn active'><svg viewBox='0 0 24 24' width='18' height='18'><rect x='3' y='3' width='4' height='4' fill='currentColor'/><rect x='10' y='3' width='4' height='4' fill='currentColor'/><rect x='17' y='3' width='4' height='4' fill='currentColor'/><rect x='3' y='10' width='4' height='4' fill='currentColor'/><rect x='10' y='10' width='4' height='4' fill='currentColor'/><rect x='17' y='10' width='4' height='4' fill='currentColor'/><rect x='3' y='17' width='4' height='4' fill='currentColor'/><rect x='10' y='17' width='4' height='4' fill='currentColor'/><rect x='17' y='17' width='4' height='4' fill='currentColor'/></svg><span>Matrix</span></button></a>
+<a href='layout.html'><button class='navbtn'><svg viewBox='0 0 24 24' width='18' height='18'><path d='M4 6h10M4 12h16M4 18h7' stroke='currentColor' stroke-width='2' stroke-linecap='round'/><circle cx='16' cy='6' r='2' fill='currentColor'/><circle cx='9' cy='18' r='2' fill='currentColor'/></svg><span>Layout</span></button></a>
+<span class='navDivider'></span>
+<button type='button' class='themeToggle' onclick='toggleTheme()' title='Hell/Dunkel umschalten'><svg class='iconSun' viewBox='0 0 24 24'><circle cx='12' cy='12' r='5' fill='currentColor'/><path d='M12 1v2M12 21v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M1 12h2M21 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg><svg class='iconMoon' viewBox='0 0 24 24'><path d='M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5z' fill='currentColor'/></svg><span>Theme</span></button>
+</nav>
+
+<section class='card'><h2>Status</h2><div class='gridCards'>
+<div class='metric'><div class='label'>Daisy-Chain</div><div class='value'>4 Module</div><div class='sub'>DIN GPIO5, CLK GPIO4, CS GPIO21</div></div>
+<div class='metric'><div class='label'>Refresh</div><div class='value'>10 s</div><div class='sub'>gemeinsam fuer alle Matrixmodule</div></div>
+</div></section>
+
+<section class='card'><div class='panelTitle'><h2>Einstellungen</h2><span id='matrixSaveState' class='badge okb'>Gespeichert</span></div>
+<form id='matrixForm'>
+<div class='formGrid'>
+<div class='field'><label>Refresh alle Sekunden</label><input name='matrixRefresh' type='number' min='1' max='300' value='10'></div>
+</div>
+
+<section class='formSection'><h3>Matrix 1</h3><div class='formGrid'>
+<div class='field'><label>Aktiv</label><select name='matrixOn0'><option value='1' selected>Ein</option><option value='0'>Aus</option></select></div>
+<div class='field'><label>Angezeigter Wert</label><select name='matrixMode0'>
+<option value='0' selected>Aktueller 15-Min Preis</option><option value='1'>Aktueller 60-Min Durchschnitt</option><option value='2'>Tagesdurchschnitt</option><option value='3'>Tiefster 15-Min Preis</option><option value='4'>Tiefster 60-Min Block</option><option value='5'>Uhrzeit Stunde</option><option value='6'>IP-Endung</option><option value='7'>Text ct</option><option value='8'>Aus</option>
+</select></div>
+<div class='field'><label>Helligkeit (0-15)</label><input name='matrixBright0' type='number' min='0' max='15' value='6'></div>
+<div class='field'><label>Live-Vorschau (nicht editierbar)</label><input readonly value='32'></div>
+</div></section>
+
+<section class='formSection'><h3>Matrix 2</h3><div class='formGrid'>
+<div class='field'><label>Aktiv</label><select name='matrixOn1'><option value='1' selected>Ein</option><option value='0'>Aus</option></select></div>
+<div class='field'><label>Angezeigter Wert</label><select name='matrixMode1'>
+<option value='0'>Aktueller 15-Min Preis</option><option value='1'>Aktueller 60-Min Durchschnitt</option><option value='2'>Tagesdurchschnitt</option><option value='3' selected>Tiefster 15-Min Preis</option><option value='4'>Tiefster 60-Min Block</option><option value='5'>Uhrzeit Stunde</option><option value='6'>IP-Endung</option><option value='7'>Text ct</option><option value='8'>Aus</option>
+</select></div>
+<div class='field'><label>Helligkeit (0-15)</label><input name='matrixBright1' type='number' min='0' max='15' value='4'></div>
+<div class='field'><label>Live-Vorschau (nicht editierbar)</label><input readonly value='18'></div>
+</div></section>
+
+<section class='formSection'><h3>Matrix 3</h3><div class='formGrid'>
+<div class='field'><label>Aktiv</label><select name='matrixOn2'><option value='1'>Ein</option><option value='0' selected>Aus</option></select></div>
+<div class='field'><label>Angezeigter Wert</label><select name='matrixMode2'>
+<option value='0'>Aktueller 15-Min Preis</option><option value='1'>Aktueller 60-Min Durchschnitt</option><option value='2'>Tagesdurchschnitt</option><option value='3'>Tiefster 15-Min Preis</option><option value='4'>Tiefster 60-Min Block</option><option value='5'>Uhrzeit Stunde</option><option value='6'>IP-Endung</option><option value='7'>Text ct</option><option value='8' selected>Aus</option>
+</select></div>
+<div class='field'><label>Helligkeit (0-15)</label><input name='matrixBright2' type='number' min='0' max='15' value='6'></div>
+<div class='field'><label>Live-Vorschau (nicht editierbar)</label><input readonly value='--'></div>
+</div></section>
+
+<section class='formSection'><h3>Matrix 4</h3><div class='formGrid'>
+<div class='field'><label>Aktiv</label><select name='matrixOn3'><option value='1'>Ein</option><option value='0' selected>Aus</option></select></div>
+<div class='field'><label>Angezeigter Wert</label><select name='matrixMode3'>
+<option value='0'>Aktueller 15-Min Preis</option><option value='1'>Aktueller 60-Min Durchschnitt</option><option value='2'>Tagesdurchschnitt</option><option value='3'>Tiefster 15-Min Preis</option><option value='4'>Tiefster 60-Min Block</option><option value='5'>Uhrzeit Stunde</option><option value='6'>IP-Endung</option><option value='7'>Text ct</option><option value='8' selected>Aus</option>
+</select></div>
+<div class='field'><label>Helligkeit (0-15)</label><input name='matrixBright3' type='number' min='0' max='15' value='6'></div>
+<div class='field'><label>Live-Vorschau (nicht editierbar)</label><input readonly value='--'></div>
+</div></section>
+
+<p class='small'>Verdrahtung: Matrix 1 DIN an ESP32, danach Matrix 1 DOUT an Matrix 2 DIN usw. CLK und CS/LOAD parallel durchverbinden. Preise werden auf 2 Ziffern begrenzt.</p>
+<div class='actions'><button type='submit'>Matrix speichern</button><button type='button' class='secondary'>Direkt speichern</button></div></form></section>
+
+<div id='toastHost' class='toastHost'></div>
+<script src='app.js'></script>
+</main></body></html>

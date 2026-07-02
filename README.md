@@ -2,6 +2,26 @@
 
 ESP32-C5-Firmware für ein Tibber-Strompreis-Display mit zwei runden GC9A01-Bildschirmen, WS2812B-LED-Tagesring und optionaler MAX7219-Matrix – inkl. Web-Dashboard mit Layout-Editor, Hell/Dunkel-Modus und GitHub-OTA-Updates.
 
+## Web-Dashboard
+
+| Übersicht | Layout Editor |
+|---|---|
+| ![Übersicht](docs/screenshots/overview-light.png) | ![Layout Editor](docs/screenshots/layout-light.png) |
+
+| Konto | WLAN |
+|---|---|
+| ![Konto](docs/screenshots/account-light.png) | ![WLAN](docs/screenshots/wifi-light.png) |
+
+| Pinout | Displays |
+|---|---|
+| ![Pinout](docs/screenshots/pinout-light.png) | ![Displays](docs/screenshots/displays-light.png) |
+
+| Tagesring | Matrix |
+|---|---|
+| ![Tagesring](docs/screenshots/ledring-light.png) | ![Matrix](docs/screenshots/matrix-light.png) |
+
+Jede Seite gibt es auch im Dunkelmodus (`docs/screenshots/*-dark.png`).
+
 ## Einrichtung (Arduino IDE)
 
 **Board:** ESP32C5 Dev Module (Board-Paket `esp32:esp32`, Boards-Manager-URL `https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json`)
