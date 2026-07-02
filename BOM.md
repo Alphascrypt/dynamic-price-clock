@@ -8,11 +8,11 @@ Alle Teile, die für den Nachbau des Dynamic Price Clock benötigt werden. Menge
 |---|---|---|---|
 | ESP32-C5 Dev Board | 1 | z.B. "ESP32C5 Dev Module" (WROOM-1) | Hauptcontroller, WLAN |
 | Rundes TFT-Display | 2 | GC9A01(A), 1,28", 240×240 px, SPI | Display 1 = Preisverlauf, Display 2 = Preis-Uhr (siehe bekannter Defekt in [README](README.md)) |
-| WS2812B/WS2818 LED-Ring | 1 | 60 einzeln adressierbare RGB-LEDs (5V) | Alternativ 24-LED-Ring möglich (per Web-Interface umschaltbar) |
+| WS2812B/WS2818 LED-Ring | 1 | 60 einzeln adressierbare RGB-LEDs | Läuft in diesem Aufbau am 3V3-Pin des ESP32 (siehe [WIRING.md](WIRING.md)); alternativ 24-LED-Ring möglich (per Web-Interface umschaltbar) |
 | MAX7219 8×8 LED-Matrix-Modul | 0–4 (optional) | Daisy-Chain-fähig, SPI | Nur nötig, wenn `ENABLE_MAX7219_MATRIX` aktiviert wird; jedes Modul zeigt einen frei wählbaren Wert |
-| Stromversorgung | 1 | 5V DC, mind. 3A (USB-C oder Hohlstecker-Netzteil) | LED-Ring bei voller Helligkeit ist der größte Verbraucher (60 × ~60 mA max ≈ 3,6 A) |
+| Stromversorgung | 1 | USB-C-Netzteil, 5V, mind. 2A | Versorgt den ESP32-C5, der Displays/LED-Ring/Matrix über seinen 3V3-Pin mitversorgt |
 | Jumper-/Litzenkabel | ca. 20 | verschiedene Längen | Für SPI-Bus (SCLK/MOSI gemeinsam für Displays + Matrix), Chip-Select-Leitungen, Stromversorgung |
-| Pufferkondensator | 1 | ≥ 1000 µF, ≥ 6,3V | Zwischen 5V und GND direkt am LED-Ring-Eingang, glättet Einschaltstrom |
+| Pufferkondensator | 1 | ≥ 1000 µF, ≥ 6,3V | Zwischen 3V3 und GND direkt am LED-Ring-Eingang, glättet Einschaltstrom |
 | Vorwiderstand für LED-Datenleitung | 1 | ca. 300–500 Ω | In der Datenleitung zum LED-Ring, schützt den ersten Pixel |
 
 ## Gehäuse / Mechanik
@@ -40,3 +40,5 @@ Im Ordner [laser/](laser/) liegen die Schnitt-/Gravurdateien für die runde Fron
 ## Pin-Zuordnung
 
 Die genaue GPIO-Belegung ist im Web-Dashboard unter **Pinout** einsehbar und dort per Dropdown änderbar (SCLK, MOSI, LED-Ring-Pin, Matrix-CS). Fixe, nicht per Web-Interface änderbare Pins: TFT DC, TFT RST, TFT1 CS, TFT2 CS (siehe Pinout-Seite bzw. [docs/screenshots/pinout-light.png](docs/screenshots/pinout-light.png)).
+
+Ausführlicher Verdrahtungsplan mit Schritt-für-Schritt-Reihenfolge: siehe [WIRING.md](WIRING.md).

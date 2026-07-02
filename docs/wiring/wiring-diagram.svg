@@ -1,0 +1,136 @@
+<svg viewBox="0 0 1300 900" xmlns="http://www.w3.org/2000/svg" font-family="Inter,system-ui,sans-serif">
+<rect x="0" y="0" width="1300" height="900" fill="#0b1224" rx="16"/>
+<text x="30" y="40" fill="#e6ecff" font-size="22" font-weight="800">Dynamic Price Clock – Verdrahtungsplan</text>
+<text x="30" y="62" fill="#9aa8c7" font-size="13">Gemeinsame Masse fuer alle Bauteile verwenden. Niemals 5V auf den 3V3-Pin geben.</text>
+
+<!-- ESP32-C5 board -->
+<rect x="40" y="340" width="220" height="280" rx="18" fill="#141c30" stroke="#26324f" stroke-width="2"/>
+<rect x="70" y="380" width="160" height="90" rx="6" fill="#333c52" stroke="#4b566e" stroke-width="1.5"/>
+<text x="150" y="420" fill="#e6ecff" font-size="15" font-weight="800" text-anchor="middle">ESP32-C5</text>
+<text x="150" y="440" fill="#9aa8c7" font-size="11" text-anchor="middle">Dev Module (WROOM-1)</text>
+<rect x="120" y="602" width="60" height="16" rx="3" fill="#5b6685"/>
+<text x="150" y="632" fill="#64748b" font-size="10" text-anchor="middle">USB-C (Flashen/Strom)</text>
+
+<!-- ESP32 pin stubs (right edge x=260) -->
+<!-- format: y, color, label -->
+<g font-size="12" font-weight="700">
+<line x1="260" y1="364" x2="300" y2="364" stroke="#94a3b8" stroke-width="2"/><circle cx="300" cy="364" r="4" fill="#94a3b8"/><text x="252" y="360" fill="#94a3b8" text-anchor="end">3V3</text>
+<line x1="260" y1="392" x2="300" y2="392" stroke="#64748b" stroke-width="2"/><circle cx="300" cy="392" r="4" fill="#64748b"/><text x="252" y="388" fill="#64748b" text-anchor="end">GND</text>
+<line x1="260" y1="420" x2="300" y2="420" stroke="#60a5fa" stroke-width="2"/><circle cx="300" cy="420" r="4" fill="#60a5fa"/><text x="252" y="416" fill="#60a5fa" text-anchor="end">GPIO4</text>
+<line x1="260" y1="448" x2="300" y2="448" stroke="#60a5fa" stroke-width="2"/><circle cx="300" cy="448" r="4" fill="#60a5fa"/><text x="252" y="444" fill="#60a5fa" text-anchor="end">GPIO5</text>
+<line x1="260" y1="476" x2="300" y2="476" stroke="#fbbf24" stroke-width="2"/><circle cx="300" cy="476" r="4" fill="#fbbf24"/><text x="252" y="472" fill="#fbbf24" text-anchor="end">GPIO8</text>
+<line x1="260" y1="504" x2="300" y2="504" stroke="#fbbf24" stroke-width="2"/><circle cx="300" cy="504" r="4" fill="#fbbf24"/><text x="252" y="500" fill="#fbbf24" text-anchor="end">GPIO9</text>
+<line x1="260" y1="532" x2="300" y2="532" stroke="#f472b6" stroke-width="2"/><circle cx="300" cy="532" r="4" fill="#f472b6"/><text x="252" y="528" fill="#f472b6" text-anchor="end">GPIO10</text>
+<line x1="260" y1="560" x2="300" y2="560" stroke="#fb923c" stroke-width="2"/><circle cx="300" cy="560" r="4" fill="#fb923c"/><text x="252" y="556" fill="#fb923c" text-anchor="end">GPIO23</text>
+<line x1="260" y1="588" x2="300" y2="588" stroke="#a78bfa" stroke-width="2"/><circle cx="300" cy="588" r="4" fill="#a78bfa"/><text x="252" y="584" fill="#a78bfa" text-anchor="end">GPIO21</text>
+<line x1="260" y1="616" x2="300" y2="616" stroke="#5eead4" stroke-width="2"/><circle cx="300" cy="616" r="4" fill="#5eead4"/><text x="252" y="612" fill="#5eead4" text-anchor="end">GPIO24</text>
+</g>
+
+<!-- Display 1 box -->
+<rect x="520" y="50" width="260" height="220" rx="14" fill="#141c30" stroke="#26324f" stroke-width="2"/>
+<text x="650" y="78" fill="#e6ecff" font-size="15" font-weight="800" text-anchor="middle">Display 1</text>
+<text x="650" y="96" fill="#9aa8c7" font-size="11" text-anchor="middle">GC9A01, 240x240, SPI</text>
+<g font-size="12">
+<circle cx="520" cy="120" r="4" fill="#94a3b8"/><text x="532" y="124" fill="#e6ecff">VCC → 3V3</text>
+<circle cx="520" cy="144" r="4" fill="#64748b"/><text x="532" y="148" fill="#e6ecff">GND → GND</text>
+<circle cx="520" cy="168" r="4" fill="#60a5fa"/><text x="532" y="172" fill="#e6ecff">SCK/SCL → GPIO4</text>
+<circle cx="520" cy="192" r="4" fill="#60a5fa"/><text x="532" y="196" fill="#e6ecff">SDA/MOSI → GPIO5</text>
+<circle cx="520" cy="216" r="4" fill="#fbbf24"/><text x="532" y="220" fill="#e6ecff">DC → GPIO8</text>
+<circle cx="520" cy="240" r="4" fill="#fbbf24"/><text x="532" y="244" fill="#e6ecff">RST → GPIO9</text>
+<circle cx="520" cy="252" r="4" fill="#f472b6"/><text x="532" y="256" fill="#e6ecff" font-weight="700">CS → GPIO10</text>
+</g>
+
+<!-- Display 2 box -->
+<rect x="520" y="300" width="260" height="220" rx="14" fill="#141c30" stroke="#26324f" stroke-width="2"/>
+<text x="650" y="328" fill="#e6ecff" font-size="15" font-weight="800" text-anchor="middle">Display 2</text>
+<text x="650" y="346" fill="#9aa8c7" font-size="11" text-anchor="middle">GC9A01, 240x240, SPI</text>
+<g font-size="12">
+<circle cx="520" cy="370" r="4" fill="#94a3b8"/><text x="532" y="374" fill="#e6ecff">VCC → 3V3</text>
+<circle cx="520" cy="394" r="4" fill="#64748b"/><text x="532" y="398" fill="#e6ecff">GND → GND</text>
+<circle cx="520" cy="418" r="4" fill="#60a5fa"/><text x="532" y="422" fill="#e6ecff">SCK/SCL → GPIO4</text>
+<circle cx="520" cy="442" r="4" fill="#60a5fa"/><text x="532" y="446" fill="#e6ecff">SDA/MOSI → GPIO5</text>
+<circle cx="520" cy="466" r="4" fill="#fbbf24"/><text x="532" y="470" fill="#e6ecff">DC → GPIO8</text>
+<circle cx="520" cy="490" r="4" fill="#fbbf24"/><text x="532" y="494" fill="#e6ecff">RST → GPIO9</text>
+<circle cx="520" cy="502" r="4" fill="#fb923c"/><text x="532" y="506" fill="#e6ecff" font-weight="700">CS → GPIO23</text>
+</g>
+
+<!-- LED Ring box -->
+<rect x="520" y="550" width="260" height="150" rx="14" fill="#141c30" stroke="#26324f" stroke-width="2"/>
+<text x="650" y="578" fill="#e6ecff" font-size="15" font-weight="800" text-anchor="middle">LED-Ring</text>
+<text x="650" y="596" fill="#9aa8c7" font-size="11" text-anchor="middle">WS2812B/WS2818, 60 LEDs</text>
+<g font-size="12">
+<circle cx="520" cy="618" r="4" fill="#94a3b8"/><text x="532" y="622" fill="#e6ecff">VCC → 3V3 (Kondensator siehe unten)</text>
+<circle cx="520" cy="642" r="4" fill="#64748b"/><text x="532" y="646" fill="#e6ecff">GND → GND</text>
+<circle cx="520" cy="666" r="4" fill="#5eead4"/><text x="532" y="670" fill="#e6ecff" font-weight="700">DIN → GPIO24 (ueber ~330Ω)</text>
+</g>
+
+<!-- MAX7219 Matrix box (optional) -->
+<rect x="520" y="730" width="260" height="150" rx="14" fill="#141c30" stroke="#5b6685" stroke-width="2" stroke-dasharray="6,5"/>
+<text x="650" y="758" fill="#e6ecff" font-size="15" font-weight="800" text-anchor="middle">MAX7219 Matrix (optional)</text>
+<text x="650" y="776" fill="#9aa8c7" font-size="11" text-anchor="middle">bis zu 4 Module, Daisy-Chain</text>
+<g font-size="12">
+<circle cx="520" cy="798" r="4" fill="#94a3b8"/><text x="532" y="802" fill="#e6ecff">VCC → 3V3</text>
+<circle cx="520" cy="822" r="4" fill="#64748b"/><text x="532" y="826" fill="#e6ecff">GND → GND</text>
+<circle cx="520" cy="846" r="4" fill="#60a5fa"/><text x="532" y="850" fill="#e6ecff">CLK → GPIO4</text>
+<circle cx="520" cy="858" r="4" fill="#60a5fa"/><text x="532" y="862" fill="#e6ecff">DIN → GPIO5</text>
+<circle cx="520" cy="870" r="4" fill="#a78bfa"/><text x="532" y="874" fill="#e6ecff" font-weight="700">CS → GPIO21</text>
+</g>
+
+<!-- connecting lines: ESP32 junctions to device pins -->
+<g fill="none" stroke-width="1.5" opacity="0.85">
+<!-- 3V3 (grey) fan-out to all 4 devices -->
+<path d="M300,364 L520,120" stroke="#94a3b8"/>
+<path d="M300,364 L520,370" stroke="#94a3b8"/>
+<path d="M300,364 L520,618" stroke="#94a3b8"/>
+<path d="M300,364 L520,798" stroke="#94a3b8"/>
+<!-- GND (dark grey) fan-out to all 4 -->
+<path d="M300,392 L520,144" stroke="#64748b"/>
+<path d="M300,392 L520,394" stroke="#64748b"/>
+<path d="M300,392 L520,642" stroke="#64748b"/>
+<path d="M300,392 L520,822" stroke="#64748b"/>
+<!-- GPIO4 SCLK (blue) to Display1, Display2, Matrix CLK -->
+<path d="M300,420 L520,168" stroke="#60a5fa"/>
+<path d="M300,420 L520,418" stroke="#60a5fa"/>
+<path d="M300,420 L520,846" stroke="#60a5fa"/>
+<!-- GPIO5 MOSI (blue) to Display1, Display2, Matrix DIN -->
+<path d="M300,448 L520,192" stroke="#60a5fa"/>
+<path d="M300,448 L520,442" stroke="#60a5fa"/>
+<path d="M300,448 L520,858" stroke="#60a5fa"/>
+<!-- GPIO8 DC (yellow) to Display1, Display2 -->
+<path d="M300,476 L520,216" stroke="#fbbf24"/>
+<path d="M300,476 L520,466" stroke="#fbbf24"/>
+<!-- GPIO9 RST (yellow) to Display1, Display2 -->
+<path d="M300,504 L520,240" stroke="#fbbf24"/>
+<path d="M300,504 L520,490" stroke="#fbbf24"/>
+<!-- GPIO10 CS1 (pink) to Display1 only -->
+<path d="M300,532 L520,252" stroke="#f472b6"/>
+<!-- GPIO23 CS2 (orange) to Display2 only -->
+<path d="M300,560 L520,502" stroke="#fb923c"/>
+<!-- GPIO21 Matrix CS (purple) to Matrix only -->
+<path d="M300,588 L520,870" stroke="#a78bfa"/>
+<!-- GPIO24 LED DIN (teal) to LED Ring only -->
+<path d="M300,616 L520,666" stroke="#5eead4"/>
+</g>
+
+<!-- Legend -->
+<rect x="900" y="60" width="360" height="210" rx="12" fill="#141c30" stroke="#26324f" stroke-width="1.5"/>
+<text x="920" y="88" fill="#e6ecff" font-size="14" font-weight="800">Legende</text>
+<g font-size="12">
+<circle cx="920" cy="108" r="5" fill="#94a3b8"/><text x="934" y="112" fill="#9aa8c7">3V3 – Versorgungsspannung (nie 5V!)</text>
+<circle cx="920" cy="130" r="5" fill="#64748b"/><text x="934" y="134" fill="#9aa8c7">GND – gemeinsame Masse</text>
+<circle cx="920" cy="152" r="5" fill="#60a5fa"/><text x="934" y="156" fill="#9aa8c7">SPI-Bus SCLK/MOSI (geteilt)</text>
+<circle cx="920" cy="174" r="5" fill="#fbbf24"/><text x="934" y="178" fill="#9aa8c7">DC/RST (geteilt, beide Displays)</text>
+<circle cx="920" cy="196" r="5" fill="#f472b6"/><text x="934" y="200" fill="#9aa8c7">CS Display 1 (einzeln)</text>
+<circle cx="920" cy="218" r="5" fill="#fb923c"/><text x="934" y="222" fill="#9aa8c7">CS Display 2 (einzeln)</text>
+<circle cx="920" cy="240" r="5" fill="#a78bfa"/><text x="934" y="244" fill="#9aa8c7">CS Matrix (einzeln, optional)</text>
+<circle cx="920" cy="262" r="5" fill="#5eead4"/><text x="934" y="266" fill="#9aa8c7">DIN LED-Ring (einzeln)</text>
+</g>
+
+<rect x="900" y="290" width="360" height="130" rx="12" fill="#141c30" stroke="#26324f" stroke-width="1.5"/>
+<text x="920" y="318" fill="#e6ecff" font-size="14" font-weight="800">Wichtige Hinweise</text>
+<text x="920" y="342" fill="#9aa8c7" font-size="11.5">• Alle GPIO-Nummern sind Werksvorgaben und im</text>
+<text x="920" y="360" fill="#9aa8c7" font-size="11.5">  Web-Dashboard unter Pinout aenderbar.</text>
+<text x="920" y="382" fill="#9aa8c7" font-size="11.5">• Vorwiderstand (~330Ω) direkt vor LED-Ring-DIN.</text>
+<text x="920" y="400" fill="#9aa8c7" font-size="11.5">• Kondensator (≥1000µF) zwischen 3V3/GND am Ring.</text>
+
+</svg>

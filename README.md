@@ -8,7 +8,7 @@ ESP32-C5-Firmware für ein Tibber-Strompreis-Display mit zwei runden GC9A01-Bild
 
 > **Bekannter Defekt:** Das obere Display (Display 1, Preisverlauf-Ansicht) hat einen Hardware-Defekt und zeigt Bildfehler/Verzerrungen. Display 2 (unten, Preis-Uhr) funktioniert einwandfrei.
 
-Benötigte Teile für den Nachbau: siehe [BOM.md](BOM.md) (Stückliste).
+Benötigte Teile für den Nachbau: siehe [BOM.md](BOM.md) (Stückliste). Verkabelung: siehe [WIRING.md](WIRING.md) (Verdrahtungsplan).
 
 ## Web-Dashboard
 
