@@ -71,7 +71,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "1.0.1"
+#define FIRMWARE_VERSION "1.1.0"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -241,6 +241,13 @@ String githubLatestUrl = "";
 String tibberToken = "";
 String selectedHomeId = "";
 
+// Strompreis-Quelle: "tibber" (Standard), "awattar_de" oder "awattar_at".
+// aWATTar liefert nur den Boersenpreis ohne Netzentgelte/Steuern, deshalb
+// zusaetzlich ein fixer Aufschlag (ct/kWh) und ein Mehrwertsteuersatz (%).
+String priceProvider = "tibber";
+float priceSurchargeCt = 0.0;
+float priceVatPercent = 0.0;
+
 String lastError = "Noch kein Update";
 String webInterfaceName = "Dynamic Price Clock";
 
@@ -369,6 +376,8 @@ LayoutItem d2Layout[LAYOUT_ITEMS];
 void ensureWifiConnected();
 
 void updateTibber();
+void updateAwattarPrices();
+void updatePrices();
 bool checkGithubUpdate();
 bool performGithubUpdate(String url);
 void calculateMetrics();
@@ -1216,6 +1225,10 @@ void setup() {
   tibberToken = prefs.getString("token", "");
   selectedHomeId = prefs.getString("homeId", "");
   tibberRootCaPem = prefs.getString("tibberCa", "");
+  priceProvider = prefs.getString("priceProv", "tibber");
+  if (priceProvider != "tibber" && priceProvider != "awattar_de" && priceProvider != "awattar_at") priceProvider = "tibber";
+  priceSurchargeCt = prefs.getFloat("priceSurchg", 0.0);
+  priceVatPercent = prefs.getFloat("priceVat", 0.0);
   githubRepo = prefs.getString("ghRepo", "Alphascrypt/dynamic-price-clock");
   githubToken = prefs.getString("ghToken", "");
   githubRootCaPem = prefs.getString("ghCa", "");
@@ -1488,7 +1501,7 @@ void setup() {
   server.begin();
 
   if (!apMode) {
-    updateTibber();
+    updatePrices();
   } else {
     showLayoutDisplays();
   }
@@ -1515,7 +1528,7 @@ void loop() {
 #endif
 
   if (!apMode && millis() - lastUpdate >= updateInterval) {
-    updateTibber();
+    updatePrices();
   }
 
   #if ENABLE_TFT_DISPLAYS
@@ -1778,6 +1791,145 @@ void updateTibber() {
   lastError = "";
   showLayoutDisplays();
   updatePriceMatrix();
+}
+
+// -----------------------------------------------------------------------------
+// aWATTar API (freie Alternative zu Tibber fuer Deutschland/Oesterreich)
+// -----------------------------------------------------------------------------
+
+void updateAwattarPrices() {
+  lastUpdate = millis();
+
+  if (apMode || WiFi.status() != WL_CONNECTED) {
+    lastError = "Kein Internet / AP Modus";
+    showLayoutDisplays();
+    return;
+  }
+
+  showMessage(displayCurrent, displayCurrentOk, "Lade Preis...");
+  showMessage(displayBest, displayBestOk, "Lade Daten...");
+
+  WiFiClientSecure client;
+  client.setInsecure();
+  Serial.println("WARNUNG: aWATTar-Verbindung laeuft ohne TLS-Zertifikatspruefung (setInsecure).");
+
+  HTTPClient http;
+  http.setTimeout(15000);
+
+  String url = (priceProvider == "awattar_at")
+    ? "https://api.awattar.at/v1/marketdata"
+    : "https://api.awattar.de/v1/marketdata";
+
+  if (!http.begin(client, url)) {
+    lastError = "HTTP Fehler";
+    showLayoutDisplays();
+    return;
+  }
+
+  int httpCode = http.GET();
+
+  if (httpCode != HTTP_CODE_OK) {
+    lastError = "aWATTar HTTP " + String(httpCode);
+    if (httpCode < 0) {
+      lastError += " (" + String(http.errorToString(httpCode)) + ")";
+    }
+    http.end();
+    showLayoutDisplays();
+    return;
+  }
+
+  String payload = http.getString();
+  http.end();
+
+  DynamicJsonDocument doc(16384);
+  DeserializationError error = deserializeJson(doc, payload);
+
+  if (error) {
+    lastError = "JSON Fehler: " + String(error.c_str());
+    showLayoutDisplays();
+    return;
+  }
+
+  JsonArray data = doc["data"];
+
+  if (data.isNull() || data.size() == 0) {
+    lastError = "Keine aWATTar-Preisdaten";
+    showLayoutDisplays();
+    return;
+  }
+
+  quarterCount = 0;
+
+  long long nowMs = (long long)time(nullptr) * 1000LL;
+  float foundCurrentPrice = -1.0;
+  String foundCurrentStartsAt = "";
+  const int quarterMinutes[4] = {0, 15, 30, 45};
+
+  for (JsonObject node : data) {
+    if (quarterCount + 4 > MAX_QUARTERS) break;
+
+    long long startMs = node["start_timestamp"] | 0LL;
+    float marketPriceEurPerMwh = node["marketprice"] | 0.0;
+
+    if (startMs == 0) continue;
+
+    // Boersenpreis (EUR/MWh) -> EUR/kWh, plus Aufschlag (Netzentgelte/Steuern) und MwSt.
+    float pricePerKwh = ((marketPriceEurPerMwh / 1000.0) + (priceSurchargeCt / 100.0)) * (1.0 + priceVatPercent / 100.0);
+
+    time_t hourEpoch = (time_t)(startMs / 1000LL);
+    struct tm timeinfo;
+    localtime_r(&hourEpoch, &timeinfo);
+
+    char dateBuf[11];
+    strftime(dateBuf, sizeof(dateBuf), "%Y-%m-%d", &timeinfo);
+    int hour = timeinfo.tm_hour;
+
+    for (int q = 0; q < 4; q++) {
+      char slotBuf[24];
+      snprintf(slotBuf, sizeof(slotBuf), "%sT%02d:%02d:00", dateBuf, hour, quarterMinutes[q]);
+      String slotIso = String(slotBuf);
+
+      quarterPrices[quarterCount] = pricePerKwh;
+      quarterTimes[quarterCount] = slotIso;
+
+      long long slotMs = startMs + (long long)quarterMinutes[q] * 60000LL;
+
+      if (slotMs <= nowMs && (nowMs - slotMs) < 15LL * 60LL * 1000LL) {
+        foundCurrentPrice = pricePerKwh;
+        foundCurrentStartsAt = slotIso;
+      }
+
+      quarterCount++;
+    }
+  }
+
+  if (quarterCount == 0) {
+    lastError = "Keine aWATTar-Preisdaten";
+    showLayoutDisplays();
+    return;
+  }
+
+  if (foundCurrentPrice >= 0) {
+    currentPrice = foundCurrentPrice;
+    currentStartsAt = foundCurrentStartsAt;
+  } else {
+    currentPrice = quarterPrices[0];
+    currentStartsAt = quarterTimes[0];
+  }
+
+  calculateMetrics();
+
+  lastError = "";
+  showLayoutDisplays();
+  updatePriceMatrix();
+}
+
+void updatePrices() {
+  if (priceProvider == "awattar_de" || priceProvider == "awattar_at") {
+    updateAwattarPrices();
+  } else {
+    updateTibber();
+  }
 }
 
 // -----------------------------------------------------------------------------
@@ -3597,7 +3749,7 @@ void handleAccountPage() {
   if (!checkAuth()) return;
 
   String html;
-  html.reserve(16000);
+  html.reserve(17500);
 
   html += htmlHeader("Konto");
   html += "<section class='hero' style='background:linear-gradient(120deg,rgba(250,204,21,.20),rgba(251,146,60,.14))'><h1>Konto &amp; Sicherheit</h1><p>Admin-Login, Setup-WLAN-Passwort und TLS-Zertifikatspruefung fuer die Tibber-API.</p></section>";
@@ -3627,6 +3779,24 @@ void handleAccountPage() {
   html += "<div class='field'><label>Neues Setup-WLAN-Passwort (min. 8 Zeichen, leer = unveraendert)</label><input name='apPass' type='password' maxlength='64'></div>";
   html += "</div>";
   html += "<div class='actions'><button type='submit' name='formType' value='appass'>Setup-Passwort speichern</button></div>";
+  html += "</form></section>";
+
+  html += "<section class='card'><div class='panelTitle'><h2>Strompreis-Quelle</h2><span class='badge ";
+  html += (priceProvider == "tibber") ? "okb'>Tibber" : "okb'>aWATTar";
+  html += "</span></div>";
+  html += "<p class='small'>Waehle, woher die Strompreise geladen werden. Tibber braucht einen Zugangstoken (Abschnitt unten). aWATTar (Deutschland/Oesterreich) ist frei ohne Anmeldung nutzbar, liefert aber nur den Boersenpreis ohne Netzentgelte/Steuern - diese koennen als Aufschlag ergaenzt werden.</p>";
+  html += "<form action='/saveaccount' method='post'>";
+  html += "<div class='formGrid'>";
+  html += "<div class='field'><label>Anbieter</label><select name='priceProvider'>";
+  html += "<option value='tibber'"; if (priceProvider == "tibber") html += " selected"; html += ">Tibber</option>";
+  html += "<option value='awattar_de'"; if (priceProvider == "awattar_de") html += " selected"; html += ">aWATTar Deutschland</option>";
+  html += "<option value='awattar_at'"; if (priceProvider == "awattar_at") html += " selected"; html += ">aWATTar Oesterreich</option>";
+  html += "</select></div>";
+  html += "<div class='field'><label>Aufschlag Netzentgelte/Steuern (ct/kWh)</label><input name='priceSurchg' type='number' step='0.01' min='0' max='100' value='" + String(priceSurchargeCt) + "'></div>";
+  html += "<div class='field'><label>Mehrwertsteuer (%)</label><input name='priceVat' type='number' step='0.1' min='0' max='50' value='" + String(priceVatPercent) + "'></div>";
+  html += "</div>";
+  html += "<p class='small'>Nur bei aWATTar wirksam: Endpreis = (Boersenpreis/1000 + Aufschlag/100) &times; (1 + MwSt/100) EUR/kWh.</p>";
+  html += "<div class='actions'><button type='submit' name='formType' value='priceprovider'>Strompreis-Quelle speichern</button></div>";
   html += "</form></section>";
 
   html += "<section class='card'><div class='panelTitle'><h2>TLS-Zertifikatspruefung Tibber-API</h2><span class='badge ";
@@ -3852,6 +4022,27 @@ void handleSaveAccount() {
   } else if (formType == "githubcaclear") {
     githubRootCaPem = "";
     prefs.putString("ghCa", "");
+  } else if (formType == "priceprovider") {
+    String newProvider = server.hasArg("priceProvider") ? server.arg("priceProvider") : "tibber";
+    if (newProvider != "tibber" && newProvider != "awattar_de" && newProvider != "awattar_at") newProvider = "tibber";
+    priceProvider = newProvider;
+    prefs.putString("priceProv", priceProvider);
+
+    float newSurchg = server.hasArg("priceSurchg") ? server.arg("priceSurchg").toFloat() : 0.0;
+    if (newSurchg < 0) newSurchg = 0;
+    if (newSurchg > 100) newSurchg = 100;
+    priceSurchargeCt = newSurchg;
+    prefs.putFloat("priceSurchg", priceSurchargeCt);
+
+    float newVat = server.hasArg("priceVat") ? server.arg("priceVat").toFloat() : 0.0;
+    if (newVat < 0) newVat = 0;
+    if (newVat > 50) newVat = 50;
+    priceVatPercent = newVat;
+    prefs.putFloat("priceVat", priceVatPercent);
+
+    if (!apMode) {
+      updatePrices();
+    }
   }
 
   server.sendHeader("Location", saveOk ? "/account?saved=1" : "/account?saved=0");
@@ -5906,7 +6097,7 @@ void handleSave() {
   }
 
   if (!apMode) {
-    updateTibber();
+    updatePrices();
   }
 
   server.sendHeader("Location", "/?saved=1");
@@ -6029,7 +6220,7 @@ void handleRefresh() {
   if (!checkAuth()) return;
 
   if (!apMode) {
-    updateTibber();
+    updatePrices();
   }
 
   server.sendHeader("Location", "/");
