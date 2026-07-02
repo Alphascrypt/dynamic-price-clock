@@ -71,7 +71,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "1.1.2"
+#define FIRMWARE_VERSION "1.2.0"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -238,6 +238,17 @@ String githubRootCaPem = "";
 String githubLatestVersion = "";
 String githubLatestUrl = "";
 
+// OTA-Fortschritt: laeuft in einem eigenen FreeRTOS-Task (siehe otaUpdateTask),
+// damit der Webserver waehrend des Downloads weiter auf /otaprogress antworten
+// kann (der Server selbst ist single-threaded und wuerde sonst blockieren).
+volatile int otaBytesWritten = 0;
+volatile int otaBytesTotal = 0;
+volatile bool otaTaskRunning = false;
+volatile bool otaTaskDone = false;
+volatile bool otaTaskSuccess = false;
+String otaTaskError = "";
+String otaPendingUrl = "";
+
 String tibberToken = "";
 String selectedHomeId = "";
 
@@ -380,6 +391,7 @@ void updateAwattarPrices();
 void updatePrices();
 bool checkGithubUpdate();
 bool performGithubUpdate(String url);
+void otaUpdateTask(void *param);
 void calculateMetrics();
 
 String priceToCentText(float price);
@@ -439,6 +451,7 @@ void handleSavePins();
 void handleRestartDevice();
 void handleCheckGithubUpdate();
 void handleGithubUpdate();
+void handleOtaProgress();
 void handleAccountPage();
 void handleSaveAccount();
 void handleWifiScanJson();
@@ -1469,6 +1482,7 @@ void setup() {
   server.on("/restartdevice", HTTP_POST, handleRestartDevice);
   server.on("/checkgithubupdate", HTTP_GET, handleCheckGithubUpdate);
   server.on("/githubupdate", HTTP_POST, handleGithubUpdate);
+  server.on("/otaprogress", HTTP_GET, handleOtaProgress);
   server.on("/account", handleAccountPage);
   server.on("/saveaccount", HTTP_POST, handleSaveAccount);
   server.on("/wifiscanjson", HTTP_GET, handleWifiScanJson);
@@ -2046,6 +2060,12 @@ bool performGithubUpdate(String url) {
   // (objects.githubusercontent.com) um. Ohne Redirect-Follow schlaegt der
   // Download mit "Wrong HTTP Code" fehl, da nur die 302-Antwort ankommt.
   httpUpdate.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
+  otaBytesWritten = 0;
+  otaBytesTotal = 0;
+  httpUpdate.onProgress([](int cur, int total) {
+    otaBytesWritten = cur;
+    otaBytesTotal = total;
+  });
   t_httpUpdate_return ret = httpUpdate.update(client, url);
 
   if (ret != HTTP_UPDATE_OK) {
@@ -2054,6 +2074,25 @@ bool performGithubUpdate(String url) {
   }
 
   return true;
+}
+
+// Laeuft in einem eigenen FreeRTOS-Task, damit server.handleClient() im
+// Hauptloop waehrend des Downloads weiterlaeuft und /otaprogress bedienen
+// kann. otaPendingUrl wird von handleGithubUpdate() vor dem Task-Start gesetzt.
+void otaUpdateTask(void *param) {
+  bool ok = performGithubUpdate(otaPendingUrl);
+
+  otaTaskSuccess = ok;
+  otaTaskError = lastError;
+  otaTaskDone = true;
+  otaTaskRunning = false;
+
+  if (ok) {
+    delay(800);
+    ESP.restart();
+  }
+
+  vTaskDelete(NULL);
 }
 
 // -----------------------------------------------------------------------------
@@ -3844,6 +3883,10 @@ void handleAccountPage() {
   html += "<div class='formSection' style='margin-top:16px'>";
   html += "<div class='panelTitle'><h4 style='margin:0'>Update pruefen</h4><span id='ghUpdateBadge' class='badge'>Noch nicht geprueft</span></div>";
   html += "<p id='ghUpdateMsg' class='small'>Klicke auf \"Auf Updates pruefen\", um die neueste Version im hinterlegten Repository abzufragen.</p>";
+  html += "<div id='ghProgressWrap' style='display:none;margin:10px 0'>";
+  html += "<div style='background:var(--surface-border);border-radius:999px;height:10px;overflow:hidden'><div id='ghProgressBar' style='background:var(--accent);height:100%;width:0%;transition:width .3s'></div></div>";
+  html += "<p id='ghProgressText' class='small' style='margin-top:6px'></p>";
+  html += "</div>";
   html += "<div class='actions'><button type='button' class='secondary' onclick='checkGhUpdate()'>Auf Updates pruefen</button><button type='button' id='ghUpdateBtn' style='display:none' onclick='startGhUpdate()'>Jetzt aktualisieren</button></div>";
   html += "</div></section>";
 
@@ -3881,22 +3924,70 @@ async function checkGhUpdate() {
     msg.innerText = 'Verbindung fehlgeschlagen: ' + e;
   }
 }
+function formatBytes(n) {
+  if (n < 1024) return n + ' B';
+  if (n < 1024 * 1024) return (n / 1024).toFixed(0) + ' KB';
+  return (n / (1024 * 1024)).toFixed(1) + ' MB';
+}
+async function pollGhProgress() {
+  var wrap = document.getElementById('ghProgressWrap');
+  var bar = document.getElementById('ghProgressBar');
+  var text = document.getElementById('ghProgressText');
+  var msg = document.getElementById('ghUpdateMsg');
+
+  try {
+    const r = await fetch('/otaprogress', { cache: 'no-store' });
+    const j = await r.json();
+
+    if (j.percent >= 0) {
+      bar.style.width = j.percent + '%';
+      text.innerText = j.percent + '% (' + formatBytes(j.bytesWritten) + ' / ' + formatBytes(j.bytesTotal) + ')';
+    } else {
+      text.innerText = 'Download startet...';
+    }
+
+    if (j.done) {
+      if (j.success) {
+        bar.style.width = '100%';
+        ghBadge('okb', 'Fertig');
+        msg.innerText = 'Update erfolgreich, das Geraet startet jetzt neu...';
+      } else {
+        ghBadge('errb', 'Fehler');
+        msg.innerText = j.error || 'Update fehlgeschlagen.';
+        wrap.style.display = 'none';
+      }
+      return;
+    }
+
+    setTimeout(pollGhProgress, 700);
+  } catch (e) {
+    // Verbindung weg, waehrend ein Update lief -> Geraet startet gerade neu, das ist erwartet.
+    bar.style.width = '100%';
+    ghBadge('okb', 'Neustart');
+    msg.innerText = 'Verbindung unterbrochen - das Geraet startet gerade neu (normal nach einem Update).';
+  }
+}
 async function startGhUpdate() {
   if (!window.ghUpdateUrl) return;
   if (!confirm('Firmware jetzt aktualisieren? Das Geraet startet danach automatisch neu und ist kurz nicht erreichbar.')) return;
   var msg = document.getElementById('ghUpdateMsg');
+  var wrap = document.getElementById('ghProgressWrap');
+  var bar = document.getElementById('ghProgressBar');
   ghBadge('warnb', 'Aktualisiere...');
   msg.innerText = 'Bitte warten, das kann 1-2 Minuten dauern. Die Spannungsversorgung nicht trennen.';
+  wrap.style.display = '';
+  bar.style.width = '0%';
   try {
     const body = new URLSearchParams();
     body.set('url', window.ghUpdateUrl);
     const r = await fetch('/githubupdate', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' }, body: body.toString() });
     const j = await r.json();
     if (j.ok) {
-      msg.innerText = 'Update erfolgreich, das Geraet startet jetzt neu...';
+      setTimeout(pollGhProgress, 300);
     } else {
       ghBadge('errb', 'Fehler');
       msg.innerText = j.error || 'Update fehlgeschlagen.';
+      wrap.style.display = 'none';
     }
   } catch (e) {
     msg.innerText = 'Verbindung unterbrochen - das ist beim Neustart normal.';
@@ -4028,9 +4119,19 @@ void handleSaveAccount() {
     prefs.putString("ghCa", "");
   } else if (formType == "priceprovider") {
     String newProvider = server.hasArg("priceProvider") ? server.arg("priceProvider") : "tibber";
+    Serial.print("DEBUG priceprovider-Formular empfangen. Rohwert 'priceProvider': '");
+    Serial.print(newProvider);
+    Serial.println("'");
+
     if (newProvider != "tibber" && newProvider != "awattar_de" && newProvider != "awattar_at") newProvider = "tibber";
     priceProvider = newProvider;
     prefs.putString("priceProv", priceProvider);
+
+    Serial.print("DEBUG priceProvider nach Speichern (RAM): '");
+    Serial.print(priceProvider);
+    Serial.print("' / aus Preferences zurueckgelesen: '");
+    Serial.print(prefs.getString("priceProv", "?"));
+    Serial.println("'");
 
     float newSurchg = server.hasArg("priceSurchg") ? server.arg("priceSurchg").toFloat() : 0.0;
     if (newSurchg < 0) newSurchg = 0;
@@ -4044,9 +4145,10 @@ void handleSaveAccount() {
     priceVatPercent = newVat;
     prefs.putFloat("priceVat", priceVatPercent);
 
-    if (!apMode) {
-      updatePrices();
-    }
+    // Preis-Refresh NICHT synchron hier ausloesen (blockierender Netzwerk-Call
+    // wuerde die HTTP-Antwort verzoegern/riskieren) - stattdessen den naechsten
+    // loop()-Tick sofort dazu zwingen, die neue Quelle abzufragen.
+    lastUpdate = 0;
   }
 
   server.sendHeader("Location", saveOk ? "/account?saved=1" : "/account?saved=0");
@@ -6185,17 +6287,53 @@ void handleCheckGithubUpdate() {
 void handleGithubUpdate() {
   if (!checkAuth()) return;
 
-  String url = server.hasArg("url") ? server.arg("url") : githubLatestUrl;
-  bool ok = performGithubUpdate(url);
-
-  if (!ok) {
-    server.send(200, "application/json", "{\"ok\":false,\"error\":\"" + jsEscape(lastError) + "\"}");
+  if (otaTaskRunning) {
+    server.send(200, "application/json", "{\"ok\":false,\"error\":\"Update laeuft bereits\"}");
     return;
   }
 
-  server.send(200, "application/json", "{\"ok\":true}");
-  delay(500);
-  ESP.restart();
+  String url = server.hasArg("url") ? server.arg("url") : githubLatestUrl;
+
+  if (url.length() == 0) {
+    server.send(200, "application/json", "{\"ok\":false,\"error\":\"Keine Update-URL\"}");
+    return;
+  }
+
+  otaPendingUrl = url;
+  otaBytesWritten = 0;
+  otaBytesTotal = 0;
+  otaTaskDone = false;
+  otaTaskSuccess = false;
+  otaTaskError = "";
+  otaTaskRunning = true;
+
+  // Eigener Task, damit der Webserver waehrend des Downloads erreichbar
+  // bleibt und /otaprogress den Fortschritt live zurueckgeben kann.
+  xTaskCreate(otaUpdateTask, "otaUpdateTask", 8192, NULL, 1, NULL);
+
+  server.send(200, "application/json", "{\"ok\":true,\"started\":true}");
+}
+
+void handleOtaProgress() {
+  if (!checkAuth()) return;
+
+  int percent = -1;
+  if (otaBytesTotal > 0) {
+    percent = (int)(((long)otaBytesWritten * 100L) / otaBytesTotal);
+  }
+
+  String json = "{";
+  json += "\"running\":" + String(otaTaskRunning ? "true" : "false") + ",";
+  json += "\"done\":" + String(otaTaskDone ? "true" : "false") + ",";
+  json += "\"success\":" + String(otaTaskSuccess ? "true" : "false") + ",";
+  json += "\"bytesWritten\":" + String(otaBytesWritten) + ",";
+  json += "\"bytesTotal\":" + String(otaBytesTotal) + ",";
+  json += "\"percent\":" + String(percent) + ",";
+  json += "\"error\":\"" + jsEscape(otaTaskError) + "\"";
+  json += "}";
+
+  server.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+  server.send(200, "application/json", json);
 }
 
 void handleResetWifi() {

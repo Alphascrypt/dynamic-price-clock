@@ -53,6 +53,15 @@ Das Standardschema ("Default 4MB with spiffs") reicht nicht aus – der Sketch b
 
 Nach dem Flashen läuft das Gerät beim ersten Start als WLAN-Access-Point ("Dynamic-Price-Clock-Setup") zur Erstkonfiguration.
 
+### WLAN-Zugangsdaten und Tibber-Token bleiben beim Update erhalten
+
+Alle gespeicherten Werte (WLAN-SSID/Passwort, Tibber-Token, Strompreis-Einstellungen, Layout, ...) liegen in einem eigenen NVS-Speicherbereich (`Preferences`), der von einem Firmware-Update **nicht** angefasst wird:
+
+- **OTA-Update über den Button "Jetzt aktualisieren"** (Konto-Seite): schreibt ausschließlich die neue Firmware in die App-Partition, rührt den Preferences-Speicher nicht an. Zugangsdaten bleiben garantiert erhalten.
+- **Manuelles Neuflashen per USB (Arduino IDE)**: bleibt ebenfalls erhalten, **solange** du
+  1. **nicht** "Erase All Flash Before Sketch Upload" aktivierst, und
+  2. **immer dasselbe Partition Scheme** verwendest ("Minimal SPIFFS", siehe oben) – ein Wechsel des Schemas kann die Partitionstabelle verschieben und den Zugriff auf die alten NVS-Daten faktisch unmöglich machen, auch wenn sie physisch noch auf dem Chip liegen.
+
 ## Setup-WLAN-Passwort
 
 Für den Setup-Access-Point gibt es **kein festes Passwort im Code**. Jedes Gerät erzeugt beim ersten Start automatisch ein eigenes, zufälliges 10-stelliges Passwort und zeigt es an:
