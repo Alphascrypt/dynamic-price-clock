@@ -1,0 +1,14 @@
+# IDE-/Editor-Konfiguration
+.theia/
+.vscode/
+
+# Arduino Build-Artefakte
+build/
+*.hex
+*.bin
+*.elf
+*.map
+
+# Betriebssystem-Muell
+.DS_Store
+Thumbs.db

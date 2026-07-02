@@ -1,0 +1,29 @@
+GNU Affero General Public License v3.0 (AGPL-3.0)
+
+Copyright (c) 2026 [Dein Name / GitHub-Handle]
+
+Dieses Projekt steht unter der GNU Affero General Public License v3.0.
+
+WICHTIG - noch zu erledigen: Diese Datei enthaelt aktuell NICHT den
+vollstaendigen Lizenztext. Ich konnte in dieser Arbeitsumgebung keinen
+verlaesslichen, wortgetreuen Zugriff auf den offiziellen AGPL-3.0-Text
+bekommen (kein Netzwerkzugriff verfuegbar, und ein KI-gestuetzter Abruf
+liefert nur eine Zusammenfassung, keine Eins-zu-eins-Kopie) und wollte
+keinen so langen Rechtstext ungeprueft aus dem Gedaechtnis nachschreiben.
+
+Bitte ergaenze den vollstaendigen Text auf einem der folgenden Wege:
+
+1. Empfohlen: Beim Erstellen/Pushen des Repos auf GitHub "Add file" ->
+   "Create new file" -> Dateiname "LICENSE" eingeben -> GitHub zeigt dann
+   automatisch "Choose a license template" an -> AGPL-3.0 auswaehlen.
+   GitHub fuegt dabei den korrekten, vollstaendigen Text automatisch ein.
+
+2. Alternativ: Text manuell von https://www.gnu.org/licenses/agpl-3.0.txt
+   herunterladen und den Inhalt dieser Datei damit ersetzen.
+
+Kurzfassung der Wirkung (kein Ersatz fuer den vollstaendigen Text):
+- Nutzung, Kopieren, Veraendern und Weitergabe sind erlaubt.
+- Wird der Code (auch veraendert) als Netzwerk-/Serverdienst betrieben,
+  muss allen Nutzern der jeweilige Quellcode zugaenglich gemacht werden.
+- Abgeleitete Werke muessen ebenfalls unter AGPL-3.0 stehen (Copyleft).
+- Keine Gewaehrleistung.
