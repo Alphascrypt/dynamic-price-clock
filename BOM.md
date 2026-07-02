@@ -19,7 +19,7 @@ Alle Teile, die für den Nachbau des Dynamic Price Clock benötigt werden. Menge
 
 | Teil | Menge | Spezifikation | Hinweis |
 |---|---|---|---|
-| Holzscheibe (Front) | 1 | Rund, Durchmesser passend zum LED-Ring (siehe Foto in [README](README.md)) | Aussparungen für 2 Displays + 60 LED-Bohrungen + Zifferblatt-Gravur |
+| Holzscheibe (Front) | 1 | Rund, Durchmesser passend zum LED-Ring (siehe Foto in [README](README.md)) | Aussparungen für 2 Displays + 60 LED-Bohrungen + Zifferblatt-Gravur; Laserdatei: [laser/Tagesring.svg](laser/Tagesring.svg) / [laser/Tagesring.lbrn2](laser/Tagesring.lbrn2) |
 | Standfuß/Gehäuserückwand | 1 | Individuell, siehe Foto | Enthält Montagepunkte für Elektronik und Kabeldurchführung |
 | Montageschrauben | ca. 4–6 | z.B. M3/M4 | Für Displays und Gehäuseteile |
 | Diffusor/Abdeckung je LED (optional) | bis zu 60 | z.B. 3mm/5mm LED-Diffusorkappen oder Acrylscheibe | Für gleichmäßigeres Licht, in den Fotos nicht sichtbar verwendet |
@@ -29,6 +29,13 @@ Alle Teile, die für den Nachbau des Dynamic Price Clock benötigt werden. Menge
 - Lötkolben + Lötzinn (oder Steckverbinder/JST für lötfreien Aufbau)
 - USB-Kabel zum Flashen des ESP32-C5
 - PC mit Arduino IDE (siehe [README: Einrichtung](README.md#einrichtung-arduino-ide))
+
+## Laserdateien für die Front
+
+Im Ordner [laser/](laser/) liegen die Schnitt-/Gravurdateien für die runde Frontscheibe (Zifferblatt, LED-Bohrungen, Display-Aussparungen):
+
+- [Tagesring.svg](laser/Tagesring.svg) – universelles Vektorformat, in den meisten Laserschneider-Programmen importierbar
+- [Tagesring.lbrn2](laser/Tagesring.lbrn2) – natives Projektformat für LightBurn
 
 ## Pin-Zuordnung
 
