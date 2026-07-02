@@ -71,7 +71,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "1.1.0"
+#define FIRMWARE_VERSION "1.1.1"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -2042,6 +2042,10 @@ bool performGithubUpdate(String url) {
   }
 
   httpUpdate.rebootOnUpdate(false);
+  // GitHub-Release-Downloads leiten per HTTP-Redirect auf einen anderen Host
+  // (objects.githubusercontent.com) um. Ohne Redirect-Follow schlaegt der
+  // Download mit "Wrong HTTP Code" fehl, da nur die 302-Antwort ankommt.
+  httpUpdate.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
   t_httpUpdate_return ret = httpUpdate.update(client, url);
 
   if (ret != HTTP_UPDATE_OK) {
