@@ -174,7 +174,7 @@ String tibberRootCaPem = "";
 // Root-CA-Zertifikat fuer api.github.com. Ohne Zertifikat faellt die
 // Verbindung bewusst-protokolliert auf setInsecure() zurueck, exakt wie bei
 // der Tibber-API.
-String githubRepo = "";
+String githubRepo = "Alphascrypt/dynamic-price-clock";
 String githubToken = "";
 String githubRootCaPem = "";
 String githubLatestVersion = "";
@@ -1210,7 +1210,7 @@ void setup() {
   tibberToken = prefs.getString("token", "");
   selectedHomeId = prefs.getString("homeId", "");
   tibberRootCaPem = prefs.getString("tibberCa", "");
-  githubRepo = prefs.getString("ghRepo", "");
+  githubRepo = prefs.getString("ghRepo", "Alphascrypt/dynamic-price-clock");
   githubToken = prefs.getString("ghToken", "");
   githubRootCaPem = prefs.getString("ghCa", "");
 
