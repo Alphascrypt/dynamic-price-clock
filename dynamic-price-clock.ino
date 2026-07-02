@@ -810,6 +810,8 @@ void startSetupPortal(bool permanent) {
     if (ok) {
       Serial.print("Setup AP aktiv: ");
       Serial.println(setupApSsid);
+      Serial.print("Setup AP Passwort: ");
+      Serial.println(apPassword);
       Serial.print("Setup AP IP: ");
       Serial.println(WiFi.softAPIP());
       lastError = "Setup WLAN aktiv: " + WiFi.softAPIP().toString();
