@@ -71,7 +71,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "1.5.1"
+#define FIRMWARE_VERSION "1.5.3"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -2742,11 +2742,14 @@ String trimTextToFitAligned(Adafruit_GC9A01A &disp, String text, int anchorX, in
 // -----------------------------------------------------------------------------
 
 void loadLayoutDefaults() {
-  d1Layout[0] = {"customText", "Aktuell", "", "", 120, 36, 2, true, true, 1};
-  d1Layout[1] = {"current15", "", "", "", 120, 82, 4, true, true, 1};
-  d1Layout[2] = {"customText", "ct/kWh", "", "", 120, 134, 2, true, true, 1};
-  d1Layout[3] = {"ip", "", "", "", 120, 178, 1, true, true, 1};
-  d1Layout[4] = {"time", "", "", "", 120, 198, 2, true, true, 1};
+  // Entspricht dem Preset "Preis gross" (siehe applyLayoutPreset), damit die
+  // Werkseinstellung/Reset direkt sinnvolle, ueberschneidungsfreie Positionen
+  // zeigt statt der frueheren, zu eng gesetzten Default-Werte.
+  d1Layout[0] = {"customText", "Aktueller Preis", "", "", 120, 36, 2, true, true, 1};
+  d1Layout[1] = {"current15", "", "", "", 120, 86, 4, true, true, 1};
+  d1Layout[2] = {"customText", "ct/kWh", "", "", 120, 138, 2, true, true, 1};
+  d1Layout[3] = {"ip", "", "", "", 120, 182, 1, true, true, 1};
+  d1Layout[4] = {"time", "", "", "", 120, 202, 2, true, true, 1};
   d1Layout[5] = {"lastUpdate", "", "Upd ", "", 120, 216, 1, false, true, 1};
   d1Layout[6] = {"current60", "", "AVG60 ", "", 120, 158, 1, false, true, 1};
   d1Layout[7] = {"error", "", "", "", 120, 16, 1, false, true, 1};
@@ -6234,10 +6237,10 @@ String buildPriceGaugeSvg() {
   svg += "<path d='M 20 120 A 100 100 0 0 1 220 120' fill='none' stroke='url(#gaugeGrad)' stroke-width='16' stroke-linecap='round' opacity='.9'/>";
   svg += "<line x1='" + String(cx) + "' y1='" + String(cy) + "' x2='" + String(tipX) + "' y2='" + String(tipY) + "' stroke='" + needleColor + "' stroke-width='4' stroke-linecap='round'/>";
   svg += "<circle cx='" + String(cx) + "' cy='" + String(cy) + "' r='7' fill='" + needleColor + "' stroke='#0b1224' stroke-width='2'/>";
-  svg += "<text x='" + String(cx) + "' y='90' fill='#edf2ff' font-size='30' font-weight='900' text-anchor='middle'>" + String(nowCent) + "</text>";
-  svg += "<text x='" + String(cx) + "' y='108' fill='#9aa8c7' font-size='12' text-anchor='middle'>ct/kWh jetzt</text>";
-  svg += "<text x='20' y='140' fill='#9aa8c7' font-size='11' text-anchor='start'>" + String(minCent) + " ct</text>";
-  svg += "<text x='220' y='140' fill='#9aa8c7' font-size='11' text-anchor='end'>" + String(maxCent) + " ct</text>";
+  svg += "<text x='" + String(cx) + "' y='90' fill='var(--text)' font-size='30' font-weight='900' text-anchor='middle'>" + String(nowCent) + "</text>";
+  svg += "<text x='" + String(cx) + "' y='108' fill='var(--muted)' font-size='12' text-anchor='middle'>ct/kWh jetzt</text>";
+  svg += "<text x='20' y='140' fill='var(--muted)' font-size='11' text-anchor='start'>" + String(minCent) + " ct</text>";
+  svg += "<text x='220' y='140' fill='var(--muted)' font-size='11' text-anchor='end'>" + String(maxCent) + " ct</text>";
   svg += "</svg>";
 
   return svg;
