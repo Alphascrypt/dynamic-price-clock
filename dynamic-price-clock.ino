@@ -71,7 +71,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "1.3.2"
+#define FIRMWARE_VERSION "1.4.1"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -238,6 +238,13 @@ String githubRootCaPem = "";
 String githubLatestVersion = "";
 String githubLatestUrl = "";
 
+// Leiser Hintergrund-Versionscheck fuer das Nav-Badge (alle 10 Minuten vom
+// Browser aus per /versioncheck aufgerufen). Nutzt eigene Fehler-Variable,
+// damit ein fehlgeschlagener Hintergrund-Check NICHT den globalen lastError
+// (und damit den Status-OK/Fehler-Indikator auf der Startseite) verfaelscht.
+String versionCheckError = "";
+String versionCheckLatest = "";
+
 // OTA-Fortschritt: laeuft in einem eigenen FreeRTOS-Task (siehe otaUpdateTask),
 // damit der Webserver waehrend des Downloads weiter auf /otaprogress antworten
 // kann (der Server selbst ist single-threaded und wuerde sonst blockieren).
@@ -390,6 +397,8 @@ void updateTibber();
 void updateAwattarPrices();
 void updatePrices();
 bool checkGithubUpdate();
+bool checkGithubUpdateQuiet();
+void handleVersionCheck();
 bool performGithubUpdate(String url);
 void otaUpdateTask(void *param);
 void calculateMetrics();
@@ -1484,6 +1493,7 @@ void setup() {
   server.on("/savepins", HTTP_POST, handleSavePins);
   server.on("/restartdevice", HTTP_POST, handleRestartDevice);
   server.on("/checkgithubupdate", HTTP_GET, handleCheckGithubUpdate);
+  server.on("/versioncheck", HTTP_GET, handleVersionCheck);
   server.on("/githubupdate", HTTP_POST, handleGithubUpdate);
   server.on("/otaprogress", HTTP_GET, handleOtaProgress);
   server.on("/account", handleAccountPage);
@@ -2038,6 +2048,78 @@ bool checkGithubUpdate() {
   githubLatestVersion = tag;
   githubLatestUrl = binUrl;
   lastError = "";
+  return true;
+}
+
+// Leiser Zwilling von checkGithubUpdate() fuer den periodischen Hintergrund-
+// Check (Nav-Badge): identische GitHub-Abfrage, aber schreibt NIE in den
+// globalen lastError, damit ein fehlgeschlagener Hintergrund-Check nicht den
+// Status-OK/Fehler-Indikator auf der Startseite verfaelscht.
+bool checkGithubUpdateQuiet() {
+  versionCheckLatest = "";
+
+  if (githubRepo.length() == 0) {
+    versionCheckError = "Kein GitHub-Repository hinterlegt";
+    return false;
+  }
+
+  if (apMode || WiFi.status() != WL_CONNECTED) {
+    versionCheckError = "Kein Internet / AP Modus";
+    return false;
+  }
+
+  WiFiClientSecure client;
+
+  if (githubRootCaPem.length() > 0) {
+    client.setCACert(githubRootCaPem.c_str());
+  } else {
+    client.setInsecure();
+  }
+
+  HTTPClient http;
+  http.setTimeout(10000);
+
+  String url = "https://api.github.com/repos/" + githubRepo + "/releases/latest";
+
+  if (!http.begin(client, url)) {
+    versionCheckError = "GitHub HTTP Fehler";
+    return false;
+  }
+
+  http.addHeader("User-Agent", "dynamic-price-clock-esp32");
+  http.addHeader("Accept", "application/vnd.github+json");
+  if (githubToken.length() > 0) {
+    http.addHeader("Authorization", "Bearer " + githubToken);
+  }
+
+  int code = http.GET();
+
+  if (code != 200) {
+    versionCheckError = "GitHub API Fehler " + String(code);
+    http.end();
+    return false;
+  }
+
+  DynamicJsonDocument doc(4096);
+  DeserializationError jsonErr = deserializeJson(doc, http.getStream());
+  http.end();
+
+  if (jsonErr) {
+    versionCheckError = "GitHub JSON Fehler";
+    return false;
+  }
+
+  String tag = String(doc["tag_name"] | "");
+  tag.trim();
+  if (tag.startsWith("v") || tag.startsWith("V")) tag = tag.substring(1);
+
+  if (tag.length() == 0) {
+    versionCheckError = "Kein gueltiges Release gefunden";
+    return false;
+  }
+
+  versionCheckLatest = tag;
+  versionCheckError = "";
   return true;
 }
 
@@ -3582,7 +3664,7 @@ void handleRoot() {
   if (!checkAuth()) return;
 
   String html;
-  html.reserve(26500);
+  html.reserve(24500);
 
   html += htmlHeader("Übersicht");
   html += "<section class='hero'><h1>";
@@ -3727,36 +3809,6 @@ void handleRoot() {
   html += "<span><span style='display:inline-block;width:10px;height:2px;background:#5b6478;margin-right:5px;vertical-align:middle'></span>Tagesschnitt</span>";
   html += "</div></section>";
 
-  html += "<section id='einstellungen' class='card'><div class='panelTitle'><h2>Einstellungen</h2><span class='badge warnb'>Update alle ";
-  html += String(apiUpdateMinutes);
-  html += " Min</span></div>";
-  html += "<form action='/save' method='post'>";
-  html += "<div class='formGrid'>";
-
-  html += "<div class='field'><label>Name des Webinterfaces</label><input name='webName' maxlength='32' value='";
-  html += htmlEscape(webInterfaceName);
-  html += "'></div>";
-
-  html += "<div class='field'><label>API-Update alle Minuten</label><input name='apiMinutes' type='number' min='1' max='60' value='";
-  html += String(apiUpdateMinutes);
-  html += "'></div>";
-
-  html += "<div class='field'><label>Display-Refresh alle Sekunden</label><input name='dispRefresh' type='number' min='1' max='300' value='";
-  html += String(displayRefreshSeconds);
-  html += "'></div>";
-
-  html += "</div>";
-
-  html += "<p class='small' style='margin-top:14px'>Anbieterwahl (Tibber/aWATTar), Display- und WS2812B/WS2818-Einstellungen findest du jetzt in eigenen Registerkarten.</p>";
-  html += "<div class='actions'>";
-  html += "<a href='/anbieter'><button type='button' class='secondary'>Anbieter einstellen</button></a>";
-  html += "<a href='/displays'><button type='button' class='secondary'>Displays einstellen</button></a>";
-  html += "<a href='/ring'><button type='button' class='secondary'>Tagesring einstellen</button></a>";
-  html += "<a href='/matrix'><button type='button' class='secondary'>Matrix einstellen</button></a>";
-  html += "<button type='submit'>Speichern</button>";
-  html += "</div>";
-  html += "</form>";
-  html += "</section>";
 
   if (quarterCount > 0) {
     html += "<details class='card'><summary><h2 style='display:inline'>Geladene Preise heute/morgen (";
@@ -3790,11 +3842,30 @@ void handleAccountPage() {
   if (!checkAuth()) return;
 
   String html;
-  html.reserve(16000);
+  html.reserve(17500);
 
   html += htmlHeader("Konto");
-  html += "<section class='hero' style='background:linear-gradient(120deg,rgba(250,204,21,.20),rgba(251,146,60,.14))'><h1>Konto &amp; Sicherheit</h1><p>Admin-Login, Setup-WLAN-Passwort und TLS-Zertifikatspruefung fuer die Tibber-API.</p></section>";
+  html += "<section class='hero' style='background:linear-gradient(120deg,rgba(250,204,21,.20),rgba(251,146,60,.14))'><h1>Konto &amp; Sicherheit</h1><p>Admin-Login, Setup-WLAN-Passwort, allgemeine Geraeteeinstellungen und Firmware-Updates.</p></section>";
   html += navTabs("/account");
+
+  html += "<section class='card'><div class='panelTitle'><h2>Allgemeine Einstellungen</h2><span class='badge warnb'>Update alle ";
+  html += String(apiUpdateMinutes);
+  html += " Min</span></div>";
+  html += "<form action='/save' method='post'>";
+  html += "<input type='hidden' name='redirectTo' value='/account'>";
+  html += "<div class='formGrid'>";
+  html += "<div class='field'><label>Name des Webinterfaces</label><input name='webName' maxlength='32' value='";
+  html += htmlEscape(webInterfaceName);
+  html += "'></div>";
+  html += "<div class='field'><label>API-Update alle Minuten</label><input name='apiMinutes' type='number' min='1' max='60' value='";
+  html += String(apiUpdateMinutes);
+  html += "'></div>";
+  html += "<div class='field'><label>Display-Refresh alle Sekunden</label><input name='dispRefresh' type='number' min='1' max='300' value='";
+  html += String(displayRefreshSeconds);
+  html += "'></div>";
+  html += "</div>";
+  html += "<div class='actions'><button type='submit'>Einstellungen speichern</button></div>";
+  html += "</form></section>";
 
   html += "<section class='card'><div class='panelTitle'><h2>Webinterface-Login</h2><span class='badge ";
   html += (webAdminPassword == String(DEFAULT_ADMIN_PASSWORD)) ? "errb'>Standardpasswort" : "okb'>Angepasst";
@@ -3821,25 +3892,6 @@ void handleAccountPage() {
   html += "</div>";
   html += "<div class='actions'><button type='submit' name='formType' value='appass'>Setup-Passwort speichern</button></div>";
   html += "</form></section>";
-
-  html += "<section class='card'><div class='panelTitle'><h2>TLS-Zertifikatspruefung Tibber-API</h2><span class='badge ";
-  html += (tibberRootCaPem.length() == 0) ? "errb'>Ungeprueft" : "okb'>Geprueft";
-  html += "</span></div>";
-  if (tibberRootCaPem.length() == 0) {
-    html += "<p class='err'>Kein Root-CA-Zertifikat hinterlegt. Die Verbindung zur Tibber-API laeuft aktuell OHNE Zertifikatspruefung (setInsecure). Das ist ein Sicherheitsrisiko (Man-in-the-Middle).</p>";
-  } else {
-    html += "<p class='ok'>Root-CA-Zertifikat hinterlegt. TLS-Verbindungen zur Tibber-API werden geprueft.</p>";
-  }
-  html += "<p class='small'>So ermittelst du das aktuelle Zertifikat (auf einem PC, NICHT auf dem ESP32):<br>";
-  html += "<code>openssl s_client -connect api.tibber.com:443 -showcerts &lt;/dev/null | openssl x509 -outform PEM</code><br>";
-  html += "Das letzte Zertifikat der ausgegebenen Kette (Root-CA) hier komplett inkl. BEGIN/END-Zeilen einfuegen.</p>";
-  html += "<form action='/saveaccount' method='post'>";
-  html += "<div class='field'><label>Root-CA PEM</label><textarea name='tibberCa' rows='10' placeholder='-----BEGIN CERTIFICATE-----'>" + htmlEscape(tibberRootCaPem) + "</textarea></div>";
-  html += "<div class='actions'><button type='submit' name='formType' value='tibberca'>Zertifikat speichern</button>";
-  if (tibberRootCaPem.length() > 0) {
-    html += "<button type='submit' name='formType' value='tibbercaclear' class='danger'>Zertifikat entfernen</button>";
-  }
-  html += "</div></form></section>";
 
   html += "<section class='card'><div class='panelTitle'><h2>Firmware-Update ueber GitHub</h2><span class='badge ";
   html += (githubRepo.length() == 0) ? "errb'>Nicht eingerichtet" : "okb'>Eingerichtet";
@@ -4131,7 +4183,8 @@ void handleSaveAccount() {
     lastUpdate = 0;
   }
 
-  String acctRedirectTarget = (formType == "priceprovider") ? "/anbieter" : "/account";
+  bool acctBelongsToProviderPage = (formType == "priceprovider" || formType == "tibberca" || formType == "tibbercaclear");
+  String acctRedirectTarget = acctBelongsToProviderPage ? "/anbieter" : "/account";
   server.sendHeader("Location", saveOk ? (acctRedirectTarget + "?saved=1") : (acctRedirectTarget + "?saved=0"));
   server.send(303);
 }
@@ -4144,7 +4197,7 @@ void handleProviderPage() {
   if (!checkAuth()) return;
 
   String html;
-  html.reserve(11500);
+  html.reserve(14500);
 
   html += htmlHeader("Anbieter");
   html += "<section class='hero' style='background:linear-gradient(120deg,rgba(250,204,21,.20),rgba(251,146,60,.14))'><h1>Anbieter</h1><p>Strompreis-Quelle waehlen und Zugangsdaten hinterlegen.</p></section>";
@@ -4196,6 +4249,25 @@ void handleProviderPage() {
   html += "</div>";
   html += "<div class='actions'><button type='submit'>Tibber-Zugang speichern</button><button type='button' class='secondary' onclick='saveTibberNow()'>Direkt speichern</button></div>";
   html += "</form></section>";
+
+  html += "<section class='card'><div class='panelTitle'><h2>TLS-Zertifikatspruefung Tibber-API</h2><span class='badge ";
+  html += (tibberRootCaPem.length() == 0) ? "errb'>Ungeprueft" : "okb'>Geprueft";
+  html += "</span></div>";
+  if (tibberRootCaPem.length() == 0) {
+    html += "<p class='err'>Kein Root-CA-Zertifikat hinterlegt. Die Verbindung zur Tibber-API laeuft aktuell OHNE Zertifikatspruefung (setInsecure). Das ist ein Sicherheitsrisiko (Man-in-the-Middle).</p>";
+  } else {
+    html += "<p class='ok'>Root-CA-Zertifikat hinterlegt. TLS-Verbindungen zur Tibber-API werden geprueft.</p>";
+  }
+  html += "<p class='small'>So ermittelst du das aktuelle Zertifikat (auf einem PC, NICHT auf dem ESP32):<br>";
+  html += "<code>openssl s_client -connect api.tibber.com:443 -showcerts &lt;/dev/null | openssl x509 -outform PEM</code><br>";
+  html += "Das letzte Zertifikat der ausgegebenen Kette (Root-CA) hier komplett inkl. BEGIN/END-Zeilen einfuegen.</p>";
+  html += "<form action='/saveaccount' method='post'>";
+  html += "<div class='field'><label>Root-CA PEM</label><textarea name='tibberCa' rows='10' placeholder='-----BEGIN CERTIFICATE-----'>" + htmlEscape(tibberRootCaPem) + "</textarea></div>";
+  html += "<div class='actions'><button type='submit' name='formType' value='tibberca'>Zertifikat speichern</button>";
+  if (tibberRootCaPem.length() > 0) {
+    html += "<button type='submit' name='formType' value='tibbercaclear' class='danger'>Zertifikat entfernen</button>";
+  }
+  html += "</div></form></section>";
 
   html += R"JS(
 <script>
@@ -6351,7 +6423,8 @@ void handleSave() {
     updatePrices();
   }
 
-  String redirectTarget = (server.hasArg("redirectTo") && server.arg("redirectTo") == "/anbieter") ? "/anbieter" : "/";
+  String requestedRedirect = server.hasArg("redirectTo") ? server.arg("redirectTo") : "";
+  String redirectTarget = (requestedRedirect == "/anbieter" || requestedRedirect == "/account") ? requestedRedirect : "/";
   server.sendHeader("Location", redirectTarget + "?saved=1");
   server.send(303);
 }
@@ -6424,6 +6497,24 @@ void handleCheckGithubUpdate() {
   json += "\"updateAvailable\":" + String(updateAvailable ? "true" : "false") + ",";
   json += "\"downloadUrl\":\"" + jsEscape(githubLatestUrl) + "\",";
   json += "\"error\":\"" + jsEscape(lastError) + "\"";
+  json += "}";
+
+  server.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+  server.send(200, "application/json", json);
+}
+
+void handleVersionCheck() {
+  if (!checkAuth()) return;
+
+  bool ok = checkGithubUpdateQuiet();
+  bool updateAvailable = ok && versionCheckLatest.length() > 0 && versionCheckLatest != String(FIRMWARE_VERSION);
+
+  String json = "{";
+  json += "\"ok\":" + String(ok ? "true" : "false") + ",";
+  json += "\"currentVersion\":\"" + jsEscape(String(FIRMWARE_VERSION)) + "\",";
+  json += "\"latestVersion\":\"" + jsEscape(versionCheckLatest) + "\",";
+  json += "\"updateAvailable\":" + String(updateAvailable ? "true" : "false") + ",";
+  json += "\"error\":\"" + jsEscape(versionCheckError) + "\"";
   json += "}";
 
   server.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
@@ -6733,6 +6824,48 @@ document.querySelectorAll('form').forEach(function(f){
     }
   });
 });
+function fwBadge(cls, text, title) {
+  var b = document.getElementById('fwVersionBadge');
+  if (!b) return;
+  b.className = 'badge' + (cls ? ' ' + cls : '');
+  b.innerText = text;
+  if (title) b.title = title;
+}
+function applyFwResult(j) {
+  if (!j) return;
+  if (!j.ok) {
+    fwBadge('', 'v' + j.currentVersion, 'Update-Check fehlgeschlagen: ' + (j.error || 'unbekannter Fehler'));
+  } else if (j.updateAvailable) {
+    fwBadge('warnb', 'v' + j.currentVersion + ' → ' + j.latestVersion, 'Update verfügbar (' + j.latestVersion + ') - siehe Konto-Seite');
+  } else {
+    fwBadge('okb', 'v' + j.currentVersion, 'Firmware ist aktuell');
+  }
+}
+(function(){
+  // Seiten laden alle 60s per meta-refresh neu (siehe htmlHeader), daher den
+  // zuletzt bekannten Check-Stand aus localStorage sofort anzeigen, statt bei
+  // jedem Reload kurz auf den neutralen Standardzustand zurueckzufallen.
+  try {
+    var cached = localStorage.getItem('fwCheckResult');
+    if (cached) applyFwResult(JSON.parse(cached));
+  } catch (e) {}
+})();
+async function checkFirmwareVersion() {
+  var last = 0;
+  try { last = parseInt(localStorage.getItem('fwCheckAt') || '0', 10); } catch (e) {}
+  if (Date.now() - last < 10 * 60 * 1000) return;
+  try {
+    const r = await fetch('/versioncheck', { cache: 'no-store' });
+    const j = await r.json();
+    applyFwResult(j);
+    try {
+      localStorage.setItem('fwCheckAt', String(Date.now()));
+      localStorage.setItem('fwCheckResult', JSON.stringify(j));
+    } catch (e) {}
+  } catch (e) {}
+}
+checkFirmwareVersion();
+setInterval(checkFirmwareVersion, 10 * 60 * 1000);
 )JS";
 
   server.sendHeader("Cache-Control", "public, max-age=86400");
@@ -6787,6 +6920,9 @@ String navTabs(String current) {
   html += "<nav class='nav'>";
   html += "<span class='badge okb'>";
   html += htmlEscape(webInterfaceName);
+  html += "</span>";
+  html += "<span id='fwVersionBadge' class='badge' title='Firmware-Version - prueft alle 10 Minuten auf GitHub-Updates'>v";
+  html += String(FIRMWARE_VERSION);
   html += "</span>";
   html += navTabsItem("/", "Übersicht", iconHome, current);
   html += "<span class='navDivider'></span>";
