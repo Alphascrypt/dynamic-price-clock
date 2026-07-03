@@ -71,7 +71,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "1.4.1"
+#define FIRMWARE_VERSION "1.5.0"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -503,7 +503,6 @@ void drawOptionalDisplayCharts(Adafruit_GC9A01A &disp);
 uint16_t tftColorFromId(int colorId);
 uint16_t tftBlendColor(uint16_t c1, uint16_t c2, float t);
 uint16_t tftPriceRingColor(int value, int minValue, int maxValue);
-void handleLayoutPage();
 void handleSaveLayout();
 void handleSaveLayoutAjax();
 void saveLayoutFromRequest();
@@ -1516,7 +1515,7 @@ void setup() {
   server.on("/saveringajax", HTTP_POST, handleSaveLedRingAjax);
   server.on("/resetwifi", handleResetWifi);
   server.on("/save", handleSave);
-  server.on("/layout", handleLayoutPage);
+  server.on("/layout", handleDisplaysPage);
   server.on("/savelayout", HTTP_POST, handleSaveLayout);
   server.on("/savelayoutajax", HTTP_POST, handleSaveLayoutAjax);
   server.on("/savelayoutajax", HTTP_GET, handleSaveLayoutAjax);
@@ -4740,11 +4739,18 @@ void handleDisplaysPage() {
   if (!checkAuth()) return;
 
   String html;
-  html.reserve(12000);
+  html.reserve(68000);
 
   html += htmlHeader("Displays");
-  html += "<section class='hero' style='background:linear-gradient(120deg,rgba(167,139,250,.22),rgba(244,114,182,.12))'><h1>Displays</h1><p>Display 1 und Display 2 separat aktivieren, deaktivieren oder als Uhrzeit-/Datumsanzeige verwenden.</p></section>";
+  html += "<section class='hero' style='background:linear-gradient(120deg,rgba(167,139,250,.22),rgba(244,114,182,.12))'><h1>Displays</h1><p>Anzeigemodi, feste Overlays und der freie Layout-Editor fuer Display 1 und Display 2 - an einem Ort.</p></section>";
   html += navTabs("/displays");
+
+  html += "<div class='card' style='display:flex;gap:10px;padding:14px;flex-wrap:wrap'>";
+  html += "<button type='button' id='tabBtn-overlays' onclick=\"switchDpTab('overlays')\">Overlays</button>";
+  html += "<button type='button' id='tabBtn-layout' class='secondary' onclick=\"switchDpTab('layout')\">Layout-Editor</button>";
+  html += "</div>";
+
+  html += "<div id='tabOverlays'>";
 
   html += "<section class='card'><h2>Display-Modi</h2>";
   html += "<form action='/savedisplays' method='post'>";
@@ -4871,7 +4877,7 @@ void handleDisplaysPage() {
   addColorSelect(html, "d2RingNow", "Farbe aktuelle Stunde", display2RingCurrentColorId);
   html += "</div></section>";
 
-  html += "<div class='actions'><button type='submit'>Display-Einstellungen speichern</button><a href='/layout'><button type='button' class='secondary'>Layout bearbeiten</button></a><span id='displayAutoSaveState' class='badge warnb'>Bereit</span></div>";
+  html += "<div class='actions'><button type='submit'>Display-Einstellungen speichern</button><span id='displayAutoSaveState' class='badge warnb'>Bereit</span></div>";
   html += R"JS(
 <script>
 let displayAutoSaveTimer=null;
@@ -4997,6 +5003,218 @@ document.addEventListener('DOMContentLoaded',()=>{
 </script>
 )JS";
   html += "</form></section>";
+  html += "</div>";
+
+  html += "<div id='tabLayout' style='display:none'>";
+  html += R"JS(
+<style>
+.layout-js-wrap{display:grid;gap:18px}
+.layout-actions{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+.layout-box{border:1px solid var(--line);background:var(--overlay-faint);border-radius:18px;padding:14px}
+.layout-box h3{margin:0 0 8px;font-size:16px}.layout-box p{margin:0 0 12px;color:var(--muted);font-size:13px}.layout-box button{width:100%}
+.palette{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:12px 0 16px;max-height:130px;overflow-y:auto;padding:10px;border:1px solid var(--line);border-radius:14px;background:var(--overlay-faint)}
+.palette-hint{width:100%;color:var(--muted);font-size:12px;margin-bottom:2px}
+.palette-group{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.palette-group-label{color:#64748b;font-size:10px;text-transform:uppercase;letter-spacing:.05em;margin-right:1px}
+.palette-chip{background:rgba(96,165,250,.14);border:1px solid rgba(96,165,250,.35);color:var(--text);font-size:11px;font-weight:700;padding:6px 10px;border-radius:999px;cursor:grab;user-select:none;-webkit-user-select:none;touch-action:none}
+.palette-chip:active{cursor:grabbing}
+.palette-ghost{position:fixed;z-index:999999;pointer-events:none;background:linear-gradient(135deg,var(--accent2),#7c3aed);color:#fff;padding:7px 13px;border-radius:10px;font-size:12px;font-weight:700;box-shadow:0 10px 26px rgba(0,0,0,.45)}
+.editor-shell{display:grid;grid-template-columns:190px 1fr 300px;gap:14px;align-items:start}
+.layer-panel{border:1px solid var(--line);background:var(--overlay-faint);border-radius:16px;padding:10px}
+.panel-label{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px}
+.layer-list{display:grid;gap:4px}
+.layer-row{display:grid;grid-template-columns:16px 18px 1fr 20px;gap:6px;align-items:center;padding:7px 6px;border-radius:10px;cursor:pointer;font-size:12px;border:1px solid transparent;transition:background .15s var(--ease),border-color .15s var(--ease)}
+.layer-row:hover{background:var(--overlay-hover)}
+.layer-row.selected{background:var(--accent-tint-bg);border-color:var(--accent-tint-border)}
+.layer-handle{cursor:grab;color:#64748b;touch-action:none;text-align:center}
+.layer-num{color:#64748b;font-weight:800;text-align:center}
+.layer-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.layer-vis{appearance:none;background:transparent;border:0;box-shadow:none;color:var(--ok);width:auto;min-height:auto;padding:0;font-size:13px;cursor:pointer}
+.layer-vis.off{color:#64748b}
+.layer-drop-indicator{height:3px;background:var(--accent);border-radius:2px;margin:2px 4px}
+.canvas-panel{display:flex;flex-direction:column;align-items:center}
+.layout-preview{position:relative;width:240px;height:240px;background-color:#000;background-image:linear-gradient(rgba(255,255,255,.10) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.10) 1px,transparent 1px),linear-gradient(rgba(94,234,212,.18) 1px,transparent 1px),linear-gradient(90deg,rgba(94,234,212,.18) 1px,transparent 1px);background-size:12px 12px,12px 12px,40px 40px,40px 40px;border:2px solid #3b4664;margin:0 auto 8px;border-radius:50%;overflow:hidden;touch-action:none;box-shadow:inset 0 0 24px rgba(96,165,250,.16)}
+.layout-preview:after{content:'240 x 240 rund';position:absolute;right:6px;bottom:4px;color:#64748b;font-size:10px;pointer-events:none}
+.layout-item{position:absolute;color:#fff;border:1px dashed rgba(255,255,255,.42);padding:3px;cursor:grab;user-select:none;-webkit-user-select:none;white-space:nowrap;touch-action:none;background:rgba(96,165,250,.18);border-radius:5px;z-index:20;pointer-events:auto}
+.layout-item:before{content:'';position:absolute;inset:-6px}
+.layout-item.dragging{cursor:grabbing;background:rgba(94,234,212,.35);border-color:rgba(94,234,212,1);box-shadow:0 0 0 2px rgba(94,234,212,.35)}
+.layout-item.selected{outline:2px solid var(--accent);outline-offset:1px;z-index:35}
+.layout-item-num{position:absolute;left:-7px;top:-9px;background:#0b1224;border:1px solid rgba(255,255,255,.4);color:#9aa8c7;font-size:9px;font-weight:800;border-radius:999px;width:15px;height:15px;display:flex;align-items:center;justify-content:center;line-height:1;z-index:1}
+.layout-item-text{pointer-events:none}
+.resize-handle{position:absolute;right:-6px;bottom:-6px;width:13px;height:13px;background:var(--accent);border:2px solid #0b1224;border-radius:50%;cursor:nwse-resize;z-index:40;touch-action:none}
+@keyframes locatePulse{0%{box-shadow:0 0 0 0 rgba(94,234,212,.85)}70%{box-shadow:0 0 0 16px rgba(94,234,212,0)}100%{box-shadow:0 0 0 0 rgba(94,234,212,0)}}
+.layout-item.locate-pulse{animation:locatePulse 1.1s ease-out 2;z-index:30}
+.props-panel{border:1px solid var(--line);background:var(--overlay-faint);border-radius:16px;padding:12px;position:sticky;top:92px;min-height:120px}
+.props-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px}
+.props-head strong{font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.card-head-btns{display:flex;gap:4px;align-items:center;flex:none}
+.icon-btn{appearance:none;background:transparent;border:1px solid var(--line);box-shadow:none;width:28px;height:28px;min-height:28px;padding:0;border-radius:8px;color:var(--muted);font-size:13px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;transition:background .15s var(--ease),color .15s var(--ease)}
+.icon-btn:hover{background:var(--overlay-hover);color:var(--text)}
+.layout-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.layout-fields .wide{grid-column:1/3}.layout-fields label:not(.toggle){display:block;color:var(--muted);font-size:12px;margin-bottom:4px}
+.layout-nudge{display:grid;grid-template-columns:repeat(3,42px);gap:6px;justify-content:center;margin-top:10px;padding:10px;border:1px solid var(--line);border-radius:14px;background:var(--overlay-faint)}
+.layout-nudge button{padding:8px 0;border-radius:10px;box-shadow:none;background:var(--btn-muted);margin:0}.layout-nudge .blank{visibility:hidden}
+.layout-floating{position:fixed;right:18px;bottom:18px;z-index:99999;background:var(--float-bg);border:1px solid var(--float-border);border-radius:18px;padding:10px;box-shadow:0 14px 40px var(--shadow-float);display:flex;gap:8px;align-items:center;backdrop-filter:blur(14px)}
+@media(max-width:1080px){.editor-shell{grid-template-columns:170px 1fr 260px}}
+@media(max-width:900px){.editor-shell{grid-template-columns:1fr}.layer-panel{order:2}.layer-list{display:flex;overflow-x:auto;gap:6px;-webkit-overflow-scrolling:touch}.layer-row{grid-template-columns:14px 16px auto 18px;flex:none;min-width:160px}.canvas-panel{order:1}.props-panel{order:3;position:relative;top:auto}}
+@media(max-width:760px){.layout-floating{left:10px;right:10px;bottom:10px;justify-content:center}.layout-fields{grid-template-columns:1fr}.layout-fields .wide{grid-column:1}}
+</style>
+)JS";
+
+  html += "<section class='card'><div class='panelTitle'><h2>Aktionen</h2><span id='saveState' class='badge warnb'>Bereit</span></div>";
+  html += "<div class='layout-actions'>";
+  html += "<div class='layout-box'><h3>Speichern</h3><p>Speichert per AJAX und aktualisiert die Displays direkt.</p><button class='btnSuccess' type='button' onclick='saveLayoutNow()'>Jetzt speichern</button></div>";
+  html += "<div class='layout-box'><h3>Export</h3><p>Layout als JSON sichern.</p><form action='/exportlayout' method='get'><button class='btnMuted' type='submit'>Layout exportieren</button></form></div>";
+  html += "<div class='layout-box dangerZone'><h3>Zuruecksetzen</h3><p>Standardlayout wiederherstellen.</p><form action='/resetlayout' method='post'><button class='danger' type='submit'>Layout zuruecksetzen</button></form></div>";
+  html += "</div></section>";
+
+  html += "<section class='card'><h2>Presets</h2><div class='presetGrid'>";
+  html += "<form action='/presetlayout' method='post'><input type='hidden' name='preset' value='price'><button type='submit'>Preset: Preis gross</button></form>";
+  html += "<form action='/presetlayout' method='post'><input type='hidden' name='preset' value='low2'><button type='submit'>Preset: Tiefpreis + 2. Tiefpreis</button></form>";
+  html += "<form action='/presetlayout' method='post'><input type='hidden' name='preset' value='compact'><button type='submit'>Preset: Kompakt</button></form>";
+  html += "</div></section>";
+
+  html += "<section class='card'><h2>Layout importieren</h2><form action='/importlayout' method='post'>";
+  html += "<textarea name='json' rows='5' placeholder='Exportiertes Layout-JSON hier einfuegen'></textarea>";
+  html += "<div class='actions'><button type='submit'>Layout importieren</button></div></form></section>";
+
+  html += "<form id='layoutForm' action='/savelayout' method='post'>";
+  for (int d = 1; d <= 2; d++) {
+    LayoutItem* layout = (d == 1) ? d1Layout : d2Layout;
+    for (int i = 0; i < LAYOUT_ITEMS; i++) {
+      String id = "d" + String(d) + "e" + String(i);
+      html += "<input type='hidden' id='" + id + "key' name='" + id + "key' value='" + htmlEscape(layout[i].key) + "'>";
+      html += "<input type='hidden' id='" + id + "txt' name='" + id + "txt' value='" + htmlEscape(layout[i].customText) + "'>";
+      html += "<input type='hidden' id='" + id + "pre' name='" + id + "pre' value='" + htmlEscape(layout[i].prefix) + "'>";
+      html += "<input type='hidden' id='" + id + "suf' name='" + id + "suf' value='" + htmlEscape(layout[i].suffix) + "'>";
+      html += "<input type='hidden' id='" + id + "x' name='" + id + "x' value='" + String(layout[i].x) + "'>";
+      html += "<input type='hidden' id='" + id + "y' name='" + id + "y' value='" + String(layout[i].y) + "'>";
+      html += "<input type='hidden' id='" + id + "s' name='" + id + "s' value='" + String(layout[i].size) + "'>";
+      html += "<input type='hidden' id='" + id + "a' name='" + id + "a' value='" + String(layout[i].autoScale ? 1 : 0) + "'>";
+      html += "<input type='hidden' id='" + id + "al' name='" + id + "al' value='" + String(layout[i].align) + "'>";
+      html += "<input type='hidden' id='" + id + "v' name='" + id + "v' value='" + String(layout[i].visible ? 1 : 0) + "'>";
+    }
+  }
+  html += "</form>";
+
+  html += "<div id='layoutApp' class='layout-js-wrap'></div>";
+  html += "<div class='layout-floating'><button class='btnSuccess' type='button' onclick='saveLayoutNow()'>Speichern</button><span id='floatSaveState' class='badge warnb'>Bereit</span></div>";
+
+  html += R"JS(
+<script>
+const ITEMS = 8;
+const OPTIONS = [
+ ['customText','Text: Eigener Text / Ueberschrift'],
+ ['labelCurrent15','Beschriftung: Aktueller 15-Minuten-Preis'],
+ ['current15','Preis: Aktueller 15-Minuten-Preis jetzt'],
+ ['labelCurrent60','Beschriftung: Aktueller 60-Minuten-Durchschnitt'],
+ ['current60','Preis: Aktueller 60-Minuten-Durchschnitt jetzt'],
+ ['labelDayAvg','Beschriftung: Tagesdurchschnitt'],
+ ['dayAvg','Preis: Tagesdurchschnitt heute'],
+ ['labelLow15','Beschriftung: Tiefster 15-Minuten-Preis'],
+ ['low15Day','Preis: Tiefster 15-Minuten-Preis heute'],
+ ['low15DayTime','Uhrzeit: Start tiefster 15-Minuten-Preis heute'],
+ ['low15DayFull','Kombi: Tiefster 15-Minuten-Preis + Startzeit'],
+ ['labelLow60','Beschriftung: Tiefster 60-Minuten-Block'],
+ ['low60Day','Preis: Guenstigster 60-Minuten-Block heute'],
+ ['low60DayTime','Uhrzeit: Start guenstigster 60-Minuten-Block'],
+ ['low60DayEndTime','Uhrzeit: Ende guenstigster 60-Minuten-Block'],
+ ['low60DayTimeRange','Zeitraum: Guenstigster 60-Minuten-Block'],
+ ['low60DayFull','Kombi: Guenstigster 60-Minuten-Block + Startzeit'],
+ ['low60DayFullRange','Kombi: Guenstigster 60-Minuten-Block + Zeitraum'],
+ ['secondLow60Day','Preis: Zweitguenstigster 60-Minuten-Block heute'],
+ ['secondLow60DayTime','Uhrzeit: Start zweitguenstigster 60-Minuten-Block'],
+ ['secondLow60DayEndTime','Uhrzeit: Ende zweitguenstigster 60-Minuten-Block'],
+ ['secondLow60DayTimeRange','Zeitraum: Zweitguenstigster 60-Minuten-Block'],
+ ['secondLow60DayFull','Kombi: Zweitguenstigster 60-Minuten-Block + Startzeit'],
+ ['secondLow60DayFullRange','Kombi: Zweitguenstigster 60-Minuten-Block + Zeitraum'],
+ ['ip','System: IP-Adresse des ESP32'],
+ ['time','System: Aktuelle Uhrzeit des ESP32'],
+ ['lastUpdate','System: Startzeit aktueller Preis'],
+ ['cpuLoad','System: CPU/Systemlast'],
+ ['freeHeap','System: Freier Heap'],
+ ['uptime','System: Uptime / Laufzeit'],
+ ['error','System: Fehlermeldung / Status']
+];
+const SAMPLE = {customText:'Eigener Text',labelCurrent15:'Aktuell',current15:'24',labelCurrent60:'60 Min',current60:'25',labelDayAvg:'Durchschnitt',dayAvg:'23',labelLow15:'Tief 15',low15Day:'18',low15DayTime:'03:15',low15DayFull:'18 um 03:15',labelLow60:'Tief 60',low60Day:'19',low60DayTime:'03:15',low60DayEndTime:'04:15',low60DayTimeRange:'03:15-04:15',low60DayFull:'19 ab 03:15',low60DayFullRange:'19 03:15-04:15',secondLow60Day:'20',secondLow60DayTime:'05:00',secondLow60DayEndTime:'06:00',secondLow60DayTimeRange:'05:00-06:00',secondLow60DayFull:'20 ab 05:00',secondLow60DayFullRange:'20 05:00-06:00',ip:'192.168.178.55',time:'12:34',lastUpdate:'12:30',cpuLoad:'23%',freeHeap:'180 KB',uptime:'01:23',error:'Status OK'};
+let saveTimer = null;
+let dragEl = null;
+let dragOffX = 0;
+let dragOffY = 0;
+let dragMoved = false;
+let paletteDrag = null;
+const FIELDS = ['key','txt','pre','suf','x','y','s','al','a','v'];
+let selected = {1:0, 2:0};
+function h(id){return document.getElementById(id);}
+function hid(d,i,n){return h('d'+d+'e'+i+n);}
+function getVal(d,i,n){const e=hid(d,i,n);return e?e.value:'';}
+function setVal(d,i,n,v){const e=hid(d,i,n);if(e)e.value=v;}
+function clamp(v,min,max){v=parseInt(v);if(isNaN(v))v=0;if(v<min)v=min;if(v>max)v=max;return v;}
+function setState(t,c){const a=h('saveState');if(a){a.className='badge '+c;a.innerText=t;}const b=h('floatSaveState');if(b){b.className='badge '+c;b.innerText=t;}}
+function optionLabel(key){const o=OPTIONS.find(x=>x[0]===key);return o?o[1]:key;}
+function shortLabel(key){const o=OPTIONS.find(x=>x[0]===key);if(!o)return key;const ix=o[1].indexOf(':');return ix>0?o[1].substring(ix+1).trim():o[1];}
+function groupOf(label){const ix=label.indexOf(':');return ix>0?label.substring(0,ix):'Sonstiges';}
+function itemText(d,i){const key=getVal(d,i,'key');const base=(key==='customText')?(getVal(d,i,'txt')||'Eigener Text'):(SAMPLE[key]||optionLabel(key));return (getVal(d,i,'pre')||'')+base+(getVal(d,i,'suf')||'');}
+function previewEl(d,i){return h('pv_d'+d+'_e'+i);}
+function updateCountBadge(d){let count=0;for(let k=0;k<ITEMS;k++)if(getVal(d,k,'v')==='1')count++;const b=h('countBadge_d'+d);if(b)b.textContent=count+'/8 sichtbar';}
+function refreshLayerRow(d,i){const row=h('layerrow_d'+d+'_e'+i);if(!row)return;const label=row.querySelector('.layer-label');if(label)label.textContent=shortLabel(getVal(d,i,'key'));const vis=getVal(d,i,'v')==='1';const visBtn=row.querySelector('.layer-vis');if(visBtn){visBtn.textContent=vis?'●':'○';visBtn.className='layer-vis'+(vis?'':' off');}updateCountBadge(d);}
+function updatePreview(d,i){const el=previewEl(d,i);if(!el)return;let x=clamp(getVal(d,i,'x'),0,239);let y=clamp(getVal(d,i,'y'),0,239);let s=clamp(getVal(d,i,'s'),1,4);let al=String(getVal(d,i,'al'));let v=String(getVal(d,i,'v'));setVal(d,i,'x',x);setVal(d,i,'y',y);setVal(d,i,'s',s);el.style.left=x+'px';el.style.top=y+'px';el.style.fontSize=(s*10)+'px';el.style.display=(v==='1')?'block':'none';el.style.transform=(al==='1')?'translateX(-50%)':((al==='2')?'translateX(-100%)':'none');const txtSpan=el.querySelector('.layout-item-text');if(txtSpan)txtSpan.textContent=itemText(d,i);refreshLayerRow(d,i);if(Number(selected[d])===Number(i)){const title=h('propsTitle_d'+d);if(title)title.innerText=(Number(i)+1)+'. '+shortLabel(getVal(d,i,'key'));}}
+function scheduleSave(){clearTimeout(saveTimer);setState('Aenderungen...','warnb');saveTimer=setTimeout(saveLayoutNow,400);}
+function saveLayoutNow(){const form=h('layoutForm');if(!form){setState('Kein Formular','errb');return;}const body=new URLSearchParams(new FormData(form)).toString();if(body.length<5){setState('Keine Daten','errb');return;}setState('Speichere...','warnb');fetch('/savelayoutajax',{method:'POST',cache:'no-store',credentials:'same-origin',headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'},body:body}).then(r=>r.text()).then(t=>{if(t.indexOf('OK')>=0){setState('Gespeichert','okb');}else{setState('Fehler','errb');}}).catch(()=>{form.submit();});}
+function controlInput(d,i,n,type,label,min,max,hint){const wrap=document.createElement('div');const lbl=document.createElement('label');lbl.textContent=label;if(hint)lbl.title=hint;wrap.appendChild(lbl);const inp=document.createElement('input');inp.id='ui_d'+d+'_e'+i+'_'+n;inp.type=type;inp.value=getVal(d,i,n);inp.min=min||'';inp.max=max||'';if(hint)inp.title=hint;inp.addEventListener('input',()=>{setVal(d,i,n,inp.value);updatePreview(d,i);scheduleSave();});inp.addEventListener('change',()=>{setVal(d,i,n,inp.value);updatePreview(d,i);saveLayoutNow();});wrap.appendChild(inp);return wrap;}
+function controlSelect(d,i,n,label,arr,hint){const wrap=document.createElement('div');const lbl=document.createElement('label');lbl.textContent=label;if(hint)lbl.title=hint;wrap.appendChild(lbl);const sel=document.createElement('select');sel.id='ui_d'+d+'_e'+i+'_'+n;if(hint)sel.title=hint;arr.forEach(o=>{const opt=document.createElement('option');opt.value=o[0];opt.textContent=o[1];if(String(getVal(d,i,n))===String(o[0]))opt.selected=true;sel.appendChild(opt);});sel.addEventListener('change',()=>{setVal(d,i,n,sel.value);updatePreview(d,i);saveLayoutNow();});wrap.appendChild(sel);return wrap;}
+function controlToggle(d,i,n,label,hint){const wrap=document.createElement('div');wrap.className='toggleRow';const lbl=document.createElement('label');lbl.textContent=label;if(hint)lbl.title=hint;const toggle=document.createElement('label');toggle.className='toggle';const cb=document.createElement('input');cb.type='checkbox';cb.id='ui_d'+d+'_e'+i+'_'+n;cb.checked=getVal(d,i,n)==='1';if(hint)toggle.title=hint;cb.addEventListener('change',()=>{setVal(d,i,n,cb.checked?'1':'0');updatePreview(d,i);saveLayoutNow();});const slider=document.createElement('span');slider.className='toggleSlider';toggle.appendChild(cb);toggle.appendChild(slider);wrap.appendChild(lbl);wrap.appendChild(toggle);return wrap;}
+function controlKeySelect(d,i){const wrap=document.createElement('div');wrap.className='wide';wrap.innerHTML='<label>Wert / Anzeigeinhalt</label>';const sel=document.createElement('select');sel.id='ui_d'+d+'_e'+i+'_key';const groups={};OPTIONS.forEach(o=>{const g=groupOf(o[1]);if(!groups[g]){groups[g]=document.createElement('optgroup');groups[g].label=g;sel.appendChild(groups[g]);}const opt=document.createElement('option');opt.value=o[0];opt.textContent=shortLabel(o[0]);if(String(getVal(d,i,'key'))===String(o[0]))opt.selected=true;groups[g].appendChild(opt);});sel.addEventListener('change',()=>{setVal(d,i,'key',sel.value);updatePreview(d,i);saveLayoutNow();});wrap.appendChild(sel);return wrap;}
+function setControl(d,i,n,v){const el=h('ui_d'+d+'_e'+i+'_'+n);if(el){if(el.type==='checkbox'){el.checked=(String(v)==='1');}else{el.value=v;}el.dispatchEvent(new Event('change'));}else{setVal(d,i,n,v);updatePreview(d,i);}}
+function resetElement(d,i){if(!confirm('Element '+(Number(i)+1)+' auf Display '+d+' wirklich zuruecksetzen?'))return;setState('Setze zurueck...','warnb');setControl(d,i,'key','customText');setControl(d,i,'txt','Text '+(Number(i)+1));setControl(d,i,'pre','');setControl(d,i,'suf','');setControl(d,i,'x',20);setControl(d,i,'y',20+Number(i)*24);setControl(d,i,'s',2);setControl(d,i,'al','0');setControl(d,i,'a','1');setControl(d,i,'v','0');}
+function copyToOther(d,i){const od=(Number(d)===1)?2:1;FIELDS.forEach(n=>setControl(od,i,n,getVal(d,i,n)));showToast('Auf Display '+od+' kopiert','ok');}
+function locateItem(d,i){const el=previewEl(d,i);if(!el)return;el.scrollIntoView({behavior:'smooth',block:'center'});el.classList.add('locate-pulse');setTimeout(()=>el.classList.remove('locate-pulse'),1200);}
+function findFreeSlot(d){for(let i=0;i<ITEMS;i++){if(getVal(d,i,'v')!=='1')return i;}return -1;}
+function addElementFromPalette(d,key,x,y){const free=findFreeSlot(d);if(free===-1){showToast('Alle 8 Plaetze auf Display '+d+' sind belegt.','err');return;}setControl(d,free,'key',key);if(key==='customText')setControl(d,free,'txt','Neuer Text');setControl(d,free,'x',x);setControl(d,free,'y',y);setControl(d,free,'v','1');selectSlot(d,free);showToast('Element hinzugefuegt','ok');}
+function point(e){if(e.touches&&e.touches.length)return{x:e.touches[0].clientX,y:e.touches[0].clientY};return{x:e.clientX,y:e.clientY};}
+function buildPalette(d){const wrap=h('palette_d'+d);if(!wrap)return;wrap.innerHTML='';const hint=document.createElement('div');hint.className='palette-hint';hint.textContent='Element auf die Vorschau ziehen, um es hinzuzufuegen:';wrap.appendChild(hint);const groups={};OPTIONS.forEach(o=>{const g=groupOf(o[1]);if(!groups[g]){groups[g]=document.createElement('div');groups[g].className='palette-group';const lbl=document.createElement('span');lbl.className='palette-group-label';lbl.textContent=g;groups[g].appendChild(lbl);wrap.appendChild(groups[g]);}const chip=document.createElement('span');chip.className='palette-chip';chip.textContent=shortLabel(o[0]);chip.addEventListener('pointerdown',e=>paletteDragStart(e,d,o[0],shortLabel(o[0])));groups[g].appendChild(chip);});}
+function paletteDragStart(e,d,key,label){e.preventDefault();const ghost=document.createElement('div');ghost.className='palette-ghost';ghost.textContent=label;document.body.appendChild(ghost);paletteDrag={ghost:ghost,d:d,key:key};movePaletteGhost(e);document.addEventListener('pointermove',movePaletteGhost);document.addEventListener('pointerup',paletteDragEnd,{once:true});}
+function movePaletteGhost(e){if(!paletteDrag)return;const p=point(e);paletteDrag.ghost.style.left=(p.x+12)+'px';paletteDrag.ghost.style.top=(p.y+12)+'px';}
+function paletteDragEnd(e){if(!paletteDrag)return;document.removeEventListener('pointermove',movePaletteGhost);const p=point(e);const d=paletteDrag.d;const prev=h('preview_d'+d);if(prev){const r=prev.getBoundingClientRect();if(p.x>=r.left&&p.x<=r.right&&p.y>=r.top&&p.y<=r.bottom){const relX=clamp(Math.round((p.x-r.left)/r.width*240),0,239);const relY=clamp(Math.round((p.y-r.top)/r.height*240),0,239);addElementFromPalette(d,paletteDrag.key,relX,relY);}}paletteDrag.ghost.remove();paletteDrag=null;}
+function moveBy(d,i,dx,dy){let x=clamp(getVal(d,i,'x'),0,239)+dx;let y=clamp(getVal(d,i,'y'),0,239)+dy;setVal(d,i,'x',clamp(x,0,239));setVal(d,i,'y',clamp(y,0,239));const ux=h('ui_d'+d+'_e'+i+'_x');const uy=h('ui_d'+d+'_e'+i+'_y');if(ux)ux.value=getVal(d,i,'x');if(uy)uy.value=getVal(d,i,'y');updatePreview(d,i);scheduleSave();}
+function startResizeDrag(e,d,i){e.preventDefault();e.stopPropagation();const startP=point(e);const startSize=clamp(getVal(d,i,'s'),1,4);function onMove(ev){const p=point(ev);const delta=(p.x-startP.x)+(p.y-startP.y);const steps=Math.round(delta/18);const newSize=clamp(startSize+steps,1,4);setVal(d,i,'s',newSize);updatePreview(d,i);const el=h('ui_d'+d+'_e'+i+'_s');if(el)el.value=newSize;}function onUp(){document.removeEventListener('pointermove',onMove);document.removeEventListener('pointerup',onUp);saveLayoutNow();}document.addEventListener('pointermove',onMove);document.addEventListener('pointerup',onUp);}
+function itemPointerDown(e,node,d,i){e.preventDefault();dragEl=node;dragMoved=false;selectSlot(d,i);dragEl.classList.add('dragging');const p=point(e);const r=node.getBoundingClientRect();dragOffX=p.x-r.left;dragOffY=p.y-r.top;document.body.style.userSelect='none';}
+function onItemPointerMove(e){if(!dragEl)return;if(e.preventDefault)e.preventDefault();dragMoved=true;const p=point(e);const box=dragEl.parentElement.getBoundingClientRect();let px=Math.round((p.x-box.left-dragOffX)/4)*4;let py=Math.round((p.y-box.top-dragOffY)/4)*4;if(px<0)px=0;if(px>239)px=239;if(py<0)py=0;if(py>239)py=239;const d=dragEl.dataset.d;const i=dragEl.dataset.i;setVal(d,i,'x',clamp(Math.round(px),0,239));setVal(d,i,'y',clamp(Math.round(py),0,239));const ux=h('ui_d'+d+'_e'+i+'_x');const uy=h('ui_d'+d+'_e'+i+'_y');if(ux)ux.value=getVal(d,i,'x');if(uy)uy.value=getVal(d,i,'y');updatePreview(d,i);}
+function onItemPointerUp(){if(!dragEl)return;dragEl.classList.remove('dragging');dragEl=null;document.body.style.userSelect='';if(dragMoved)saveLayoutNow();}
+document.addEventListener('pointermove',onItemPointerMove);document.addEventListener('pointerup',onItemPointerUp);
+function selectSlot(d,i){selected[d]=i;const prev=h('preview_d'+d);if(prev){prev.querySelectorAll('.layout-item.selected').forEach(el=>{el.classList.remove('selected');const hd=el.querySelector('.resize-handle');if(hd)hd.remove();});}const item=previewEl(d,i);if(item){item.classList.add('selected');const handle=document.createElement('span');handle.className='resize-handle';handle.addEventListener('pointerdown',e=>startResizeDrag(e,d,i));item.appendChild(handle);}const lyr=h('layers_d'+d);if(lyr){lyr.querySelectorAll('.layer-row.selected').forEach(el=>el.classList.remove('selected'));}const row=h('layerrow_d'+d+'_e'+i);if(row)row.classList.add('selected');renderProps(d,i);}
+function renderProps(d,i){const wrap=h('props_d'+d);if(!wrap)return;wrap.innerHTML='';const head=document.createElement('div');head.className='props-head';head.innerHTML='<strong id="propsTitle_d'+d+'">'+(Number(i)+1)+'. '+shortLabel(getVal(d,i,'key'))+'</strong><div class="card-head-btns"><button type="button" class="icon-btn" title="Auf Vorschau zeigen">◎</button><button type="button" class="icon-btn" title="Auf anderes Display kopieren">⇄</button><button type="button" class="icon-btn" title="Element zuruecksetzen">↺</button></div>';wrap.appendChild(head);const btns=head.querySelectorAll('.icon-btn');btns[0].onclick=()=>locateItem(d,i);btns[1].onclick=()=>copyToOther(d,i);btns[2].onclick=()=>resetElement(d,i);const grid=document.createElement('div');grid.className='layout-fields';grid.appendChild(controlKeySelect(d,i));const txt=controlInput(d,i,'txt','text','Eigener Text','','','Nur relevant, wenn oben "Eigener Text" als Wert gewaehlt ist.');txt.className='wide';grid.appendChild(txt);grid.appendChild(controlInput(d,i,'pre','text','Text davor (Praefix)','','','Wird direkt vor dem Wert eingefuegt, z.B. "ab " vor einer Uhrzeit.'));grid.appendChild(controlInput(d,i,'suf','text','Text danach (Suffix)','','','Wird direkt nach dem Wert eingefuegt, z.B. " ct" hinter einem Preis.'));grid.appendChild(controlInput(d,i,'x','number','Position X (0-239 px)','0','239','Waagerechte Position auf dem 240x239 Pixel runden Display.'));grid.appendChild(controlInput(d,i,'y','number','Position Y (0-239 px)','0','239','Senkrechte Position auf dem 240x239 Pixel runden Display.'));grid.appendChild(controlInput(d,i,'s','number','Schriftgroesse (Stufe 1-4)','1','4','Stufe 1 = klein, Stufe 4 = sehr gross. Keine Pixelangabe.'));grid.appendChild(controlSelect(d,i,'al','Ausrichtung',[['0','Links'],['1','Zentriert'],['2','Rechts']],'Woran sich der Text an der X-Position ausrichtet.'));grid.appendChild(controlToggle(d,i,'a','Automatische Groesse','Passt die Schriftgroesse automatisch an die Textlaenge an.'));grid.appendChild(controlToggle(d,i,'v','Sichtbar','Element auf dem Display ein- oder ausblenden, ohne es zu loeschen.'));wrap.appendChild(grid);const nudge=document.createElement('div');nudge.className='layout-nudge';nudge.innerHTML='<span class="blank"></span><button type="button">&uarr;</button><span class="blank"></span><button type="button">&larr;</button><button type="button">&darr;</button><button type="button">&rarr;</button>';const b=nudge.querySelectorAll('button');b[0].onclick=()=>moveBy(d,i,0,-4);b[1].onclick=()=>moveBy(d,i,-4,0);b[2].onclick=()=>moveBy(d,i,0,4);b[3].onclick=()=>moveBy(d,i,4,0);wrap.appendChild(nudge);if(window.innerWidth<900){wrap.scrollIntoView({behavior:'smooth',block:'nearest'});}}
+function renderLayerList(d){const wrap=h('layers_d'+d);if(!wrap)return;wrap.innerHTML='';for(let i=0;i<ITEMS;i++){const row=document.createElement('div');row.className='layer-row';row.id='layerrow_d'+d+'_e'+i;row.dataset.d=d;row.dataset.i=i;const vis=getVal(d,i,'v')==='1';row.innerHTML='<span class="layer-handle" title="Ziehen zum Sortieren">⋮⋮</span><span class="layer-num">'+(i+1)+'</span><span class="layer-label">'+shortLabel(getVal(d,i,'key'))+'</span><button type="button" class="layer-vis'+(vis?'':' off')+'">'+(vis?'●':'○')+'</button>';row.querySelector('.layer-label').addEventListener('click',()=>selectSlot(d,i));row.querySelector('.layer-num').addEventListener('click',()=>selectSlot(d,i));row.querySelector('.layer-vis').addEventListener('click',e=>{e.stopPropagation();toggleVisible(d,i);});row.querySelector('.layer-handle').addEventListener('pointerdown',e=>startReorderDrag(e,d,i));if(Number(selected[d])===i)row.classList.add('selected');wrap.appendChild(row);}updateCountBadge(d);}
+function toggleVisible(d,i){const cur=getVal(d,i,'v');setControl(d,i,'v',cur==='1'?'0':'1');if(Number(selected[d])===Number(i))renderProps(d,i);}
+function startReorderDrag(e,d,i){e.preventDefault();const wrap=h('layers_d'+d);if(!wrap)return;const rows=Array.from(wrap.querySelectorAll('.layer-row'));let targetIndex=Number(i);const indicator=document.createElement('div');indicator.className='layer-drop-indicator';function onMove(ev){const p=point(ev);let placed=false;for(const row of rows){const r=row.getBoundingClientRect();if(p.y>=r.top&&p.y<=r.bottom){const before=p.y<(r.top+r.height/2);row[before?'before':'after'](indicator);targetIndex=Number(row.dataset.i);if(!before)targetIndex+=1;placed=true;break;}}if(!placed&&indicator.parentElement!==wrap)wrap.appendChild(indicator);}function onUp(){document.removeEventListener('pointermove',onMove);document.removeEventListener('pointerup',onUp);indicator.remove();let to=targetIndex;if(to>Number(i))to-=1;to=clamp(to,0,ITEMS-1);moveSlot(d,Number(i),to);}wrap.appendChild(indicator);document.addEventListener('pointermove',onMove);document.addEventListener('pointerup',onUp);}
+function moveSlot(d,from,to){if(from===to)return;const data=[];for(let k=0;k<ITEMS;k++){const o={};FIELDS.forEach(n=>o[n]=getVal(d,k,n));data.push(o);}const moved=data.splice(from,1)[0];data.splice(to,0,moved);data.forEach((o,k)=>FIELDS.forEach(n=>setVal(d,k,n,o[n])));selected[d]=to;renderLayerList(d);for(let k=0;k<ITEMS;k++)updatePreview(d,k);selectSlot(d,to);scheduleSave();}
+function makeDisplay(d){const section=document.createElement('section');section.className='card layoutPanel';section.id='display-'+d;section.innerHTML='<div class="panelTitle"><h2>Display '+d+'</h2><span class="badge okb" id="countBadge_d'+d+'">8/8 sichtbar</span></div><div class="palette" id="palette_d'+d+'"></div><div class="editor-shell"><div class="layer-panel"><div class="panel-label">Ebenen</div><div class="layer-list" id="layers_d'+d+'"></div></div><div class="canvas-panel"><div class="layout-preview" id="preview_d'+d+'"></div><p class="small" style="text-align:center">Ziehen zum Verschieben, Punkt unten rechts zum Skalieren.</p></div><div class="props-panel" id="props_d'+d+'"></div></div>';document.getElementById('layoutApp').appendChild(section);buildPalette(d);const prev=h('preview_d'+d);for(let i=0;i<ITEMS;i++){const item=document.createElement('div');item.className='layout-item';item.id='pv_d'+d+'_e'+i;item.dataset.d=d;item.dataset.i=i;item.innerHTML='<span class="layout-item-num">'+(i+1)+'</span><span class="layout-item-text"></span>';item.addEventListener('pointerdown',e=>itemPointerDown(e,item,d,i));prev.appendChild(item);}renderLayerList(d);for(let i=0;i<ITEMS;i++)updatePreview(d,i);selectSlot(d,0);}
+document.addEventListener('DOMContentLoaded',()=>{makeDisplay(1);makeDisplay(2);});
+</script>
+)JS";
+
+  html += "</div>";
+
+  html += R"JS(
+<script>
+function switchDpTab(name){
+  var isOverlays = (name==='overlays');
+  var ov=document.getElementById('tabOverlays');
+  var la=document.getElementById('tabLayout');
+  if(ov)ov.style.display=isOverlays?'':'none';
+  if(la)la.style.display=isOverlays?'none':'';
+  var b1=document.getElementById('tabBtn-overlays');
+  var b2=document.getElementById('tabBtn-layout');
+  if(b1)b1.className=isOverlays?'':'secondary';
+  if(b2)b2.className=isOverlays?'secondary':'';
+  try{localStorage.setItem('dpTab',name);}catch(e){}
+}
+(function(){
+  var t='overlays';
+  try{t=localStorage.getItem('dpTab')||'overlays';}catch(e){}
+  switchDpTab(t);
+})();
+</script>
+)JS";
 
   html += htmlFooter();
   server.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
@@ -5683,206 +5901,6 @@ void handleSaveMatrixAjax() {
 // Layout Editor
 // -----------------------------------------------------------------------------
 
-void handleLayoutPage() {
-  if (!checkAuth()) return;
-
-  String html;
-  html.reserve(52000);
-
-  html += htmlHeader("Layout Editor");
-  html += "<section class='hero' style='background:linear-gradient(120deg,rgba(244,114,182,.22),rgba(167,139,250,.14))'><h1>Layout Editor</h1><p>JavaScript-Editor fuer Display 1 und Display 2.</p></section>";
-  html += navTabs("/layout");
-
-  html += R"JS(
-<style>
-.layout-js-wrap{display:grid;gap:18px}
-.layout-actions{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
-.layout-box{border:1px solid var(--line);background:var(--overlay-faint);border-radius:18px;padding:14px}
-.layout-box h3{margin:0 0 8px;font-size:16px}.layout-box p{margin:0 0 12px;color:var(--muted);font-size:13px}.layout-box button{width:100%}
-.palette{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:12px 0 16px;max-height:130px;overflow-y:auto;padding:10px;border:1px solid var(--line);border-radius:14px;background:var(--overlay-faint)}
-.palette-hint{width:100%;color:var(--muted);font-size:12px;margin-bottom:2px}
-.palette-group{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
-.palette-group-label{color:#64748b;font-size:10px;text-transform:uppercase;letter-spacing:.05em;margin-right:1px}
-.palette-chip{background:rgba(96,165,250,.14);border:1px solid rgba(96,165,250,.35);color:var(--text);font-size:11px;font-weight:700;padding:6px 10px;border-radius:999px;cursor:grab;user-select:none;-webkit-user-select:none;touch-action:none}
-.palette-chip:active{cursor:grabbing}
-.palette-ghost{position:fixed;z-index:999999;pointer-events:none;background:linear-gradient(135deg,var(--accent2),#7c3aed);color:#fff;padding:7px 13px;border-radius:10px;font-size:12px;font-weight:700;box-shadow:0 10px 26px rgba(0,0,0,.45)}
-.editor-shell{display:grid;grid-template-columns:190px 1fr 300px;gap:14px;align-items:start}
-.layer-panel{border:1px solid var(--line);background:var(--overlay-faint);border-radius:16px;padding:10px}
-.panel-label{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px}
-.layer-list{display:grid;gap:4px}
-.layer-row{display:grid;grid-template-columns:16px 18px 1fr 20px;gap:6px;align-items:center;padding:7px 6px;border-radius:10px;cursor:pointer;font-size:12px;border:1px solid transparent;transition:background .15s var(--ease),border-color .15s var(--ease)}
-.layer-row:hover{background:var(--overlay-hover)}
-.layer-row.selected{background:var(--accent-tint-bg);border-color:var(--accent-tint-border)}
-.layer-handle{cursor:grab;color:#64748b;touch-action:none;text-align:center}
-.layer-num{color:#64748b;font-weight:800;text-align:center}
-.layer-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.layer-vis{appearance:none;background:transparent;border:0;box-shadow:none;color:var(--ok);width:auto;min-height:auto;padding:0;font-size:13px;cursor:pointer}
-.layer-vis.off{color:#64748b}
-.layer-drop-indicator{height:3px;background:var(--accent);border-radius:2px;margin:2px 4px}
-.canvas-panel{display:flex;flex-direction:column;align-items:center}
-.layout-preview{position:relative;width:240px;height:240px;background-color:#000;background-image:linear-gradient(rgba(255,255,255,.10) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.10) 1px,transparent 1px),linear-gradient(rgba(94,234,212,.18) 1px,transparent 1px),linear-gradient(90deg,rgba(94,234,212,.18) 1px,transparent 1px);background-size:12px 12px,12px 12px,40px 40px,40px 40px;border:2px solid #3b4664;margin:0 auto 8px;border-radius:50%;overflow:hidden;touch-action:none;box-shadow:inset 0 0 24px rgba(96,165,250,.16)}
-.layout-preview:after{content:'240 x 240 rund';position:absolute;right:6px;bottom:4px;color:#64748b;font-size:10px;pointer-events:none}
-.layout-item{position:absolute;color:#fff;border:1px dashed rgba(255,255,255,.42);padding:3px;cursor:grab;user-select:none;-webkit-user-select:none;white-space:nowrap;touch-action:none;background:rgba(96,165,250,.18);border-radius:5px;z-index:20;pointer-events:auto}
-.layout-item:before{content:'';position:absolute;inset:-6px}
-.layout-item.dragging{cursor:grabbing;background:rgba(94,234,212,.35);border-color:rgba(94,234,212,1);box-shadow:0 0 0 2px rgba(94,234,212,.35)}
-.layout-item.selected{outline:2px solid var(--accent);outline-offset:1px;z-index:35}
-.layout-item-num{position:absolute;left:-7px;top:-9px;background:#0b1224;border:1px solid rgba(255,255,255,.4);color:#9aa8c7;font-size:9px;font-weight:800;border-radius:999px;width:15px;height:15px;display:flex;align-items:center;justify-content:center;line-height:1;z-index:1}
-.layout-item-text{pointer-events:none}
-.resize-handle{position:absolute;right:-6px;bottom:-6px;width:13px;height:13px;background:var(--accent);border:2px solid #0b1224;border-radius:50%;cursor:nwse-resize;z-index:40;touch-action:none}
-@keyframes locatePulse{0%{box-shadow:0 0 0 0 rgba(94,234,212,.85)}70%{box-shadow:0 0 0 16px rgba(94,234,212,0)}100%{box-shadow:0 0 0 0 rgba(94,234,212,0)}}
-.layout-item.locate-pulse{animation:locatePulse 1.1s ease-out 2;z-index:30}
-.props-panel{border:1px solid var(--line);background:var(--overlay-faint);border-radius:16px;padding:12px;position:sticky;top:92px;min-height:120px}
-.props-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px}
-.props-head strong{font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.card-head-btns{display:flex;gap:4px;align-items:center;flex:none}
-.icon-btn{appearance:none;background:transparent;border:1px solid var(--line);box-shadow:none;width:28px;height:28px;min-height:28px;padding:0;border-radius:8px;color:var(--muted);font-size:13px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;transition:background .15s var(--ease),color .15s var(--ease)}
-.icon-btn:hover{background:var(--overlay-hover);color:var(--text)}
-.layout-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.layout-fields .wide{grid-column:1/3}.layout-fields label:not(.toggle){display:block;color:var(--muted);font-size:12px;margin-bottom:4px}
-.layout-nudge{display:grid;grid-template-columns:repeat(3,42px);gap:6px;justify-content:center;margin-top:10px;padding:10px;border:1px solid var(--line);border-radius:14px;background:var(--overlay-faint)}
-.layout-nudge button{padding:8px 0;border-radius:10px;box-shadow:none;background:var(--btn-muted);margin:0}.layout-nudge .blank{visibility:hidden}
-.layout-floating{position:fixed;right:18px;bottom:18px;z-index:99999;background:var(--float-bg);border:1px solid var(--float-border);border-radius:18px;padding:10px;box-shadow:0 14px 40px var(--shadow-float);display:flex;gap:8px;align-items:center;backdrop-filter:blur(14px)}
-@media(max-width:1080px){.editor-shell{grid-template-columns:170px 1fr 260px}}
-@media(max-width:900px){.editor-shell{grid-template-columns:1fr}.layer-panel{order:2}.layer-list{display:flex;overflow-x:auto;gap:6px;-webkit-overflow-scrolling:touch}.layer-row{grid-template-columns:14px 16px auto 18px;flex:none;min-width:160px}.canvas-panel{order:1}.props-panel{order:3;position:relative;top:auto}}
-@media(max-width:760px){.layout-floating{left:10px;right:10px;bottom:10px;justify-content:center}.layout-fields{grid-template-columns:1fr}.layout-fields .wide{grid-column:1}}
-</style>
-)JS";
-
-  html += "<section class='card'><div class='panelTitle'><h2>Aktionen</h2><span id='saveState' class='badge warnb'>Bereit</span></div>";
-  html += "<div class='layout-actions'>";
-  html += "<div class='layout-box'><h3>Speichern</h3><p>Speichert per AJAX und aktualisiert die Displays direkt.</p><button class='btnSuccess' type='button' onclick='saveLayoutNow()'>Jetzt speichern</button></div>";
-  html += "<div class='layout-box'><h3>Export</h3><p>Layout als JSON sichern.</p><form action='/exportlayout' method='get'><button class='btnMuted' type='submit'>Layout exportieren</button></form></div>";
-  html += "<div class='layout-box dangerZone'><h3>Zuruecksetzen</h3><p>Standardlayout wiederherstellen.</p><form action='/resetlayout' method='post'><button class='danger' type='submit'>Layout zuruecksetzen</button></form></div>";
-  html += "</div></section>";
-
-  html += "<section class='card'><h2>Presets</h2><div class='presetGrid'>";
-  html += "<form action='/presetlayout' method='post'><input type='hidden' name='preset' value='price'><button type='submit'>Preset: Preis gross</button></form>";
-  html += "<form action='/presetlayout' method='post'><input type='hidden' name='preset' value='low2'><button type='submit'>Preset: Tiefpreis + 2. Tiefpreis</button></form>";
-  html += "<form action='/presetlayout' method='post'><input type='hidden' name='preset' value='compact'><button type='submit'>Preset: Kompakt</button></form>";
-  html += "</div></section>";
-
-  html += "<section class='card'><h2>Layout importieren</h2><form action='/importlayout' method='post'>";
-  html += "<textarea name='json' rows='5' placeholder='Exportiertes Layout-JSON hier einfuegen'></textarea>";
-  html += "<div class='actions'><button type='submit'>Layout importieren</button></div></form></section>";
-
-  html += "<form id='layoutForm' action='/savelayout' method='post'>";
-  for (int d = 1; d <= 2; d++) {
-    LayoutItem* layout = (d == 1) ? d1Layout : d2Layout;
-    for (int i = 0; i < LAYOUT_ITEMS; i++) {
-      String id = "d" + String(d) + "e" + String(i);
-      html += "<input type='hidden' id='" + id + "key' name='" + id + "key' value='" + htmlEscape(layout[i].key) + "'>";
-      html += "<input type='hidden' id='" + id + "txt' name='" + id + "txt' value='" + htmlEscape(layout[i].customText) + "'>";
-      html += "<input type='hidden' id='" + id + "pre' name='" + id + "pre' value='" + htmlEscape(layout[i].prefix) + "'>";
-      html += "<input type='hidden' id='" + id + "suf' name='" + id + "suf' value='" + htmlEscape(layout[i].suffix) + "'>";
-      html += "<input type='hidden' id='" + id + "x' name='" + id + "x' value='" + String(layout[i].x) + "'>";
-      html += "<input type='hidden' id='" + id + "y' name='" + id + "y' value='" + String(layout[i].y) + "'>";
-      html += "<input type='hidden' id='" + id + "s' name='" + id + "s' value='" + String(layout[i].size) + "'>";
-      html += "<input type='hidden' id='" + id + "a' name='" + id + "a' value='" + String(layout[i].autoScale ? 1 : 0) + "'>";
-      html += "<input type='hidden' id='" + id + "al' name='" + id + "al' value='" + String(layout[i].align) + "'>";
-      html += "<input type='hidden' id='" + id + "v' name='" + id + "v' value='" + String(layout[i].visible ? 1 : 0) + "'>";
-    }
-  }
-  html += "</form>";
-
-  html += "<div id='layoutApp' class='layout-js-wrap'></div>";
-  html += "<div class='layout-floating'><button class='btnSuccess' type='button' onclick='saveLayoutNow()'>Speichern</button><span id='floatSaveState' class='badge warnb'>Bereit</span></div>";
-
-  html += R"JS(
-<script>
-const ITEMS = 8;
-const OPTIONS = [
- ['customText','Text: Eigener Text / Ueberschrift'],
- ['labelCurrent15','Beschriftung: Aktueller 15-Minuten-Preis'],
- ['current15','Preis: Aktueller 15-Minuten-Preis jetzt'],
- ['labelCurrent60','Beschriftung: Aktueller 60-Minuten-Durchschnitt'],
- ['current60','Preis: Aktueller 60-Minuten-Durchschnitt jetzt'],
- ['labelDayAvg','Beschriftung: Tagesdurchschnitt'],
- ['dayAvg','Preis: Tagesdurchschnitt heute'],
- ['labelLow15','Beschriftung: Tiefster 15-Minuten-Preis'],
- ['low15Day','Preis: Tiefster 15-Minuten-Preis heute'],
- ['low15DayTime','Uhrzeit: Start tiefster 15-Minuten-Preis heute'],
- ['low15DayFull','Kombi: Tiefster 15-Minuten-Preis + Startzeit'],
- ['labelLow60','Beschriftung: Tiefster 60-Minuten-Block'],
- ['low60Day','Preis: Guenstigster 60-Minuten-Block heute'],
- ['low60DayTime','Uhrzeit: Start guenstigster 60-Minuten-Block'],
- ['low60DayEndTime','Uhrzeit: Ende guenstigster 60-Minuten-Block'],
- ['low60DayTimeRange','Zeitraum: Guenstigster 60-Minuten-Block'],
- ['low60DayFull','Kombi: Guenstigster 60-Minuten-Block + Startzeit'],
- ['low60DayFullRange','Kombi: Guenstigster 60-Minuten-Block + Zeitraum'],
- ['secondLow60Day','Preis: Zweitguenstigster 60-Minuten-Block heute'],
- ['secondLow60DayTime','Uhrzeit: Start zweitguenstigster 60-Minuten-Block'],
- ['secondLow60DayEndTime','Uhrzeit: Ende zweitguenstigster 60-Minuten-Block'],
- ['secondLow60DayTimeRange','Zeitraum: Zweitguenstigster 60-Minuten-Block'],
- ['secondLow60DayFull','Kombi: Zweitguenstigster 60-Minuten-Block + Startzeit'],
- ['secondLow60DayFullRange','Kombi: Zweitguenstigster 60-Minuten-Block + Zeitraum'],
- ['ip','System: IP-Adresse des ESP32'],
- ['time','System: Aktuelle Uhrzeit des ESP32'],
- ['lastUpdate','System: Startzeit aktueller Preis'],
- ['cpuLoad','System: CPU/Systemlast'],
- ['freeHeap','System: Freier Heap'],
- ['uptime','System: Uptime / Laufzeit'],
- ['error','System: Fehlermeldung / Status']
-];
-const SAMPLE = {customText:'Eigener Text',labelCurrent15:'Aktuell',current15:'24',labelCurrent60:'60 Min',current60:'25',labelDayAvg:'Durchschnitt',dayAvg:'23',labelLow15:'Tief 15',low15Day:'18',low15DayTime:'03:15',low15DayFull:'18 um 03:15',labelLow60:'Tief 60',low60Day:'19',low60DayTime:'03:15',low60DayEndTime:'04:15',low60DayTimeRange:'03:15-04:15',low60DayFull:'19 ab 03:15',low60DayFullRange:'19 03:15-04:15',secondLow60Day:'20',secondLow60DayTime:'05:00',secondLow60DayEndTime:'06:00',secondLow60DayTimeRange:'05:00-06:00',secondLow60DayFull:'20 ab 05:00',secondLow60DayFullRange:'20 05:00-06:00',ip:'192.168.178.55',time:'12:34',lastUpdate:'12:30',cpuLoad:'23%',freeHeap:'180 KB',uptime:'01:23',error:'Status OK'};
-let saveTimer = null;
-let dragEl = null;
-let dragOffX = 0;
-let dragOffY = 0;
-let dragMoved = false;
-let paletteDrag = null;
-const FIELDS = ['key','txt','pre','suf','x','y','s','al','a','v'];
-let selected = {1:0, 2:0};
-function h(id){return document.getElementById(id);}
-function hid(d,i,n){return h('d'+d+'e'+i+n);}
-function getVal(d,i,n){const e=hid(d,i,n);return e?e.value:'';}
-function setVal(d,i,n,v){const e=hid(d,i,n);if(e)e.value=v;}
-function clamp(v,min,max){v=parseInt(v);if(isNaN(v))v=0;if(v<min)v=min;if(v>max)v=max;return v;}
-function setState(t,c){const a=h('saveState');if(a){a.className='badge '+c;a.innerText=t;}const b=h('floatSaveState');if(b){b.className='badge '+c;b.innerText=t;}}
-function optionLabel(key){const o=OPTIONS.find(x=>x[0]===key);return o?o[1]:key;}
-function shortLabel(key){const o=OPTIONS.find(x=>x[0]===key);if(!o)return key;const ix=o[1].indexOf(':');return ix>0?o[1].substring(ix+1).trim():o[1];}
-function groupOf(label){const ix=label.indexOf(':');return ix>0?label.substring(0,ix):'Sonstiges';}
-function itemText(d,i){const key=getVal(d,i,'key');const base=(key==='customText')?(getVal(d,i,'txt')||'Eigener Text'):(SAMPLE[key]||optionLabel(key));return (getVal(d,i,'pre')||'')+base+(getVal(d,i,'suf')||'');}
-function previewEl(d,i){return h('pv_d'+d+'_e'+i);}
-function updateCountBadge(d){let count=0;for(let k=0;k<ITEMS;k++)if(getVal(d,k,'v')==='1')count++;const b=h('countBadge_d'+d);if(b)b.textContent=count+'/8 sichtbar';}
-function refreshLayerRow(d,i){const row=h('layerrow_d'+d+'_e'+i);if(!row)return;const label=row.querySelector('.layer-label');if(label)label.textContent=shortLabel(getVal(d,i,'key'));const vis=getVal(d,i,'v')==='1';const visBtn=row.querySelector('.layer-vis');if(visBtn){visBtn.textContent=vis?'●':'○';visBtn.className='layer-vis'+(vis?'':' off');}updateCountBadge(d);}
-function updatePreview(d,i){const el=previewEl(d,i);if(!el)return;let x=clamp(getVal(d,i,'x'),0,239);let y=clamp(getVal(d,i,'y'),0,239);let s=clamp(getVal(d,i,'s'),1,4);let al=String(getVal(d,i,'al'));let v=String(getVal(d,i,'v'));setVal(d,i,'x',x);setVal(d,i,'y',y);setVal(d,i,'s',s);el.style.left=x+'px';el.style.top=y+'px';el.style.fontSize=(s*10)+'px';el.style.display=(v==='1')?'block':'none';el.style.transform=(al==='1')?'translateX(-50%)':((al==='2')?'translateX(-100%)':'none');const txtSpan=el.querySelector('.layout-item-text');if(txtSpan)txtSpan.textContent=itemText(d,i);refreshLayerRow(d,i);if(Number(selected[d])===Number(i)){const title=h('propsTitle_d'+d);if(title)title.innerText=(Number(i)+1)+'. '+shortLabel(getVal(d,i,'key'));}}
-function scheduleSave(){clearTimeout(saveTimer);setState('Aenderungen...','warnb');saveTimer=setTimeout(saveLayoutNow,400);}
-function saveLayoutNow(){const form=h('layoutForm');if(!form){setState('Kein Formular','errb');return;}const body=new URLSearchParams(new FormData(form)).toString();if(body.length<5){setState('Keine Daten','errb');return;}setState('Speichere...','warnb');fetch('/savelayoutajax',{method:'POST',cache:'no-store',credentials:'same-origin',headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'},body:body}).then(r=>r.text()).then(t=>{if(t.indexOf('OK')>=0){setState('Gespeichert','okb');}else{setState('Fehler','errb');}}).catch(()=>{form.submit();});}
-function controlInput(d,i,n,type,label,min,max,hint){const wrap=document.createElement('div');const lbl=document.createElement('label');lbl.textContent=label;if(hint)lbl.title=hint;wrap.appendChild(lbl);const inp=document.createElement('input');inp.id='ui_d'+d+'_e'+i+'_'+n;inp.type=type;inp.value=getVal(d,i,n);inp.min=min||'';inp.max=max||'';if(hint)inp.title=hint;inp.addEventListener('input',()=>{setVal(d,i,n,inp.value);updatePreview(d,i);scheduleSave();});inp.addEventListener('change',()=>{setVal(d,i,n,inp.value);updatePreview(d,i);saveLayoutNow();});wrap.appendChild(inp);return wrap;}
-function controlSelect(d,i,n,label,arr,hint){const wrap=document.createElement('div');const lbl=document.createElement('label');lbl.textContent=label;if(hint)lbl.title=hint;wrap.appendChild(lbl);const sel=document.createElement('select');sel.id='ui_d'+d+'_e'+i+'_'+n;if(hint)sel.title=hint;arr.forEach(o=>{const opt=document.createElement('option');opt.value=o[0];opt.textContent=o[1];if(String(getVal(d,i,n))===String(o[0]))opt.selected=true;sel.appendChild(opt);});sel.addEventListener('change',()=>{setVal(d,i,n,sel.value);updatePreview(d,i);saveLayoutNow();});wrap.appendChild(sel);return wrap;}
-function controlToggle(d,i,n,label,hint){const wrap=document.createElement('div');wrap.className='toggleRow';const lbl=document.createElement('label');lbl.textContent=label;if(hint)lbl.title=hint;const toggle=document.createElement('label');toggle.className='toggle';const cb=document.createElement('input');cb.type='checkbox';cb.id='ui_d'+d+'_e'+i+'_'+n;cb.checked=getVal(d,i,n)==='1';if(hint)toggle.title=hint;cb.addEventListener('change',()=>{setVal(d,i,n,cb.checked?'1':'0');updatePreview(d,i);saveLayoutNow();});const slider=document.createElement('span');slider.className='toggleSlider';toggle.appendChild(cb);toggle.appendChild(slider);wrap.appendChild(lbl);wrap.appendChild(toggle);return wrap;}
-function controlKeySelect(d,i){const wrap=document.createElement('div');wrap.className='wide';wrap.innerHTML='<label>Wert / Anzeigeinhalt</label>';const sel=document.createElement('select');sel.id='ui_d'+d+'_e'+i+'_key';const groups={};OPTIONS.forEach(o=>{const g=groupOf(o[1]);if(!groups[g]){groups[g]=document.createElement('optgroup');groups[g].label=g;sel.appendChild(groups[g]);}const opt=document.createElement('option');opt.value=o[0];opt.textContent=shortLabel(o[0]);if(String(getVal(d,i,'key'))===String(o[0]))opt.selected=true;groups[g].appendChild(opt);});sel.addEventListener('change',()=>{setVal(d,i,'key',sel.value);updatePreview(d,i);saveLayoutNow();});wrap.appendChild(sel);return wrap;}
-function setControl(d,i,n,v){const el=h('ui_d'+d+'_e'+i+'_'+n);if(el){if(el.type==='checkbox'){el.checked=(String(v)==='1');}else{el.value=v;}el.dispatchEvent(new Event('change'));}else{setVal(d,i,n,v);updatePreview(d,i);}}
-function resetElement(d,i){if(!confirm('Element '+(Number(i)+1)+' auf Display '+d+' wirklich zuruecksetzen?'))return;setState('Setze zurueck...','warnb');setControl(d,i,'key','customText');setControl(d,i,'txt','Text '+(Number(i)+1));setControl(d,i,'pre','');setControl(d,i,'suf','');setControl(d,i,'x',20);setControl(d,i,'y',20+Number(i)*24);setControl(d,i,'s',2);setControl(d,i,'al','0');setControl(d,i,'a','1');setControl(d,i,'v','0');}
-function copyToOther(d,i){const od=(Number(d)===1)?2:1;FIELDS.forEach(n=>setControl(od,i,n,getVal(d,i,n)));showToast('Auf Display '+od+' kopiert','ok');}
-function locateItem(d,i){const el=previewEl(d,i);if(!el)return;el.scrollIntoView({behavior:'smooth',block:'center'});el.classList.add('locate-pulse');setTimeout(()=>el.classList.remove('locate-pulse'),1200);}
-function findFreeSlot(d){for(let i=0;i<ITEMS;i++){if(getVal(d,i,'v')!=='1')return i;}return -1;}
-function addElementFromPalette(d,key,x,y){const free=findFreeSlot(d);if(free===-1){showToast('Alle 8 Plaetze auf Display '+d+' sind belegt.','err');return;}setControl(d,free,'key',key);if(key==='customText')setControl(d,free,'txt','Neuer Text');setControl(d,free,'x',x);setControl(d,free,'y',y);setControl(d,free,'v','1');selectSlot(d,free);showToast('Element hinzugefuegt','ok');}
-function point(e){if(e.touches&&e.touches.length)return{x:e.touches[0].clientX,y:e.touches[0].clientY};return{x:e.clientX,y:e.clientY};}
-function buildPalette(d){const wrap=h('palette_d'+d);if(!wrap)return;wrap.innerHTML='';const hint=document.createElement('div');hint.className='palette-hint';hint.textContent='Element auf die Vorschau ziehen, um es hinzuzufuegen:';wrap.appendChild(hint);const groups={};OPTIONS.forEach(o=>{const g=groupOf(o[1]);if(!groups[g]){groups[g]=document.createElement('div');groups[g].className='palette-group';const lbl=document.createElement('span');lbl.className='palette-group-label';lbl.textContent=g;groups[g].appendChild(lbl);wrap.appendChild(groups[g]);}const chip=document.createElement('span');chip.className='palette-chip';chip.textContent=shortLabel(o[0]);chip.addEventListener('pointerdown',e=>paletteDragStart(e,d,o[0],shortLabel(o[0])));groups[g].appendChild(chip);});}
-function paletteDragStart(e,d,key,label){e.preventDefault();const ghost=document.createElement('div');ghost.className='palette-ghost';ghost.textContent=label;document.body.appendChild(ghost);paletteDrag={ghost:ghost,d:d,key:key};movePaletteGhost(e);document.addEventListener('pointermove',movePaletteGhost);document.addEventListener('pointerup',paletteDragEnd,{once:true});}
-function movePaletteGhost(e){if(!paletteDrag)return;const p=point(e);paletteDrag.ghost.style.left=(p.x+12)+'px';paletteDrag.ghost.style.top=(p.y+12)+'px';}
-function paletteDragEnd(e){if(!paletteDrag)return;document.removeEventListener('pointermove',movePaletteGhost);const p=point(e);const d=paletteDrag.d;const prev=h('preview_d'+d);if(prev){const r=prev.getBoundingClientRect();if(p.x>=r.left&&p.x<=r.right&&p.y>=r.top&&p.y<=r.bottom){const relX=clamp(Math.round((p.x-r.left)/r.width*240),0,239);const relY=clamp(Math.round((p.y-r.top)/r.height*240),0,239);addElementFromPalette(d,paletteDrag.key,relX,relY);}}paletteDrag.ghost.remove();paletteDrag=null;}
-function moveBy(d,i,dx,dy){let x=clamp(getVal(d,i,'x'),0,239)+dx;let y=clamp(getVal(d,i,'y'),0,239)+dy;setVal(d,i,'x',clamp(x,0,239));setVal(d,i,'y',clamp(y,0,239));const ux=h('ui_d'+d+'_e'+i+'_x');const uy=h('ui_d'+d+'_e'+i+'_y');if(ux)ux.value=getVal(d,i,'x');if(uy)uy.value=getVal(d,i,'y');updatePreview(d,i);scheduleSave();}
-function startResizeDrag(e,d,i){e.preventDefault();e.stopPropagation();const startP=point(e);const startSize=clamp(getVal(d,i,'s'),1,4);function onMove(ev){const p=point(ev);const delta=(p.x-startP.x)+(p.y-startP.y);const steps=Math.round(delta/18);const newSize=clamp(startSize+steps,1,4);setVal(d,i,'s',newSize);updatePreview(d,i);const el=h('ui_d'+d+'_e'+i+'_s');if(el)el.value=newSize;}function onUp(){document.removeEventListener('pointermove',onMove);document.removeEventListener('pointerup',onUp);saveLayoutNow();}document.addEventListener('pointermove',onMove);document.addEventListener('pointerup',onUp);}
-function itemPointerDown(e,node,d,i){e.preventDefault();dragEl=node;dragMoved=false;selectSlot(d,i);dragEl.classList.add('dragging');const p=point(e);const r=node.getBoundingClientRect();dragOffX=p.x-r.left;dragOffY=p.y-r.top;document.body.style.userSelect='none';}
-function onItemPointerMove(e){if(!dragEl)return;if(e.preventDefault)e.preventDefault();dragMoved=true;const p=point(e);const box=dragEl.parentElement.getBoundingClientRect();let px=Math.round((p.x-box.left-dragOffX)/4)*4;let py=Math.round((p.y-box.top-dragOffY)/4)*4;if(px<0)px=0;if(px>239)px=239;if(py<0)py=0;if(py>239)py=239;const d=dragEl.dataset.d;const i=dragEl.dataset.i;setVal(d,i,'x',clamp(Math.round(px),0,239));setVal(d,i,'y',clamp(Math.round(py),0,239));const ux=h('ui_d'+d+'_e'+i+'_x');const uy=h('ui_d'+d+'_e'+i+'_y');if(ux)ux.value=getVal(d,i,'x');if(uy)uy.value=getVal(d,i,'y');updatePreview(d,i);}
-function onItemPointerUp(){if(!dragEl)return;dragEl.classList.remove('dragging');dragEl=null;document.body.style.userSelect='';if(dragMoved)saveLayoutNow();}
-document.addEventListener('pointermove',onItemPointerMove);document.addEventListener('pointerup',onItemPointerUp);
-function selectSlot(d,i){selected[d]=i;const prev=h('preview_d'+d);if(prev){prev.querySelectorAll('.layout-item.selected').forEach(el=>{el.classList.remove('selected');const hd=el.querySelector('.resize-handle');if(hd)hd.remove();});}const item=previewEl(d,i);if(item){item.classList.add('selected');const handle=document.createElement('span');handle.className='resize-handle';handle.addEventListener('pointerdown',e=>startResizeDrag(e,d,i));item.appendChild(handle);}const lyr=h('layers_d'+d);if(lyr){lyr.querySelectorAll('.layer-row.selected').forEach(el=>el.classList.remove('selected'));}const row=h('layerrow_d'+d+'_e'+i);if(row)row.classList.add('selected');renderProps(d,i);}
-function renderProps(d,i){const wrap=h('props_d'+d);if(!wrap)return;wrap.innerHTML='';const head=document.createElement('div');head.className='props-head';head.innerHTML='<strong id="propsTitle_d'+d+'">'+(Number(i)+1)+'. '+shortLabel(getVal(d,i,'key'))+'</strong><div class="card-head-btns"><button type="button" class="icon-btn" title="Auf Vorschau zeigen">◎</button><button type="button" class="icon-btn" title="Auf anderes Display kopieren">⇄</button><button type="button" class="icon-btn" title="Element zuruecksetzen">↺</button></div>';wrap.appendChild(head);const btns=head.querySelectorAll('.icon-btn');btns[0].onclick=()=>locateItem(d,i);btns[1].onclick=()=>copyToOther(d,i);btns[2].onclick=()=>resetElement(d,i);const grid=document.createElement('div');grid.className='layout-fields';grid.appendChild(controlKeySelect(d,i));const txt=controlInput(d,i,'txt','text','Eigener Text','','','Nur relevant, wenn oben "Eigener Text" als Wert gewaehlt ist.');txt.className='wide';grid.appendChild(txt);grid.appendChild(controlInput(d,i,'pre','text','Text davor (Praefix)','','','Wird direkt vor dem Wert eingefuegt, z.B. "ab " vor einer Uhrzeit.'));grid.appendChild(controlInput(d,i,'suf','text','Text danach (Suffix)','','','Wird direkt nach dem Wert eingefuegt, z.B. " ct" hinter einem Preis.'));grid.appendChild(controlInput(d,i,'x','number','Position X (0-239 px)','0','239','Waagerechte Position auf dem 240x239 Pixel runden Display.'));grid.appendChild(controlInput(d,i,'y','number','Position Y (0-239 px)','0','239','Senkrechte Position auf dem 240x239 Pixel runden Display.'));grid.appendChild(controlInput(d,i,'s','number','Schriftgroesse (Stufe 1-4)','1','4','Stufe 1 = klein, Stufe 4 = sehr gross. Keine Pixelangabe.'));grid.appendChild(controlSelect(d,i,'al','Ausrichtung',[['0','Links'],['1','Zentriert'],['2','Rechts']],'Woran sich der Text an der X-Position ausrichtet.'));grid.appendChild(controlToggle(d,i,'a','Automatische Groesse','Passt die Schriftgroesse automatisch an die Textlaenge an.'));grid.appendChild(controlToggle(d,i,'v','Sichtbar','Element auf dem Display ein- oder ausblenden, ohne es zu loeschen.'));wrap.appendChild(grid);const nudge=document.createElement('div');nudge.className='layout-nudge';nudge.innerHTML='<span class="blank"></span><button type="button">&uarr;</button><span class="blank"></span><button type="button">&larr;</button><button type="button">&darr;</button><button type="button">&rarr;</button>';const b=nudge.querySelectorAll('button');b[0].onclick=()=>moveBy(d,i,0,-4);b[1].onclick=()=>moveBy(d,i,-4,0);b[2].onclick=()=>moveBy(d,i,0,4);b[3].onclick=()=>moveBy(d,i,4,0);wrap.appendChild(nudge);if(window.innerWidth<900){wrap.scrollIntoView({behavior:'smooth',block:'nearest'});}}
-function renderLayerList(d){const wrap=h('layers_d'+d);if(!wrap)return;wrap.innerHTML='';for(let i=0;i<ITEMS;i++){const row=document.createElement('div');row.className='layer-row';row.id='layerrow_d'+d+'_e'+i;row.dataset.d=d;row.dataset.i=i;const vis=getVal(d,i,'v')==='1';row.innerHTML='<span class="layer-handle" title="Ziehen zum Sortieren">⋮⋮</span><span class="layer-num">'+(i+1)+'</span><span class="layer-label">'+shortLabel(getVal(d,i,'key'))+'</span><button type="button" class="layer-vis'+(vis?'':' off')+'">'+(vis?'●':'○')+'</button>';row.querySelector('.layer-label').addEventListener('click',()=>selectSlot(d,i));row.querySelector('.layer-num').addEventListener('click',()=>selectSlot(d,i));row.querySelector('.layer-vis').addEventListener('click',e=>{e.stopPropagation();toggleVisible(d,i);});row.querySelector('.layer-handle').addEventListener('pointerdown',e=>startReorderDrag(e,d,i));if(Number(selected[d])===i)row.classList.add('selected');wrap.appendChild(row);}updateCountBadge(d);}
-function toggleVisible(d,i){const cur=getVal(d,i,'v');setControl(d,i,'v',cur==='1'?'0':'1');if(Number(selected[d])===Number(i))renderProps(d,i);}
-function startReorderDrag(e,d,i){e.preventDefault();const wrap=h('layers_d'+d);if(!wrap)return;const rows=Array.from(wrap.querySelectorAll('.layer-row'));let targetIndex=Number(i);const indicator=document.createElement('div');indicator.className='layer-drop-indicator';function onMove(ev){const p=point(ev);let placed=false;for(const row of rows){const r=row.getBoundingClientRect();if(p.y>=r.top&&p.y<=r.bottom){const before=p.y<(r.top+r.height/2);row[before?'before':'after'](indicator);targetIndex=Number(row.dataset.i);if(!before)targetIndex+=1;placed=true;break;}}if(!placed&&indicator.parentElement!==wrap)wrap.appendChild(indicator);}function onUp(){document.removeEventListener('pointermove',onMove);document.removeEventListener('pointerup',onUp);indicator.remove();let to=targetIndex;if(to>Number(i))to-=1;to=clamp(to,0,ITEMS-1);moveSlot(d,Number(i),to);}wrap.appendChild(indicator);document.addEventListener('pointermove',onMove);document.addEventListener('pointerup',onUp);}
-function moveSlot(d,from,to){if(from===to)return;const data=[];for(let k=0;k<ITEMS;k++){const o={};FIELDS.forEach(n=>o[n]=getVal(d,k,n));data.push(o);}const moved=data.splice(from,1)[0];data.splice(to,0,moved);data.forEach((o,k)=>FIELDS.forEach(n=>setVal(d,k,n,o[n])));selected[d]=to;renderLayerList(d);for(let k=0;k<ITEMS;k++)updatePreview(d,k);selectSlot(d,to);scheduleSave();}
-function makeDisplay(d){const section=document.createElement('section');section.className='card layoutPanel';section.id='display-'+d;section.innerHTML='<div class="panelTitle"><h2>Display '+d+'</h2><span class="badge okb" id="countBadge_d'+d+'">8/8 sichtbar</span></div><div class="palette" id="palette_d'+d+'"></div><div class="editor-shell"><div class="layer-panel"><div class="panel-label">Ebenen</div><div class="layer-list" id="layers_d'+d+'"></div></div><div class="canvas-panel"><div class="layout-preview" id="preview_d'+d+'"></div><p class="small" style="text-align:center">Ziehen zum Verschieben, Punkt unten rechts zum Skalieren.</p></div><div class="props-panel" id="props_d'+d+'"></div></div>';document.getElementById('layoutApp').appendChild(section);buildPalette(d);const prev=h('preview_d'+d);for(let i=0;i<ITEMS;i++){const item=document.createElement('div');item.className='layout-item';item.id='pv_d'+d+'_e'+i;item.dataset.d=d;item.dataset.i=i;item.innerHTML='<span class="layout-item-num">'+(i+1)+'</span><span class="layout-item-text"></span>';item.addEventListener('pointerdown',e=>itemPointerDown(e,item,d,i));prev.appendChild(item);}renderLayerList(d);for(let i=0;i<ITEMS;i++)updatePreview(d,i);selectSlot(d,0);}
-document.addEventListener('DOMContentLoaded',()=>{makeDisplay(1);makeDisplay(2);});
-</script>
-)JS";
-
-  html += htmlFooter();
-  server.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
-  server.send(200, "text/html", html);
-}
 
 void saveLayoutFromRequest() {
   for (int d = 1; d <= 2; d++) {
@@ -6913,7 +6931,6 @@ String navTabs(String current) {
   String iconMonitor = "<svg viewBox='0 0 24 24' width='18' height='18'><rect x='3' y='4' width='18' height='12' rx='2' fill='none' stroke='currentColor' stroke-width='2'/><path d='M8 20h8M12 16v4' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg>";
   String iconSun = "<svg viewBox='0 0 24 24' width='18' height='18'><circle cx='12' cy='12' r='4' fill='none' stroke='currentColor' stroke-width='2'/><path d='M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg>";
   String iconGrid = "<svg viewBox='0 0 24 24' width='18' height='18'><rect x='3' y='3' width='4' height='4' fill='currentColor'/><rect x='10' y='3' width='4' height='4' fill='currentColor'/><rect x='17' y='3' width='4' height='4' fill='currentColor'/><rect x='3' y='10' width='4' height='4' fill='currentColor'/><rect x='10' y='10' width='4' height='4' fill='currentColor'/><rect x='17' y='10' width='4' height='4' fill='currentColor'/><rect x='3' y='17' width='4' height='4' fill='currentColor'/><rect x='10' y='17' width='4' height='4' fill='currentColor'/><rect x='17' y='17' width='4' height='4' fill='currentColor'/></svg>";
-  String iconSliders = "<svg viewBox='0 0 24 24' width='18' height='18'><path d='M4 6h10M4 12h16M4 18h7' stroke='currentColor' stroke-width='2' stroke-linecap='round'/><circle cx='16' cy='6' r='2' fill='currentColor'/><circle cx='9' cy='18' r='2' fill='currentColor'/></svg>";
   String iconPlug = "<svg viewBox='0 0 24 24' width='18' height='18'><path d='M9 2v4M15 2v4M7 6h10v4a5 5 0 0 1-5 5 5 5 0 0 1-5-5V6z' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/><path d='M12 15v4M9 21h6' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg>";
 
   String html;
@@ -6934,7 +6951,6 @@ String navTabs(String current) {
   html += navTabsItem("/displays", "Displays", iconMonitor, current);
   html += navTabsItem("/ring", "Tagesring", iconSun, current);
   html += navTabsItem("/matrix", "Matrix", iconGrid, current);
-  html += navTabsItem("/layout", "Layout", iconSliders, current);
   html += "<span class='navDivider'></span>";
   html += "<button type='button' class='themeToggle' onclick='toggleTheme()' title='Hell/Dunkel umschalten'>";
   html += "<svg class='iconSun' viewBox='0 0 24 24'><circle cx='12' cy='12' r='5' fill='currentColor'/><path d='M12 1v2M12 21v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M1 12h2M21 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg>";
