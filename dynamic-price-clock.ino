@@ -71,7 +71,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "1.2.0"
+#define FIRMWARE_VERSION "1.2.1"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -3576,7 +3576,7 @@ void handleRoot() {
   if (!checkAuth()) return;
 
   String html;
-  html.reserve(26000);
+  html.reserve(26500);
 
   html += htmlHeader("Übersicht");
   html += "<section class='hero'><h1>";
@@ -3619,6 +3619,15 @@ void handleRoot() {
   }
 
   html += "<section class='card'><div class='panelTitle'><h2>Aktuelle Werte</h2><div style='display:flex;gap:8px;flex-wrap:wrap'>";
+  html += "<span class='badge okb' title='Woher die Preise gerade kommen, aenderbar unter Konto -> Strompreis-Quelle'>";
+  if (priceProvider == "awattar_de") {
+    html += "aWATTar Deutschland";
+  } else if (priceProvider == "awattar_at") {
+    html += "aWATTar Oesterreich";
+  } else {
+    html += "Tibber";
+  }
+  html += "</span>";
   if (metricCurrent15 >= 0) {
     int nowCent = euroToCentRounded(metricCurrent15);
     if (nowCent >= ledRedCent) {
@@ -6576,9 +6585,14 @@ document.querySelectorAll('form').forEach(function(f){
   f.addEventListener('submit', function(){
     var btn = f.querySelector('button[type="submit"]');
     if (btn && !btn.disabled) {
-      btn.disabled = true;
       btn.dataset.origText = btn.innerText;
       btn.innerText = 'Speichere...';
+      // WICHTIG: btn.disabled erst NACH diesem Tick setzen (setTimeout 0).
+      // Bei submit-buttons mit name/value (z.B. name='formType' value='xyz')
+      // wird ein waehrend des submit-Events deaktivierter Button aus den
+      // gesendeten Formulardaten ausgeschlossen - der Server erhaelt dann
+      // ein leeres formType und keine der Aktionen greift, ohne Fehlermeldung.
+      setTimeout(function(){ btn.disabled = true; }, 0);
     }
   });
 });
