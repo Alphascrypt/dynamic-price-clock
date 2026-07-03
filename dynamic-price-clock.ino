@@ -71,7 +71,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "1.5.8"
+#define FIRMWARE_VERSION "1.5.9"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -520,6 +520,7 @@ void handleFaviconSvg();
 void handleAppJs();
 
 String buildSvgChart();
+String buildChartPointsJson();
 String buildPinoutSvg();
 String buildPriceGaugeSvg();
 String pinoutPinSvg(bool leftSide, int y, String title, String sub, String color);
@@ -4657,7 +4658,7 @@ void handleKioskPage() {
   }
 
   String html;
-  html.reserve(9000);
+  html.reserve(19500);
 
   html += "<!DOCTYPE html><html><head>";
   html += "<meta charset='utf-8'>";
@@ -4672,34 +4673,53 @@ void handleKioskPage() {
   html += "<style>";
   html += "body{padding:0!important;display:flex;align-items:center;justify-content:center;min-height:100vh;overflow-x:hidden}";
   html += ".kiosk-wrap{width:min(820px,94vw);padding:20px;text-align:center}";
-  html += ".kiosk-price{font-size:min(24vw,190px);font-weight:900;line-height:1;letter-spacing:-2px}";
-  html += ".kiosk-unit{font-size:22px;color:var(--muted);margin-top:-6px}";
-  html += ".kiosk-status{display:inline-block;font-size:26px;font-weight:800;margin:14px 0;padding:8px 22px;border-radius:999px;background:var(--overlay-faint)}";
-  html += ".kiosk-chart{margin-top:18px}";
+  html += ".kiosk-gauge{max-width:420px;margin:0 auto}";
+  html += ".kiosk-gauge svg{width:100%;max-width:100%;height:auto;background:transparent;border:0;margin:0}";
+  html += ".kiosk-status{display:inline-block;font-size:26px;font-weight:800;margin:6px 0 14px;padding:8px 22px;border-radius:999px;background:var(--overlay-faint)}";
+  html += ".kiosk-chart{margin-top:18px;position:relative;touch-action:none;cursor:crosshair}";
+  html += ".kiosk-chart svg{width:100%;height:auto;display:block}";
+  html += ".kiosk-crosshair-line{stroke:var(--text);stroke-width:1.5;stroke-dasharray:4,4;opacity:0;pointer-events:none}";
+  html += ".kiosk-crosshair-dot{fill:var(--text);stroke:#0b1224;stroke-width:2;opacity:0;pointer-events:none}";
+  html += ".kiosk-tooltip{position:absolute;transform:translate(-50%,-115%);background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:6px 10px;font-size:13px;font-weight:700;white-space:nowrap;pointer-events:none;opacity:0;box-shadow:0 8px 20px var(--shadow-soft)}";
   html += ".kiosk-meta{color:var(--muted);font-size:15px;margin-top:16px;display:flex;flex-wrap:wrap;gap:6px 18px;justify-content:center}";
   html += ".kiosk-exit{position:fixed;top:14px;right:14px;opacity:.3;transition:opacity .2s var(--ease)}";
   html += ".kiosk-exit:hover{opacity:1}";
   html += ".kiosk-hint{font-size:12px;color:var(--muted);margin-top:22px;max-width:520px;margin-left:auto;margin-right:auto}";
+  html += ".kiosk-chart-hint{color:var(--muted);margin-top:6px}";
+  html += "@media (orientation:landscape) and (max-height:820px){";
+  html += "body{padding:0!important;align-items:center}";
+  html += ".kiosk-wrap{width:min(1120px,97vw);padding:14px 22px}";
+  html += ".kiosk-columns{display:flex;align-items:center;gap:28px;text-align:left}";
+  html += ".kiosk-col-left{flex:0 0 clamp(200px,26vw,300px)}";
+  html += ".kiosk-col-right{flex:1;min-width:0}";
+  html += ".kiosk-gauge{max-width:100%;margin:0}";
+  html += ".kiosk-status{margin:8px 0 0;font-size:clamp(18px,2.6vw,26px)}";
+  html += ".kiosk-chart{margin-top:0}";
+  html += ".kiosk-meta{justify-content:flex-start;margin-top:10px;font-size:13px}";
+  html += ".kiosk-chart-hint{text-align:left}";
+  html += ".actions{justify-content:flex-start!important;margin-top:12px!important}";
+  html += ".kiosk-hint{margin-top:8px;max-width:100%;margin-left:0;margin-right:0}";
+  html += "}";
   html += "</style>";
   html += "</head><body>";
 
   html += "<a class='kiosk-exit' href='/'><button class='secondary' type='button'>Dashboard</button></a>";
   html += "<div class='kiosk-wrap'>";
+  html += "<div class='kiosk-columns'>";
 
-  String kioskPriceText = "--";
-  if (quarterCount > 0 && metricCurrent15 >= 0) {
-    kioskPriceText = priceToCentText(metricCurrent15);
-  }
-
-  html += "<div class='kiosk-price'>";
-  html += kioskPriceText;
+  html += "<div class='kiosk-col-left'>";
+  html += "<div class='kiosk-gauge'>";
+  html += buildPriceGaugeSvg();
   html += "</div>";
-  html += "<div class='kiosk-unit'>ct/kWh</div>";
   html += "<div class='kiosk-status' style='color:" + statusColor + "'>" + statusText + "</div>";
-
-  html += "<div class='kiosk-chart'>";
-  html += buildSvgChart();
   html += "</div>";
+
+  html += "<div class='kiosk-col-right'>";
+  html += "<div class='kiosk-chart' id='kioskChartWrap'>";
+  html += buildSvgChart();
+  html += "<div class='kiosk-tooltip' id='kioskTooltip'></div>";
+  html += "</div>";
+  html += "<p class='small kiosk-chart-hint'>Mit Finger oder Maus über das Diagramm fahren, um Preise zu sehen.</p>";
 
   String lowText = "--";
   if (metricLow15Day >= 0) {
@@ -4716,11 +4736,16 @@ void handleKioskPage() {
   html += "<span>Tagesdurchschnitt: " + avgText + "</span>";
   html += "<span>Stand: " + getCurrentIsoPrefix().substring(11) + " Uhr</span>";
   html += "</div>";
+  html += "</div>";
+
+  html += "</div>";
 
   html += "<div class='actions' style='margin-top:20px;justify-content:center'><button type='button' onclick='enterKioskFullscreen()'>Vollbild</button></div>";
   html += "<p class='kiosk-hint' id='kioskWakeHint'></p>";
 
   html += "</div>";
+
+  html += "<script>var kioskChartPoints = " + buildChartPointsJson() + ";</script>";
 
   html += R"JS(
 <script>
@@ -4728,6 +4753,67 @@ function enterKioskFullscreen(){
   var el = document.documentElement;
   if (el.requestFullscreen) el.requestFullscreen();
 }
+
+(function setupKioskChartCrosshair(){
+  var svg = document.getElementById('priceChartSvg');
+  var wrap = document.getElementById('kioskChartWrap');
+  var tooltip = document.getElementById('kioskTooltip');
+  if (!svg || !wrap || !tooltip || !kioskChartPoints || !kioskChartPoints.length) return;
+
+  var svgNs = 'http://www.w3.org/2000/svg';
+  var vLine = document.createElementNS(svgNs, 'line');
+  vLine.setAttribute('class', 'kiosk-crosshair-line');
+  vLine.setAttribute('y1', '25');
+  vLine.setAttribute('y2', '265');
+  svg.appendChild(vLine);
+
+  var dot = document.createElementNS(svgNs, 'circle');
+  dot.setAttribute('class', 'kiosk-crosshair-dot');
+  dot.setAttribute('r', '6');
+  svg.appendChild(dot);
+
+  function nearestPoint(svgX){
+    var best = kioskChartPoints[0];
+    var bestDist = Math.abs(best.x - svgX);
+    for (var i = 1; i < kioskChartPoints.length; i++) {
+      var d = Math.abs(kioskChartPoints[i].x - svgX);
+      if (d < bestDist) { bestDist = d; best = kioskChartPoints[i]; }
+    }
+    return best;
+  }
+
+  function showAt(clientX, clientY){
+    var rect = svg.getBoundingClientRect();
+    var svgX = (clientX - rect.left) / rect.width * 760;
+    var pt = nearestPoint(svgX);
+
+    vLine.setAttribute('x1', pt.x);
+    vLine.setAttribute('x2', pt.x);
+    vLine.style.opacity = '1';
+    dot.setAttribute('cx', pt.x);
+    dot.setAttribute('cy', pt.y);
+    dot.style.opacity = '1';
+
+    var dotClientX = rect.left + (pt.x / 760) * rect.width;
+    var dotClientY = rect.top + (pt.y / 320) * rect.height;
+    var wrapRect = wrap.getBoundingClientRect();
+    tooltip.style.left = (dotClientX - wrapRect.left) + 'px';
+    tooltip.style.top = (dotClientY - wrapRect.top) + 'px';
+    tooltip.innerText = pt.p + ' ct um ' + pt.t;
+    tooltip.style.opacity = '1';
+  }
+
+  function hide(){
+    vLine.style.opacity = '0';
+    dot.style.opacity = '0';
+    tooltip.style.opacity = '0';
+  }
+
+  wrap.addEventListener('pointermove', function(e){ showAt(e.clientX, e.clientY); });
+  wrap.addEventListener('pointerdown', function(e){ showAt(e.clientX, e.clientY); });
+  wrap.addEventListener('pointerleave', hide);
+})();
+
 let kioskWakeLock = null;
 async function requestKioskWakeLock(){
   var hint = document.getElementById('kioskWakeHint');
@@ -6350,6 +6436,46 @@ String buildPriceGaugeSvg() {
 // Diagramm
 // -----------------------------------------------------------------------------
 
+// Liefert dieselben x/y-Koordinaten, die buildSvgChart() intern fuer die
+// Preislinie berechnet, als JSON-Array - fuer das interaktive "Linie
+// abfahren" im Tablet-Modus (Fadenkreuz per Touch/Maus ueber dem Chart).
+// Dupliziert bewusst die Geometrie-Berechnung statt buildSvgChart() zu
+// veraendern, um den bestehenden Chart auf anderen Seiten nicht anzufassen.
+String buildChartPointsJson() {
+  if (quarterCount == 0) return "[]";
+
+  float minP = quarterPrices[0];
+  float maxP = quarterPrices[0];
+
+  for (int i = 1; i < quarterCount; i++) {
+    if (quarterPrices[i] < minP) minP = quarterPrices[i];
+    if (quarterPrices[i] > maxP) maxP = quarterPrices[i];
+  }
+
+  if (maxP <= minP) maxP = minP + 0.01;
+
+  int left = 55;
+  int top = 25;
+  int chartW = 760 - left - 20;
+  int chartH = 320 - top - 55;
+
+  String json;
+  json.reserve((size_t)quarterCount * 40 + 8);
+  json += "[";
+
+  for (int i = 0; i < quarterCount; i++) {
+    float norm = (quarterPrices[i] - minP) / (maxP - minP);
+    int x = left + ((chartW * i) / max(1, quarterCount - 1));
+    int y = top + chartH - int(norm * chartH);
+
+    if (i > 0) json += ",";
+    json += "{\"x\":" + String(x) + ",\"y\":" + String(y) + ",\"p\":" + String(euroToCentRounded(quarterPrices[i])) + ",\"t\":\"" + formatTimeOnly(quarterTimes[i]) + "\"}";
+  }
+
+  json += "]";
+  return json;
+}
+
 String buildSvgChart() {
   if (quarterCount == 0) {
     return "<p>Keine Diagrammdaten</p>";
@@ -6406,7 +6532,7 @@ String buildSvgChart() {
   String svg;
   svg.reserve(13000);
 
-  svg += "<svg viewBox='0 0 760 320' xmlns='http://www.w3.org/2000/svg' style='font-family:Inter,system-ui,sans-serif'>";
+  svg += "<svg id='priceChartSvg' viewBox='0 0 760 320' xmlns='http://www.w3.org/2000/svg' style='font-family:Inter,system-ui,sans-serif'>";
   svg += "<defs><linearGradient id='chartFill' x1='0' y1='0' x2='0' y2='1'>";
   svg += "<stop offset='0%' stop-color='#60a5fa' stop-opacity='.4'/><stop offset='100%' stop-color='#60a5fa' stop-opacity='0'/>";
   svg += "</linearGradient></defs>";
