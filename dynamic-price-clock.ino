@@ -71,7 +71,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "1.5.0"
+#define FIRMWARE_VERSION "1.5.1"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -6852,7 +6852,7 @@ function fwBadge(cls, text, title) {
 function applyFwResult(j) {
   if (!j) return;
   if (!j.ok) {
-    fwBadge('', 'v' + j.currentVersion, 'Update-Check fehlgeschlagen: ' + (j.error || 'unbekannter Fehler'));
+    fwBadge('errb', 'v' + j.currentVersion + ' ⚠', 'Update-Check fehlgeschlagen: ' + (j.error || 'unbekannter Fehler') + ' - klicke zum erneuten Versuch');
   } else if (j.updateAvailable) {
     fwBadge('warnb', 'v' + j.currentVersion + ' → ' + j.latestVersion, 'Update verfügbar (' + j.latestVersion + ') - siehe Konto-Seite');
   } else {
@@ -6868,10 +6868,11 @@ function applyFwResult(j) {
     if (cached) applyFwResult(JSON.parse(cached));
   } catch (e) {}
 })();
-async function checkFirmwareVersion() {
+async function checkFirmwareVersion(force) {
   var last = 0;
   try { last = parseInt(localStorage.getItem('fwCheckAt') || '0', 10); } catch (e) {}
-  if (Date.now() - last < 10 * 60 * 1000) return;
+  if (!force && Date.now() - last < 10 * 60 * 1000) return;
+  if (force) fwBadge('warnb', 'Prüfe...', 'Frage GitHub nach der neuesten Version...');
   try {
     const r = await fetch('/versioncheck', { cache: 'no-store' });
     const j = await r.json();
@@ -6880,10 +6881,19 @@ async function checkFirmwareVersion() {
       localStorage.setItem('fwCheckAt', String(Date.now()));
       localStorage.setItem('fwCheckResult', JSON.stringify(j));
     } catch (e) {}
-  } catch (e) {}
+  } catch (e) {
+    fwBadge('errb', 'v?  ⚠', 'Verbindung zum Geraet fehlgeschlagen - klicke zum erneuten Versuch');
+  }
 }
-checkFirmwareVersion();
-setInterval(checkFirmwareVersion, 10 * 60 * 1000);
+checkFirmwareVersion(false);
+setInterval(function(){ checkFirmwareVersion(false); }, 10 * 60 * 1000);
+(function(){
+  var b = document.getElementById('fwVersionBadge');
+  if (b) {
+    b.style.cursor = 'pointer';
+    b.addEventListener('click', function(){ checkFirmwareVersion(true); });
+  }
+})();
 )JS";
 
   server.sendHeader("Cache-Control", "public, max-age=86400");
@@ -6938,7 +6948,7 @@ String navTabs(String current) {
   html += "<span class='badge okb'>";
   html += htmlEscape(webInterfaceName);
   html += "</span>";
-  html += "<span id='fwVersionBadge' class='badge' title='Firmware-Version - prueft alle 10 Minuten auf GitHub-Updates'>v";
+  html += "<span id='fwVersionBadge' class='badge' style='cursor:pointer' title='Firmware-Version - prueft alle 10 Minuten auf GitHub-Updates. Klicken fuer sofortigen Check.'>v";
   html += String(FIRMWARE_VERSION);
   html += "</span>";
   html += navTabsItem("/", "Übersicht", iconHome, current);
