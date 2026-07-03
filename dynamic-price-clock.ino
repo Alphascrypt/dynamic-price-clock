@@ -71,7 +71,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "1.5.5"
+#define FIRMWARE_VERSION "1.5.6"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -515,6 +515,7 @@ void handleResetWifi();
 void handleRefresh();
 void handleJson();
 void handleStyleCss();
+void handleFaviconSvg();
 void handleAppJs();
 
 String buildSvgChart();
@@ -1524,6 +1525,7 @@ void setup() {
   server.on("/refresh", handleRefresh);
   server.on("/json", handleJson);
   server.on("/style.css", handleStyleCss);
+  server.on("/favicon.svg", HTTP_GET, handleFaviconSvg);
   server.on("/app.js", handleAppJs);
   server.begin();
 
@@ -4655,9 +4657,18 @@ void handleWifiPage() {
 
   html += "<section class='card'>";
   html += "<div class='panelTitle'><h2>WLAN auswählen</h2><button class='secondary' type='button' onclick='scanWifi()'>WLAN scannen</button></div>";
-  html += "<div class='wifi-form'>";
+  html += "<p class='small'>Netzwerk unten anklicken, Passwort eintragen, speichern - fertig.</p>";
+  html += "<div id='wifiList' class='wifi-list'><p class='small'>Noch kein Scan.</p></div>";
+
+  html += "<div class='wifi-form' style='margin-top:14px'>";
   html += "<div class='field wide'><label>SSID</label><input id='wifiSsid' maxlength='32' placeholder='WLAN Name'></div>";
   html += "<div class='field wide'><label>Passwort</label><input id='wifiPass' type='password' maxlength='64' placeholder='WLAN Passwort'></div>";
+  html += "</div>";
+  html += "<div class='actions'><button type='button' onclick='saveWifi()'>Speichern und verbinden</button><button class='secondary' type='button' onclick='togglePass()'>Passwort anzeigen</button></div>";
+  html += "<div id='wifiMessage' class='wifi-status-line'>Bereit.</div>";
+
+  html += "<details style='margin-top:16px'><summary><h3 style='display:inline'>Erweiterte Einstellungen</h3></summary>";
+  html += "<div class='wifi-form' style='margin-top:12px'>";
   html += "<div class='field wide'><label>Name des Setup-WLANs</label><input id='setupSsid' maxlength='32' placeholder='Tibber Strompreis'></div>";
   html += "<div class='field'><div class='toggleRow'><label title='Aendert bei jeder Verbindung die WLAN-MAC-Adresse, z.B. gegen Geraete-Tracking im Netzwerk.'>MAC-Rotation</label><label class='toggle'><input type='checkbox' id='macRotate'><span class='toggleSlider'></span></label></div><div class='small' style='margin-top:6px'>Neue MAC-Adresse bei jedem Verbindungsaufbau (Datenschutz).</div></div>";
   html += "<div class='field'><label>WLAN-Band ESP32-C5</label><select id='wifiBand' title='Bei Verbindungsproblemen ein festes Frequenzband erzwingen.'><option value='0'>Auto 2,4 + 5 GHz</option><option value='1'>Nur 2,4 GHz</option><option value='2'>Nur 5 GHz</option></select><div class='small' style='margin-top:6px'>Bei Verbindungsproblemen ein festes Band waehlen statt Auto.</div></div>";
@@ -4669,10 +4680,8 @@ void handleWifiPage() {
   html += "<div class='field'><label>DNS 1</label><input id='dns1' placeholder='leer = Gateway'></div>";
   html += "<div class='field'><label>DNS 2</label><input id='dns2' placeholder='1.1.1.1'></div>";
   html += "</div>";
-  html += "<div class='actions'><button type='button' onclick='saveWifi()'>Speichern und verbinden</button><button class='secondary' type='button' onclick='togglePass()'>Passwort anzeigen</button></div>";
-  html += "<div id='wifiMessage' class='wifi-status-line'>Bereit.</div>";
   html += "<div class='mesh-note'><b>Mesh-Hinweis:</b><br>Bei mehreren gleichen WLAN-Namen kann der ESP32 den falschen Repeater wählen. Am stabilsten ist ein eigenes 2,4-GHz-WLAN/Gast-WLAN fuer den ESP32 mit WPA2/CCMP.</div>";
-  html += "<h3>Gefundene WLANs</h3><div id='wifiList' class='wifi-list'><p class='small'>Noch kein Scan.</p></div>";
+  html += "</details>";
   html += "</section>";
 
   html += R"JS(
@@ -6651,6 +6660,26 @@ void handleJson() {
 // HTML Helpers
 // -----------------------------------------------------------------------------
 
+void handleFaviconSvg() {
+  String color = "#4ade80";
+
+  if (quarterCount > 0 && metricCurrent15 >= 0) {
+    int nowCent = euroToCentRounded(metricCurrent15);
+    if (nowCent >= ledRedCent) {
+      color = "#fb7185";
+    } else if (nowCent >= ledYellowCent) {
+      color = "#facc15";
+    }
+  }
+
+  String svg = "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'>";
+  svg += "<circle cx='16' cy='16' r='14' fill='" + color + "' stroke='#0b1224' stroke-width='2.5'/>";
+  svg += "</svg>";
+
+  server.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+  server.send(200, "image/svg+xml", svg);
+}
+
 void handleStyleCss() {
   String css = R"CSS(
 :root{--bg1:#f4f6fb;--bg2:#eef1f8;--radial1:rgba(37,99,235,.10);--radial2:rgba(219,39,119,.08);--panel:#ffffff;--panel2:#eef1f8;--card:#ffffff;--line:#dde3ef;--text:#1b2233;--muted:#5b6478;--accent:#0d9488;--accent2:#2563eb;--pink:#db2777;--purple:#7c3aed;--orange:#ea580c;--danger:#dc2626;--ok:#16a34a;--warn:#b45309;--radius:18px;--ease:cubic-bezier(.2,.8,.2,1);--surface:rgba(255,255,255,.75);--surface-nav:rgba(255,255,255,.78);--surface-border:rgba(15,23,42,.08);--overlay-hover:rgba(15,23,42,.055);--overlay-hover-strong:rgba(15,23,42,.2);--overlay-faint:rgba(15,23,42,.02);--overlay-row:rgba(15,23,42,.02);--metric-bg1:#ffffff;--metric-bg2:#f8fafc;--input-bg:#ffffff;--badge-bg:#eef1f8;--toggle-off:#cbd5e1;--divider:rgba(15,23,42,.12);--shadow-soft:rgba(30,41,59,.08);--shadow-hover:rgba(30,41,59,.12);--shadow-float:rgba(30,41,59,.18);--btn-muted:#475569;--accent-tint-bg:rgba(13,148,136,.1);--accent-tint-border:rgba(13,148,136,.4);--float-bg:rgba(255,255,255,.9);--float-border:rgba(15,23,42,.1);--okb-bg:rgba(22,163,74,.14);--okb-text:#15803d;--errb-bg:rgba(220,38,38,.12);--errb-text:#b91c1c;--warnb-bg:rgba(180,83,9,.14);--warnb-text:#92400e;--infob-bg:rgba(37,99,235,.12);--infob-text:#1d4ed8;--purpleb-bg:rgba(124,58,237,.12);--purpleb-text:#6d28d9;--alert-ok-bg:rgba(22,163,74,.08);--alert-ok-border:rgba(22,163,74,.25);--alert-err-bg:rgba(220,38,38,.08);--alert-err-border:rgba(220,38,38,.25);}
@@ -6874,6 +6903,7 @@ String htmlHeader(String title) {
   html += "</title>";
   html += "<script>(function(){try{if(localStorage.getItem('theme')==='dark'){document.documentElement.setAttribute('data-theme','dark');}}catch(e){}})();</script>";
   html += "<link rel='stylesheet' href='/style.css?v=" ASSET_VERSION "'>";
+  html += "<link rel='icon' type='image/svg+xml' href='/favicon.svg'>";
   html += "</head><body><main class='shell'>";
 
   return html;
