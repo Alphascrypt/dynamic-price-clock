@@ -67,11 +67,11 @@
 
 // Version fuer /style.css und /app.js. Bei Aenderungen an CSS/JS erhoehen,
 // damit Browser-Caches (siehe Cache-Control dort) sofort ungueltig werden.
-#define ASSET_VERSION "7"
+#define ASSET_VERSION "8"
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "1.5.4"
+#define FIRMWARE_VERSION "1.5.5"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
