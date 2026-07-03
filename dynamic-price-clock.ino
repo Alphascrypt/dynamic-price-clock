@@ -71,7 +71,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "1.5.3"
+#define FIRMWARE_VERSION "1.5.4"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -234,7 +234,6 @@ String tibberRootCaPem = "";
 // der Tibber-API.
 String githubRepo = "Alphascrypt/dynamic-price-clock";
 String githubToken = "";
-String githubRootCaPem = "";
 String githubLatestVersion = "";
 String githubLatestUrl = "";
 
@@ -1255,7 +1254,6 @@ void setup() {
   priceVatPercent = prefs.getFloat("priceVat", 0.0);
   githubRepo = prefs.getString("ghRepo", "Alphascrypt/dynamic-price-clock");
   githubToken = prefs.getString("ghToken", "");
-  githubRootCaPem = prefs.getString("ghCa", "");
 
   tftSclkPin = prefs.getInt("tftSclkPin", 4);
   tftMosiPin = prefs.getInt("tftMosiPin", 5);
@@ -1981,16 +1979,12 @@ bool checkGithubUpdate() {
 
   WiFiClientSecure client;
 
-  // TLS-Zertifikatspruefung: echtes Root-CA-Zertifikat nutzen, wenn der
-  // Nutzer eins hinterlegt hat. Ohne hinterlegtes Zertifikat faellt das
-  // Geraet auf setInsecure() zurueck, was bewusst als unsicher protokolliert
-  // wird (kein stilles Downgrade) - exakt wie bei der Tibber-API.
-  if (githubRootCaPem.length() > 0) {
-    client.setCACert(githubRootCaPem.c_str());
-  } else {
-    client.setInsecure();
-    Serial.println("WARNUNG: Kein GitHub-Root-CA hinterlegt, TLS-Zertifikat wird NICHT geprueft (setInsecure). Siehe /account.");
-  }
+  // Keine manuelle Root-CA-Pinnung fuer GitHub: der Download laeuft ueber
+  // zwei verschiedene Hosts (api.github.com fuer die Metadaten, per Redirect
+  // objects.githubusercontent.com fuer die eigentliche .bin-Datei) mit
+  // rotierenden Zertifikaten - ein einzelnes gepinntes Zertifikat waere kaum
+  // wartbar und wuerde ohne zusaetzlichen Nutzen regelmaessig brechen.
+  client.setInsecure();
 
   HTTPClient http;
   http.setTimeout(15000);
@@ -2068,12 +2062,7 @@ bool checkGithubUpdateQuiet() {
   }
 
   WiFiClientSecure client;
-
-  if (githubRootCaPem.length() > 0) {
-    client.setCACert(githubRootCaPem.c_str());
-  } else {
-    client.setInsecure();
-  }
+  client.setInsecure();
 
   HTTPClient http;
   http.setTimeout(10000);
@@ -2134,13 +2123,7 @@ bool performGithubUpdate(String url) {
   }
 
   WiFiClientSecure client;
-
-  if (githubRootCaPem.length() > 0) {
-    client.setCACert(githubRootCaPem.c_str());
-  } else {
-    client.setInsecure();
-    Serial.println("WARNUNG: Kein GitHub-Root-CA hinterlegt, TLS-Zertifikat wird NICHT geprueft (setInsecure) - auch beim Firmware-Download.");
-  }
+  client.setInsecure();
 
   httpUpdate.rebootOnUpdate(false);
   // GitHub-Release-Downloads leiten per HTTP-Redirect auf einen anderen Host
@@ -3903,17 +3886,8 @@ void handleAccountPage() {
   html += "<div class='field'><label>GitHub-Repository (besitzer/repo)</label><input name='ghRepo' maxlength='100' placeholder='dein-name/dynamic-price-clock' value='" + htmlEscape(githubRepo) + "'></div>";
   html += "<div class='field'><label>Zugriffstoken (optional, nur fuer private Repos)</label><input name='ghToken' type='password' maxlength='100' placeholder='Leer lassen bei oeffentlichem Repo'></div>";
   html += "</div>";
-  html += "<div class='field'><label>Root-CA PEM fuer api.github.com (optional)</label><textarea name='ghCa' rows='6' placeholder='-----BEGIN CERTIFICATE-----'>" + htmlEscape(githubRootCaPem) + "</textarea></div>";
-  if (githubRootCaPem.length() == 0) {
-    html += "<p class='err'>Kein Root-CA-Zertifikat hinterlegt. Die Verbindung zu GitHub laeuft aktuell OHNE Zertifikatspruefung (setInsecure). Das ist ein Sicherheitsrisiko (Man-in-the-Middle), betrifft auch den Firmware-Download selbst.</p>";
-  } else {
-    html += "<p class='ok'>Root-CA-Zertifikat hinterlegt. TLS-Verbindungen zu GitHub werden geprueft.</p>";
-  }
-  html += "<div class='actions'><button type='submit' name='formType' value='github'>GitHub-Einstellungen speichern</button>";
-  if (githubRootCaPem.length() > 0) {
-    html += "<button type='submit' name='formType' value='githubcaclear' class='danger'>Zertifikat entfernen</button>";
-  }
-  html += "</div></form>";
+  html += "<div class='actions'><button type='submit' name='formType' value='github'>GitHub-Einstellungen speichern</button></div>";
+  html += "</form>";
   html += "<div class='formSection' style='margin-top:16px'>";
   html += "<div class='panelTitle'><h4 style='margin:0'>Update pruefen</h4><span id='ghUpdateBadge' class='badge'>Noch nicht geprueft</span></div>";
   html += "<p id='ghUpdateMsg' class='small'>Klicke auf \"Auf Updates pruefen\", um die neueste Version im hinterlegten Repository abzufragen.</p>";
@@ -4135,22 +4109,6 @@ void handleSaveAccount() {
       githubToken = newToken;
       prefs.putString("ghToken", githubToken);
     }
-
-    String newGhCa = server.hasArg("ghCa") ? server.arg("ghCa") : "";
-    newGhCa.trim();
-    if (newGhCa.length() > 0) {
-      if (newGhCa.indexOf("BEGIN CERTIFICATE") < 0) {
-        lastError = "Kein gueltiges PEM-Zertifikat (BEGIN CERTIFICATE fehlt)";
-        saveOk = false;
-      } else {
-        githubRootCaPem = newGhCa;
-        prefs.putString("ghCa", githubRootCaPem);
-        lastError = "";
-      }
-    }
-  } else if (formType == "githubcaclear") {
-    githubRootCaPem = "";
-    prefs.putString("ghCa", "");
   } else if (formType == "priceprovider") {
     String newProvider = server.hasArg("priceProvider") ? server.arg("priceProvider") : "tibber";
     Serial.print("DEBUG priceprovider-Formular empfangen. Rohwert 'priceProvider': '");
