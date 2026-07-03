@@ -71,7 +71,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "1.2.1"
+#define FIRMWARE_VERSION "1.3.1"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -453,6 +453,9 @@ void handleCheckGithubUpdate();
 void handleGithubUpdate();
 void handleOtaProgress();
 void handleAccountPage();
+void handleProviderPage();
+void handleSaveProviderAjax();
+void handleSaveTibberAjax();
 void handleSaveAccount();
 void handleWifiScanJson();
 void handleWifiStatusJson();
@@ -1484,6 +1487,9 @@ void setup() {
   server.on("/githubupdate", HTTP_POST, handleGithubUpdate);
   server.on("/otaprogress", HTTP_GET, handleOtaProgress);
   server.on("/account", handleAccountPage);
+  server.on("/anbieter", handleProviderPage);
+  server.on("/saveproviderajax", HTTP_POST, handleSaveProviderAjax);
+  server.on("/savetibberajax", HTTP_POST, handleSaveTibberAjax);
   server.on("/saveaccount", HTTP_POST, handleSaveAccount);
   server.on("/wifiscanjson", HTTP_GET, handleWifiScanJson);
   server.on("/wifistatusjson", HTTP_GET, handleWifiStatusJson);
@@ -3587,8 +3593,8 @@ void handleRoot() {
   {
     bool needsWifi = apMode;
     bool needsPassword = (webAdminPassword == String(DEFAULT_ADMIN_PASSWORD));
-    bool needsTls = (tibberRootCaPem.length() == 0);
-    bool needsToken = (tibberToken.length() == 0);
+    bool needsTls = (tibberRootCaPem.length() == 0) && (priceProvider == "tibber");
+    bool needsToken = (tibberToken.length() == 0) && (priceProvider == "tibber");
     int openSteps = (needsWifi ? 1 : 0) + (needsPassword ? 1 : 0) + (needsTls ? 1 : 0) + (needsToken ? 1 : 0);
 
     if (openSteps > 0) {
@@ -3611,7 +3617,7 @@ void handleRoot() {
       }
 
       if (needsToken) {
-        html += "<div class='formSection' style='display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap'><span>Kein Tibber-Token hinterlegt</span><a href='#einstellungen'><button type='button' class='secondary'>Jetzt eintragen</button></a></div>";
+        html += "<div class='formSection' style='display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap'><span>Kein Tibber-Token hinterlegt</span><a href='/anbieter'><button type='button' class='secondary'>Jetzt eintragen</button></a></div>";
       }
 
       html += "</div></section>";
@@ -3729,26 +3735,6 @@ void handleRoot() {
   html += htmlEscape(webInterfaceName);
   html += "'></div>";
 
-  html += "<div class='field'><label>Tibber Token (leer = unveraendert)</label><input name='token' type='password' placeholder='Neuen Token eingeben'></div>";
-
-  html += "<div class='field'><label>Home</label><select name='homeId'>";
-
-  for (int i = 0; i < homeCount; i++) {
-    html += "<option value='";
-    html += htmlEscape(homeIds[i]);
-    html += "'";
-
-    if (homeIds[i] == selectedHomeId) {
-      html += " selected";
-    }
-
-    html += ">";
-    html += htmlEscape(homeNames[i]);
-    html += "</option>";
-  }
-
-  html += "</select></div>";
-
   html += "<div class='field'><label>API-Update alle Minuten</label><input name='apiMinutes' type='number' min='1' max='60' value='";
   html += String(apiUpdateMinutes);
   html += "'></div>";
@@ -3759,8 +3745,9 @@ void handleRoot() {
 
   html += "</div>";
 
-  html += "<p class='small' style='margin-top:14px'>Display- und WS2812B/WS2818-Einstellungen findest du jetzt in eigenen Registerkarten.</p>";
+  html += "<p class='small' style='margin-top:14px'>Anbieterwahl (Tibber/aWATTar), Display- und WS2812B/WS2818-Einstellungen findest du jetzt in eigenen Registerkarten.</p>";
   html += "<div class='actions'>";
+  html += "<a href='/anbieter'><button type='button' class='secondary'>Anbieter einstellen</button></a>";
   html += "<a href='/displays'><button type='button' class='secondary'>Displays einstellen</button></a>";
   html += "<a href='/ring'><button type='button' class='secondary'>Tagesring einstellen</button></a>";
   html += "<a href='/matrix'><button type='button' class='secondary'>Matrix einstellen</button></a>";
@@ -3801,7 +3788,7 @@ void handleAccountPage() {
   if (!checkAuth()) return;
 
   String html;
-  html.reserve(17500);
+  html.reserve(16000);
 
   html += htmlHeader("Konto");
   html += "<section class='hero' style='background:linear-gradient(120deg,rgba(250,204,21,.20),rgba(251,146,60,.14))'><h1>Konto &amp; Sicherheit</h1><p>Admin-Login, Setup-WLAN-Passwort und TLS-Zertifikatspruefung fuer die Tibber-API.</p></section>";
@@ -3831,24 +3818,6 @@ void handleAccountPage() {
   html += "<div class='field'><label>Neues Setup-WLAN-Passwort (min. 8 Zeichen, leer = unveraendert)</label><input name='apPass' type='password' maxlength='64'></div>";
   html += "</div>";
   html += "<div class='actions'><button type='submit' name='formType' value='appass'>Setup-Passwort speichern</button></div>";
-  html += "</form></section>";
-
-  html += "<section class='card'><div class='panelTitle'><h2>Strompreis-Quelle</h2><span class='badge ";
-  html += (priceProvider == "tibber") ? "okb'>Tibber" : "okb'>aWATTar";
-  html += "</span></div>";
-  html += "<p class='small'>Waehle, woher die Strompreise geladen werden. Tibber braucht einen Zugangstoken (Abschnitt unten). aWATTar (Deutschland/Oesterreich) ist frei ohne Anmeldung nutzbar, liefert aber nur den Boersenpreis ohne Netzentgelte/Steuern - diese koennen als Aufschlag ergaenzt werden.</p>";
-  html += "<form action='/saveaccount' method='post'>";
-  html += "<div class='formGrid'>";
-  html += "<div class='field'><label>Anbieter</label><select name='priceProvider'>";
-  html += "<option value='tibber'"; if (priceProvider == "tibber") html += " selected"; html += ">Tibber</option>";
-  html += "<option value='awattar_de'"; if (priceProvider == "awattar_de") html += " selected"; html += ">aWATTar Deutschland</option>";
-  html += "<option value='awattar_at'"; if (priceProvider == "awattar_at") html += " selected"; html += ">aWATTar Oesterreich</option>";
-  html += "</select></div>";
-  html += "<div class='field'><label>Aufschlag Netzentgelte/Steuern (ct/kWh)</label><input name='priceSurchg' type='number' step='0.01' min='0' max='100' value='" + String(priceSurchargeCt) + "'></div>";
-  html += "<div class='field'><label>Mehrwertsteuer (%)</label><input name='priceVat' type='number' step='0.1' min='0' max='50' value='" + String(priceVatPercent) + "'></div>";
-  html += "</div>";
-  html += "<p class='small'>Nur bei aWATTar wirksam: Endpreis = (Boersenpreis/1000 + Aufschlag/100) &times; (1 + MwSt/100) EUR/kWh.</p>";
-  html += "<div class='actions'><button type='submit' name='formType' value='priceprovider'>Strompreis-Quelle speichern</button></div>";
   html += "</form></section>";
 
   html += "<section class='card'><div class='panelTitle'><h2>TLS-Zertifikatspruefung Tibber-API</h2><span class='badge ";
@@ -4160,8 +4129,173 @@ void handleSaveAccount() {
     lastUpdate = 0;
   }
 
-  server.sendHeader("Location", saveOk ? "/account?saved=1" : "/account?saved=0");
+  String acctRedirectTarget = (formType == "priceprovider") ? "/anbieter" : "/account";
+  server.sendHeader("Location", saveOk ? (acctRedirectTarget + "?saved=1") : (acctRedirectTarget + "?saved=0"));
   server.send(303);
+}
+
+// -----------------------------------------------------------------------------
+// Anbieter-Seite (Strompreis-Quelle + Tibber-Zugang)
+// -----------------------------------------------------------------------------
+
+void handleProviderPage() {
+  if (!checkAuth()) return;
+
+  String html;
+  html.reserve(11500);
+
+  html += htmlHeader("Anbieter");
+  html += "<section class='hero' style='background:linear-gradient(120deg,rgba(250,204,21,.20),rgba(251,146,60,.14))'><h1>Anbieter</h1><p>Strompreis-Quelle waehlen und Zugangsdaten hinterlegen.</p></section>";
+  html += navTabs("/anbieter");
+
+  html += "<section class='card'><div class='panelTitle'><h2>Strompreis-Quelle</h2><div style='display:flex;gap:6px'><span class='badge ";
+  html += (priceProvider == "tibber") ? "okb'>Tibber" : "okb'>aWATTar";
+  html += "</span><span id='providerSaveState' class='badge warnb'>Bereit</span></div></div>";
+  html += "<p class='small'>Waehle, woher die Strompreise geladen werden. Aenderungen werden automatisch gespeichert. Tibber braucht einen Zugangstoken (Abschnitt unten). aWATTar (Deutschland/Oesterreich) ist frei ohne Anmeldung nutzbar, liefert aber nur den Boersenpreis ohne Netzentgelte/Steuern - diese koennen als Aufschlag ergaenzt werden.</p>";
+  html += "<form id='providerForm' action='/saveaccount' method='post'>";
+  html += "<div class='formGrid'>";
+  html += "<div class='field'><label>Anbieter</label><select name='priceProvider'>";
+  html += "<option value='tibber'"; if (priceProvider == "tibber") html += " selected"; html += ">Tibber</option>";
+  html += "<option value='awattar_de'"; if (priceProvider == "awattar_de") html += " selected"; html += ">aWATTar Deutschland</option>";
+  html += "<option value='awattar_at'"; if (priceProvider == "awattar_at") html += " selected"; html += ">aWATTar Oesterreich</option>";
+  html += "</select></div>";
+  html += "<div class='field'><label>Aufschlag Netzentgelte/Steuern (ct/kWh)</label><input name='priceSurchg' type='number' step='0.01' min='0' max='100' value='" + String(priceSurchargeCt) + "'></div>";
+  html += "<div class='field'><label>Mehrwertsteuer (%)</label><input name='priceVat' type='number' step='0.1' min='0' max='50' value='" + String(priceVatPercent) + "'></div>";
+  html += "</div>";
+  html += "<p class='small'>Nur bei aWATTar wirksam: Endpreis = (Boersenpreis/1000 + Aufschlag/100) &times; (1 + MwSt/100) EUR/kWh.</p>";
+  html += "<div class='actions'><button type='submit' name='formType' value='priceprovider'>Strompreis-Quelle speichern</button><button type='button' class='secondary' onclick='saveProviderNow()'>Direkt speichern</button></div>";
+  html += "</form></section>";
+
+  html += "<section class='card'><div class='panelTitle'><h2>Tibber-Zugang</h2><div style='display:flex;gap:6px'><span class='badge ";
+  html += (tibberToken.length() == 0) ? "errb'>Kein Token" : "okb'>Token hinterlegt";
+  html += "</span><span id='tibberSaveState' class='badge warnb'>Bereit</span></div></div>";
+  html += "<p class='small'>Nur relevant, wenn oben Tibber als Anbieter ausgewaehlt ist. Aenderungen werden automatisch gespeichert. TLS-Zertifikatspruefung fuer die Tibber-API findest du auf der Konto-Seite.</p>";
+  html += "<form id='tibberForm' action='/save' method='post'>";
+  html += "<input type='hidden' name='redirectTo' value='/anbieter'>";
+  html += "<div class='formGrid'>";
+  html += "<div class='field'><label>Tibber Token (leer = unveraendert)</label><input name='token' type='password' placeholder='Neuen Token eingeben'></div>";
+  html += "<div class='field'><label>Home</label><select name='homeId'>";
+
+  for (int i = 0; i < homeCount; i++) {
+    html += "<option value='";
+    html += htmlEscape(homeIds[i]);
+    html += "'";
+
+    if (homeIds[i] == selectedHomeId) {
+      html += " selected";
+    }
+
+    html += ">";
+    html += htmlEscape(homeNames[i]);
+    html += "</option>";
+  }
+
+  html += "</select></div>";
+  html += "</div>";
+  html += "<div class='actions'><button type='submit'>Tibber-Zugang speichern</button><button type='button' class='secondary' onclick='saveTibberNow()'>Direkt speichern</button></div>";
+  html += "</form></section>";
+
+  html += R"JS(
+<script>
+let providerSaveTimer=null;
+function providerState(t,c){const s=document.getElementById('providerSaveState');if(s){s.className='badge '+c;s.innerText=t;}}
+function saveProviderNow(){
+  const form=document.getElementById('providerForm');
+  if(!form){providerState('Kein Formular','errb');return;}
+  const body=new URLSearchParams(new FormData(form)).toString();
+  providerState('Speichere...','warnb');
+  fetch('/saveproviderajax',{method:'POST',cache:'no-store',credentials:'same-origin',headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'},body:body})
+    .then(r=>r.text())
+    .then(t=>{if(t.indexOf('OK')>=0){providerState('Gespeichert','okb');}else{providerState('Fehler','errb');}})
+    .catch(()=>{providerState('Fehler','errb');});
+}
+function scheduleProviderSave(){clearTimeout(providerSaveTimer);providerState('Änderungen...','warnb');providerSaveTimer=setTimeout(saveProviderNow,400);}
+
+let tibberSaveTimer=null;
+function tibberState(t,c){const s=document.getElementById('tibberSaveState');if(s){s.className='badge '+c;s.innerText=t;}}
+function saveTibberNow(){
+  const form=document.getElementById('tibberForm');
+  if(!form){tibberState('Kein Formular','errb');return;}
+  const body=new URLSearchParams(new FormData(form)).toString();
+  tibberState('Speichere...','warnb');
+  fetch('/savetibberajax',{method:'POST',cache:'no-store',credentials:'same-origin',headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'},body:body})
+    .then(r=>r.text())
+    .then(t=>{if(t.indexOf('OK')>=0){tibberState('Gespeichert','okb');}else{tibberState('Fehler','errb');}})
+    .catch(()=>{tibberState('Fehler','errb');});
+}
+function scheduleTibberSave(){clearTimeout(tibberSaveTimer);tibberState('Änderungen...','warnb');tibberSaveTimer=setTimeout(saveTibberNow,400);}
+
+document.addEventListener('DOMContentLoaded',()=>{
+  const pForm=document.getElementById('providerForm');
+  if(pForm){
+    pForm.querySelectorAll('input,select').forEach(el=>{
+      el.addEventListener('input',scheduleProviderSave);
+      el.addEventListener('change',saveProviderNow);
+    });
+    pForm.addEventListener('submit',()=>{providerState('Speichere...','warnb');});
+  }
+  const tForm=document.getElementById('tibberForm');
+  if(tForm){
+    tForm.querySelectorAll('input,select').forEach(el=>{
+      el.addEventListener('input',scheduleTibberSave);
+      el.addEventListener('change',saveTibberNow);
+    });
+    tForm.addEventListener('submit',()=>{tibberState('Speichere...','warnb');});
+  }
+});
+</script>
+)JS";
+
+  html += htmlFooter();
+
+  server.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+  server.send(200, "text/html", html);
+}
+
+void handleSaveProviderAjax() {
+  if (!checkAuth()) return;
+
+  String newProvider = server.hasArg("priceProvider") ? server.arg("priceProvider") : "tibber";
+  if (newProvider != "tibber" && newProvider != "awattar_de" && newProvider != "awattar_at") newProvider = "tibber";
+  priceProvider = newProvider;
+  prefs.putString("priceProv", priceProvider);
+
+  float newSurchg = server.hasArg("priceSurchg") ? server.arg("priceSurchg").toFloat() : 0.0;
+  if (newSurchg < 0) newSurchg = 0;
+  if (newSurchg > 100) newSurchg = 100;
+  priceSurchargeCt = newSurchg;
+  prefs.putFloat("priceSurchg", priceSurchargeCt);
+
+  float newVat = server.hasArg("priceVat") ? server.arg("priceVat").toFloat() : 0.0;
+  if (newVat < 0) newVat = 0;
+  if (newVat > 50) newVat = 50;
+  priceVatPercent = newVat;
+  prefs.putFloat("priceVat", priceVatPercent);
+
+  // Preis-Refresh NICHT synchron hier ausloesen, siehe Kommentar in
+  // handleSaveAccount() - stattdessen den naechsten loop()-Tick dazu zwingen.
+  lastUpdate = 0;
+
+  server.send(200, "text/plain", "OK provider=" + priceProvider);
+}
+
+void handleSaveTibberAjax() {
+  if (!checkAuth()) return;
+
+  String newToken = server.hasArg("token") ? server.arg("token") : "";
+  newToken.trim();
+
+  if (newToken.length() > 0) {
+    tibberToken = newToken;
+    prefs.putString("token", tibberToken);
+  }
+
+  if (server.hasArg("homeId")) {
+    selectedHomeId = server.arg("homeId");
+    prefs.putString("homeId", selectedHomeId);
+  }
+
+  server.send(200, "text/plain", "OK");
 }
 
 // -----------------------------------------------------------------------------
@@ -6215,7 +6349,8 @@ void handleSave() {
     updatePrices();
   }
 
-  server.sendHeader("Location", "/?saved=1");
+  String redirectTarget = (server.hasArg("redirectTo") && server.arg("redirectTo") == "/anbieter") ? "/anbieter" : "/";
+  server.sendHeader("Location", redirectTarget + "?saved=1");
   server.send(303);
 }
 
@@ -6644,6 +6779,7 @@ String navTabs(String current) {
   String iconSun = "<svg viewBox='0 0 24 24' width='18' height='18'><circle cx='12' cy='12' r='4' fill='none' stroke='currentColor' stroke-width='2'/><path d='M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg>";
   String iconGrid = "<svg viewBox='0 0 24 24' width='18' height='18'><rect x='3' y='3' width='4' height='4' fill='currentColor'/><rect x='10' y='3' width='4' height='4' fill='currentColor'/><rect x='17' y='3' width='4' height='4' fill='currentColor'/><rect x='3' y='10' width='4' height='4' fill='currentColor'/><rect x='10' y='10' width='4' height='4' fill='currentColor'/><rect x='17' y='10' width='4' height='4' fill='currentColor'/><rect x='3' y='17' width='4' height='4' fill='currentColor'/><rect x='10' y='17' width='4' height='4' fill='currentColor'/><rect x='17' y='17' width='4' height='4' fill='currentColor'/></svg>";
   String iconSliders = "<svg viewBox='0 0 24 24' width='18' height='18'><path d='M4 6h10M4 12h16M4 18h7' stroke='currentColor' stroke-width='2' stroke-linecap='round'/><circle cx='16' cy='6' r='2' fill='currentColor'/><circle cx='9' cy='18' r='2' fill='currentColor'/></svg>";
+  String iconPlug = "<svg viewBox='0 0 24 24' width='18' height='18'><path d='M9 2v4M15 2v4M7 6h10v4a5 5 0 0 1-5 5 5 5 0 0 1-5-5V6z' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/><path d='M12 15v4M9 21h6' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg>";
 
   String html;
   html += "<nav class='nav'>";
@@ -6654,6 +6790,7 @@ String navTabs(String current) {
   html += "<span class='navDivider'></span>";
   html += navTabsItem("/wifi", "WLAN", iconWifi, current);
   html += navTabsItem("/account", "Konto", iconKey, current);
+  html += navTabsItem("/anbieter", "Anbieter", iconPlug, current);
   html += navTabsItem("/pinout", "Pinout", iconChip, current);
   html += "<span class='navDivider'></span>";
   html += navTabsItem("/displays", "Displays", iconMonitor, current);
