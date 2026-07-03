@@ -71,7 +71,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "1.5.7"
+#define FIRMWARE_VERSION "1.5.8"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -454,6 +454,7 @@ String wifiQualityLabel(int quality);
 
 void handleRoot();
 void handleWifiPage();
+void handleKioskPage();
 void handlePinoutPage();
 void handleSavePins();
 void handleRestartDevice();
@@ -1487,6 +1488,7 @@ void setup() {
 
   server.on("/", handleRoot);
   server.on("/wifi", handleWifiPage);
+  server.on("/kiosk", handleKioskPage);
   server.on("/pinout", handlePinoutPage);
   server.on("/savepins", HTTP_POST, handleSavePins);
   server.on("/restartdevice", HTTP_POST, handleRestartDevice);
@@ -3782,7 +3784,7 @@ void handleRoot() {
     html += "<p class='ok' style='margin-top:12px'>Status OK</p>";
   }
 
-  html += "<div class='actions'><a href='/refresh'><button>Jetzt aktualisieren</button></a></div>";
+  html += "<div class='actions'><a href='/refresh'><button>Jetzt aktualisieren</button></a><a href='/kiosk'><button type='button' class='secondary'>Tablet-Modus</button></a></div>";
   html += "</section>";
 
   html += "<section class='card'><div class='panelTitle'><h2>Preisverlauf</h2><span class='badge okb'>";
@@ -4626,6 +4628,130 @@ void handlePinoutPage() {
   html += "</section>";
 
   html += htmlFooter();
+  server.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+  server.send(200, "text/html", html);
+}
+
+// -----------------------------------------------------------------------------
+// Tablet-/Kiosk-Modus
+// -----------------------------------------------------------------------------
+
+void handleKioskPage() {
+  if (!checkAuth()) return;
+
+  String statusText = "Keine Daten";
+  String statusColor = "var(--muted)";
+
+  if (quarterCount > 0 && metricCurrent15 >= 0) {
+    int nowCent = euroToCentRounded(metricCurrent15);
+    if (nowCent >= ledRedCent) {
+      statusText = "Teuer";
+      statusColor = "#fb7185";
+    } else if (nowCent >= ledYellowCent) {
+      statusText = "Mittel";
+      statusColor = "#facc15";
+    } else {
+      statusText = "Günstig";
+      statusColor = "#4ade80";
+    }
+  }
+
+  String html;
+  html.reserve(9000);
+
+  html += "<!DOCTYPE html><html><head>";
+  html += "<meta charset='utf-8'>";
+  html += "<meta name='viewport' content='width=device-width, initial-scale=1'>";
+  html += "<meta http-equiv='refresh' content='30'>";
+  html += "<title>";
+  html += htmlEscape(webInterfaceName + " - Tablet-Modus");
+  html += "</title>";
+  html += "<script>(function(){try{if(localStorage.getItem('theme')==='dark'){document.documentElement.setAttribute('data-theme','dark');}}catch(e){}})();</script>";
+  html += "<link rel='stylesheet' href='/style.css?v=" ASSET_VERSION "'>";
+  html += "<link rel='icon' type='image/svg+xml' href='/favicon.svg'>";
+  html += "<style>";
+  html += "body{padding:0!important;display:flex;align-items:center;justify-content:center;min-height:100vh;overflow-x:hidden}";
+  html += ".kiosk-wrap{width:min(820px,94vw);padding:20px;text-align:center}";
+  html += ".kiosk-price{font-size:min(24vw,190px);font-weight:900;line-height:1;letter-spacing:-2px}";
+  html += ".kiosk-unit{font-size:22px;color:var(--muted);margin-top:-6px}";
+  html += ".kiosk-status{display:inline-block;font-size:26px;font-weight:800;margin:14px 0;padding:8px 22px;border-radius:999px;background:var(--overlay-faint)}";
+  html += ".kiosk-chart{margin-top:18px}";
+  html += ".kiosk-meta{color:var(--muted);font-size:15px;margin-top:16px;display:flex;flex-wrap:wrap;gap:6px 18px;justify-content:center}";
+  html += ".kiosk-exit{position:fixed;top:14px;right:14px;opacity:.3;transition:opacity .2s var(--ease)}";
+  html += ".kiosk-exit:hover{opacity:1}";
+  html += ".kiosk-hint{font-size:12px;color:var(--muted);margin-top:22px;max-width:520px;margin-left:auto;margin-right:auto}";
+  html += "</style>";
+  html += "</head><body>";
+
+  html += "<a class='kiosk-exit' href='/'><button class='secondary' type='button'>Dashboard</button></a>";
+  html += "<div class='kiosk-wrap'>";
+
+  String kioskPriceText = "--";
+  if (quarterCount > 0 && metricCurrent15 >= 0) {
+    kioskPriceText = priceToCentText(metricCurrent15);
+  }
+
+  html += "<div class='kiosk-price'>";
+  html += kioskPriceText;
+  html += "</div>";
+  html += "<div class='kiosk-unit'>ct/kWh</div>";
+  html += "<div class='kiosk-status' style='color:" + statusColor + "'>" + statusText + "</div>";
+
+  html += "<div class='kiosk-chart'>";
+  html += buildSvgChart();
+  html += "</div>";
+
+  String lowText = "--";
+  if (metricLow15Day >= 0) {
+    lowText = priceToCentText(metricLow15Day) + " ct um " + formatTimeOnly(metricLow15DayTime);
+  }
+
+  String avgText = "--";
+  if (metricDayAvg >= 0) {
+    avgText = priceToCentText(metricDayAvg) + " ct";
+  }
+
+  html += "<div class='kiosk-meta'>";
+  html += "<span>Tief heute: " + lowText + "</span>";
+  html += "<span>Tagesdurchschnitt: " + avgText + "</span>";
+  html += "<span>Stand: " + getCurrentIsoPrefix().substring(11) + " Uhr</span>";
+  html += "</div>";
+
+  html += "<div class='actions' style='margin-top:20px;justify-content:center'><button type='button' onclick='enterKioskFullscreen()'>Vollbild</button></div>";
+  html += "<p class='kiosk-hint' id='kioskWakeHint'></p>";
+
+  html += "</div>";
+
+  html += R"JS(
+<script>
+function enterKioskFullscreen(){
+  var el = document.documentElement;
+  if (el.requestFullscreen) el.requestFullscreen();
+}
+let kioskWakeLock = null;
+async function requestKioskWakeLock(){
+  var hint = document.getElementById('kioskWakeHint');
+  if (!('wakeLock' in navigator)) {
+    if (hint) hint.innerText = 'Bildschirm-wach-halten wird von diesem Browser hier nicht unterstuetzt (funktioniert meist nur ueber HTTPS). Bitte zusaetzlich die Standby-/Bildschirmschoner-Zeit im Tablet selbst deaktivieren.';
+    return;
+  }
+  try {
+    kioskWakeLock = await navigator.wakeLock.request('screen');
+    if (hint) hint.innerText = 'Bildschirm-wach-halten aktiv.';
+    kioskWakeLock.addEventListener('release', () => { if (hint) hint.innerText = 'Bildschirm-wach-halten wurde beendet.'; });
+  } catch (e) {
+    if (hint) hint.innerText = 'Bildschirm-wach-halten fehlgeschlagen (' + e.message + '). Bitte zusaetzlich die Standby-Zeit im Tablet deaktivieren.';
+  }
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') requestKioskWakeLock();
+});
+requestKioskWakeLock();
+</script>
+)JS";
+
+  html += "</body></html>";
+
   server.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
   server.send(200, "text/html", html);
 }
