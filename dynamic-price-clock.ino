@@ -71,7 +71,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "1.3.1"
+#define FIRMWARE_VERSION "1.3.2"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -3625,11 +3625,11 @@ void handleRoot() {
   }
 
   html += "<section class='card'><div class='panelTitle'><h2>Aktuelle Werte</h2><div style='display:flex;gap:8px;flex-wrap:wrap'>";
-  html += "<span class='badge okb' title='Woher die Preise gerade kommen, aenderbar unter Konto -> Strompreis-Quelle'>";
+  html += "<span class='badge okb' title='Woher die Preise gerade kommen, aenderbar unter Anbieter'>";
   if (priceProvider == "awattar_de") {
-    html += "aWATTar Deutschland";
+    html += "aWATTar DE";
   } else if (priceProvider == "awattar_at") {
-    html += "aWATTar Oesterreich";
+    html += "aWATTar AT";
   } else {
     html += "Tibber";
   }
@@ -3689,7 +3689,9 @@ void handleRoot() {
   html += "</div>";
 
   html += "<div class='small' style='display:flex;flex-wrap:wrap;gap:6px 16px;margin-top:16px'>";
-  html += "<span>Tibber aktuell ab: " + htmlEscape(currentStartsAt) + "</span>";
+  html += "<span>";
+  html += (priceProvider == "tibber") ? "Tibber" : "aWATTar";
+  html += " aktuell ab: " + htmlEscape(currentStartsAt) + "</span>";
   html += "<span>ESP-Zeit: " + htmlEscape(getCurrentIsoPrefix()) + "</span>";
   html += "<span>Slots geladen: " + String(quarterCount) + "</span>";
   html += "<span>API-Update: alle " + String(apiUpdateMinutes) + " Min</span>";
@@ -5742,7 +5744,7 @@ const OPTIONS = [
  ['secondLow60DayFullRange','Kombi: Zweitguenstigster 60-Minuten-Block + Zeitraum'],
  ['ip','System: IP-Adresse des ESP32'],
  ['time','System: Aktuelle Uhrzeit des ESP32'],
- ['lastUpdate','System: Startzeit aktueller Tibber-Preis'],
+ ['lastUpdate','System: Startzeit aktueller Preis'],
  ['cpuLoad','System: CPU/Systemlast'],
  ['freeHeap','System: Freier Heap'],
  ['uptime','System: Uptime / Laufzeit'],
