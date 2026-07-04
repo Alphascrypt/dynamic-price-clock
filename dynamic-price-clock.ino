@@ -72,7 +72,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "1.6.3"
+#define FIRMWARE_VERSION "1.6.4"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -255,6 +255,13 @@ String selectedHomeId = "";
 float tibberMonthCost = -1;
 float tibberMonthConsumptionKwh = -1;
 String tibberMonthCurrency = "";
+
+// Monatliche Grundgebuehr (EUR) - die API liefert nur die reinen
+// Energiekosten, die tatsaechliche Rechnung enthaelt aber zusaetzlich die
+// Tibber-Grundgebuehr. Wird auf der Anbieter-Seite eingetragen und zu den
+// Monatskosten addiert, damit die Anzeige dem echten Rechnungsbetrag
+// entspricht.
+float tibberBaseFeeEur = 0.0;
 
 // Tibber Pulse: Live-Verbrauch per GraphQL-Subscription ueber WebSocket
 // (graphql-transport-ws). Wird automatisch versucht, sobald ein Tibber-Token
@@ -1248,6 +1255,7 @@ void setup() {
   if (priceProvider != "tibber" && priceProvider != "awattar_de" && priceProvider != "awattar_at") priceProvider = "tibber";
   priceSurchargeCt = prefs.getFloat("priceSurchg", 0.0);
   priceVatPercent = prefs.getFloat("priceVat", 0.0);
+  tibberBaseFeeEur = prefs.getFloat("baseFee", 0.0);
   githubRepo = prefs.getString("ghRepo", "Alphascrypt/dynamic-price-clock");
   githubToken = prefs.getString("ghToken", "");
 
@@ -3865,10 +3873,16 @@ void handleRoot() {
   html += " Uhr</div></div>";
 
   if (tibberMonthCost >= 0) {
-    html += "<div class='metric'><div class='label'>Stromkosten diesen Monat</div><div class='value'>";
-    html += euroCostText(tibberMonthCost) + " " + htmlEscape(tibberMonthCurrency);
+    float displayCost = tibberMonthCost + tibberBaseFeeEur;
+    String displayLabel = (tibberBaseFeeEur > 0) ? "Geschaetzte Rechnung" : "Energiekosten (bisheriger Monat)";
+    html += "<div class='metric'><div class='label'>" + displayLabel + "</div><div class='value'>";
+    html += euroCostText(displayCost) + " " + htmlEscape(tibberMonthCurrency);
     html += "</div><div class='sub'>";
-    html += String(tibberMonthConsumptionKwh, 1) + " kWh</div></div>";
+    html += String(tibberMonthConsumptionKwh, 1) + " kWh";
+    if (tibberBaseFeeEur > 0) {
+      html += " + " + euroCostText(tibberBaseFeeEur) + " Grundgebühr";
+    }
+    html += "</div></div>";
   }
 
   html += "</div>";
@@ -4263,6 +4277,7 @@ void handleProviderPage() {
   }
 
   html += "</select></div>";
+  html += "<div class='field'><label>Grundgebühr (EUR/Monat)</label><input name='baseFee' type='number' step='0.01' min='0' max='100' value='" + String(tibberBaseFeeEur, 2) + "' title='Wird zu den Energiekosten addiert, damit die Monatskosten-Anzeige dem echten Rechnungsbetrag entspricht. Die Tibber-API liefert nur die reinen Energiekosten ohne Grundgebühr.'></div>";
   html += "</div>";
   html += "<div class='actions'><button type='submit'>Tibber-Zugang speichern</button><button type='button' class='secondary' onclick='saveTibberNow()'>Direkt speichern</button></div>";
   html += "</form></section>";
@@ -4384,6 +4399,14 @@ void handleSaveTibberAjax() {
   if (server.hasArg("homeId")) {
     selectedHomeId = server.arg("homeId");
     prefs.putString("homeId", selectedHomeId);
+  }
+
+  if (server.hasArg("baseFee")) {
+    float newFee = server.arg("baseFee").toFloat();
+    if (newFee < 0) newFee = 0;
+    if (newFee > 100) newFee = 100;
+    tibberBaseFeeEur = newFee;
+    prefs.putFloat("baseFee", tibberBaseFeeEur);
   }
 
   server.send(200, "text/plain", "OK");
@@ -4783,7 +4806,9 @@ void handleKioskPage() {
 
   String monthCostText = "";
   if (tibberMonthCost >= 0) {
-    monthCostText = "Monatskosten: " + euroCostText(tibberMonthCost) + " " + htmlEscape(tibberMonthCurrency);
+    float displayCost = tibberMonthCost + tibberBaseFeeEur;
+    monthCostText = (tibberBaseFeeEur > 0 ? "Rechnung ca.: " : "Energie bisher: ")
+                    + euroCostText(displayCost) + " " + htmlEscape(tibberMonthCurrency);
   }
 
   html += "<div class='kw kw-meta'><div class='kiosk-meta'>";
@@ -5001,7 +5026,9 @@ void handleKioskData() {
 
   String monthCostText = "";
   if (tibberMonthCost >= 0) {
-    monthCostText = "Monatskosten: " + euroCostText(tibberMonthCost) + " " + tibberMonthCurrency;
+    float displayCost = tibberMonthCost + tibberBaseFeeEur;
+    monthCostText = (tibberBaseFeeEur > 0 ? "Rechnung ca.: " : "Energie bisher: ")
+                    + euroCostText(displayCost) + " " + tibberMonthCurrency;
   }
 
   String json;
@@ -7159,6 +7186,14 @@ void handleSave() {
   if (server.hasArg("homeId")) {
     selectedHomeId = server.arg("homeId");
     prefs.putString("homeId", selectedHomeId);
+  }
+
+  if (server.hasArg("baseFee")) {
+    float newFee = server.arg("baseFee").toFloat();
+    if (newFee < 0) newFee = 0;
+    if (newFee > 100) newFee = 100;
+    tibberBaseFeeEur = newFee;
+    prefs.putFloat("baseFee", tibberBaseFeeEur);
   }
 
   if (server.hasArg("apiMinutes")) {
