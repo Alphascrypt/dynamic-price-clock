@@ -1,0 +1,51 @@
+<!DOCTYPE html><html><head>
+<meta charset='utf-8'>
+<style>
+html,body{margin:0;padding:0;background:#0a0e1a;display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:Inter,system-ui,sans-serif}
+.tablet{position:relative;background:linear-gradient(160deg,#2a3040,#14171f);border-radius:38px;box-shadow:0 40px 90px rgba(0,0,0,.55),0 0 0 2px rgba(255,255,255,.04) inset;padding:0}
+.tablet .screen{position:absolute;background:#000;border-radius:14px;overflow:hidden;box-shadow:0 0 0 2px #000 inset}
+.tablet .cam{position:absolute;background:#050608;border-radius:50%;box-shadow:0 0 0 2px rgba(255,255,255,.05) inset}
+.tablet .cam:after{content:'';position:absolute;inset:2px;border-radius:50%;background:radial-gradient(circle at 35% 35%,#3a4a72,#050608 70%)}
+iframe{border:0;display:block}
+.tablet.portrait{width:724px;height:1052px}
+.tablet.portrait .screen{left:26px;top:54px;width:672px;height:968px}
+.tablet.portrait .cam{left:50%;top:22px;width:8px;height:8px;transform:translateX(-50%)}
+.tablet.landscape{width:1052px;height:675px}
+.tablet.landscape .screen{left:54px;top:26px;width:968px;height:623px}
+.tablet.landscape .cam{left:22px;top:50%;width:8px;height:8px;transform:translateY(-50%)}
+</style>
+</head><body>
+<div class='tablet' id='tablet'>
+<div class='cam'></div>
+<div class='screen' id='screen'></div>
+</div>
+<script>
+(function(){
+  var params = new URLSearchParams(location.search);
+  var src = params.get('src') || 'kiosk.html';
+  var theme = params.get('theme') || 'dark';
+  var mode = params.get('mode') || 'portrait';
+
+  var tablet = document.getElementById('tablet');
+  var screen = document.getElementById('screen');
+  tablet.classList.add(mode);
+
+  var iframeW, iframeH, scale;
+  if (mode === 'landscape') {
+    iframeW = 1180; iframeH = 760; scale = 968 / iframeW;
+  } else {
+    iframeW = 820; iframeH = 1180; scale = 672 / iframeW;
+  }
+
+  var iframe = document.createElement('iframe');
+  iframe.src = src + '?theme=' + theme;
+  iframe.width = iframeW;
+  iframe.height = iframeH;
+  iframe.style.width = iframeW + 'px';
+  iframe.style.height = iframeH + 'px';
+  iframe.style.transform = 'scale(' + scale + ')';
+  iframe.style.transformOrigin = 'top left';
+  screen.appendChild(iframe);
+})();
+</script>
+</body></html>

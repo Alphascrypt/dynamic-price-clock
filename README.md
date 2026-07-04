@@ -37,6 +37,18 @@ Benötigte Teile für den Nachbau: siehe [BOM.md](BOM.md) (Stückliste). Verkabe
 
 Jede Seite gibt es auch im Dunkelmodus (`docs/screenshots/*-dark.png`).
 
+### Tablet-/Kiosk-Modus
+
+Über `/kiosk` gibt es eine eigene Vollbild-Ansicht für ein dauerhaft angeschlossenes Tablet oder Handy: großes Preis-Gauge, interaktives Diagramm (Fahren mit Finger/Maus zeigt Preise per Fadenkreuz) und ein Wake Lock, damit der Bildschirm nicht in den Standby geht. Im Querformat schaltet die Seite automatisch auf ein zweispaltiges Layout um.
+
+| Hochformat | Hochformat (Dunkelmodus) |
+|---|---|
+| ![Tablet-Modus Hochformat](docs/screenshots/kiosk-tablet-portrait-light.png) | ![Tablet-Modus Hochformat Dunkel](docs/screenshots/kiosk-tablet-portrait-dark.png) |
+
+| Querformat (Dunkelmodus) |
+|---|
+| ![Tablet-Modus Querformat](docs/screenshots/kiosk-tablet-landscape-dark.png) |
+
 ## Einrichtung (Arduino IDE)
 
 **Board:** ESP32C5 Dev Module (Board-Paket `esp32:esp32`, Boards-Manager-URL `https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json`)
