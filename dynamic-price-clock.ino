@@ -68,11 +68,11 @@
 
 // Version fuer /style.css und /app.js. Bei Aenderungen an CSS/JS erhoehen,
 // damit Browser-Caches (siehe Cache-Control dort) sofort ungueltig werden.
-#define ASSET_VERSION "9"
+#define ASSET_VERSION "10"
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "1.6.0"
+#define FIRMWARE_VERSION "1.6.1"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -520,6 +520,7 @@ void handleJson();
 void handleStyleCss();
 void handleFaviconSvg();
 void handleAppJs();
+void handleLivePower();
 
 String buildSvgChart();
 String buildChartPointsJson();
@@ -1464,6 +1465,7 @@ void setup() {
   server.on("/style.css", handleStyleCss);
   server.on("/favicon.svg", HTTP_GET, handleFaviconSvg);
   server.on("/app.js", handleAppJs);
+  server.on("/livepower", HTTP_GET, handleLivePower);
   server.begin();
 
   if (!apMode) {
@@ -3720,9 +3722,11 @@ void handleRoot() {
   html += "<div class='gaugeWrap'>";
   html += buildPriceGaugeSvg();
   html += "</div>";
+  String liveHomeText = "";
   if (livePowerW >= 0 && millis() - livePowerUpdatedAtMs < 60000) {
-    html += "<div class='live-power'>&#9889; Aktueller Verbrauch: <b>" + String((int)livePowerW) + " W</b></div>";
+    liveHomeText = "&#9889; Aktueller Verbrauch: <b>" + String((int)livePowerW) + " W</b>";
   }
+  html += "<div class='live-power' id='livePowerBadge'>" + liveHomeText + "</div>";
   html += "<div class='gridCards'>";
 
   html += "<div class='metric'><div class='label'>15-Minuten-Preis</div><div class='value'>";
@@ -4605,6 +4609,7 @@ void handleKioskPage() {
   html += ".kiosk-gauge{max-width:min(420px,50vh,90vw);margin:0 auto}";
   html += ".kiosk-gauge svg{width:100%;max-width:100%;height:auto;background:transparent;border:0;margin:0}";
   html += ".kiosk-live-power{font-size:clamp(12px,2vh,16px);font-weight:700;color:var(--muted);margin-top:clamp(2px,0.8vh,6px)}";
+  html += ".kiosk-live-power:empty{display:none}";
   html += ".kiosk-status{display:inline-block;font-size:clamp(14px,3vh,26px);font-weight:800;margin:clamp(2px,1vh,6px) 0 clamp(4px,1.4vh,14px);padding:clamp(4px,0.9vh,8px) clamp(10px,3vw,22px);border-radius:999px;background:var(--overlay-faint)}";
   html += ".kiosk-chart{margin-top:clamp(6px,1.8vh,18px);max-width:min(100%,64vh);margin-left:auto;margin-right:auto;position:relative;touch-action:none;cursor:crosshair}";
   html += ".kiosk-chart svg{width:100%;height:auto;display:block}";
@@ -4783,9 +4788,6 @@ function refreshKioskData(){
     var statusEl = document.getElementById('kioskStatus');
     if (statusEl) { statusEl.innerText = data.statusText; statusEl.style.color = data.statusColor; }
 
-    var livePowerEl = document.getElementById('kioskLivePower');
-    if (livePowerEl) livePowerEl.innerHTML = data.livePowerText || '';
-
     if (kioskGaugeWrapEl) kioskGaugeWrapEl.innerHTML = data.gaugeSvg;
 
     if (kioskChartWrapEl) {
@@ -4803,6 +4805,19 @@ function refreshKioskData(){
   }).catch(function(e){ /* naechster Versuch beim naechsten Intervall */ });
 }
 setInterval(refreshKioskData, 30000);
+
+// Eigener, schnellerer Poller nur fuer den Tibber-Pulse-Verbrauch - der
+// aendert sich alle paar Sekunden, waehrend Gauge/Diagramm/Preise nur alle
+// 30s aktualisiert werden muessen.
+function refreshLivePower(){
+  var el = document.getElementById('kioskLivePower');
+  if (!el) return;
+  fetch('/livepower').then(function(r){ return r.json(); }).then(function(data){
+    el.innerHTML = data.text || '';
+  }).catch(function(e){ /* naechster Versuch beim naechsten Intervall */ });
+}
+refreshLivePower();
+setInterval(refreshLivePower, 2500);
 
 let kioskWakeLock = null;
 async function requestKioskWakeLock(){
@@ -4853,11 +4868,6 @@ void handleKioskData() {
 
   String standText = getCurrentIsoPrefix().substring(11) + " Uhr";
 
-  String livePowerText = "";
-  if (livePowerW >= 0 && millis() - livePowerUpdatedAtMs < 60000) {
-    livePowerText = "⚡ " + String((int)livePowerW) + " W";
-  }
-
   String json;
   json.reserve(6000);
   json += "{";
@@ -4868,9 +4878,25 @@ void handleKioskData() {
   json += "\"chartPoints\":" + buildChartPointsJson() + ",";
   json += "\"lowText\":\"" + jsonEscapeValue(lowText) + "\",";
   json += "\"avgText\":\"" + jsonEscapeValue(avgText) + "\",";
-  json += "\"standText\":\"" + jsonEscapeValue(standText) + "\",";
-  json += "\"livePowerText\":\"" + jsonEscapeValue(livePowerText) + "\"";
+  json += "\"standText\":\"" + jsonEscapeValue(standText) + "\"";
   json += "}";
+
+  server.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+  server.send(200, "application/json", json);
+}
+
+// Leichtgewichtiger Endpunkt nur fuer den aktuellen Tibber-Pulse-Verbrauch,
+// damit Start- und Tablet-Seite ihn alle paar Sekunden abfragen koennen,
+// ohne wie /kioskdata jedes Mal Gauge- und Diagramm-SVG neu zu erzeugen.
+void handleLivePower() {
+  if (!checkAuth()) return;
+
+  String text = "";
+  if (livePowerW >= 0 && millis() - livePowerUpdatedAtMs < 60000) {
+    text = "⚡ " + String((int)livePowerW) + " W";
+  }
+
+  String json = "{\"text\":\"" + jsonEscapeValue(text) + "\"}";
 
   server.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
   server.send(200, "application/json", json);
@@ -7067,6 +7093,7 @@ svg{background:#0b1224;border:1px solid var(--line);border-radius:18px;margin-to
 .gaugeWrap{display:flex;justify-content:center;margin:6px 0 4px}
 .gaugeWrap svg{width:240px;max-width:100%;height:auto;background:transparent;border:0;margin:0}
 .live-power{display:flex;justify-content:center;align-items:center;gap:6px;font-size:15px;font-weight:700;color:var(--text);background:var(--overlay-faint);border-radius:999px;padding:6px 16px;margin:0 auto 10px;width:fit-content}
+.live-power:empty{display:none}
 a{color:var(--accent);text-decoration:none}
 code{background:#0b1224;color:#e2e8f0;border:1px solid var(--line);border-radius:8px;padding:2px 6px;font-size:12px}
 details summary{cursor:pointer;color:var(--text);list-style:none}details summary::-webkit-details-marker{display:none}details summary h2{display:inline-block!important}details summary::before{content:'▸ ';color:var(--accent);font-size:14px}details[open] summary::before{content:'▾ '}
@@ -7108,6 +7135,17 @@ function toggleTheme() {
     try { localStorage.setItem('theme', 'dark'); } catch (e) {}
   }
 }
+(function(){
+  var el = document.getElementById('livePowerBadge');
+  if (!el) return;
+  function poll(){
+    fetch('/livepower').then(function(r){ return r.json(); }).then(function(data){
+      el.innerHTML = data.text || '';
+    }).catch(function(e){ /* naechster Versuch beim naechsten Intervall */ });
+  }
+  poll();
+  setInterval(poll, 2500);
+})();
 function showToast(msg, type) {
   type = type || 'info';
   var host = document.getElementById('toastHost');
