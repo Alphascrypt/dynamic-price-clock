@@ -6942,6 +6942,7 @@ String kioskWidgetCss(KioskWidgetLayout arr[]) {
       css += "display:none}";
       continue;
     }
+    css += "position:absolute;";
     css += "left:" + String(arr[i].x, 2) + "%;top:" + String(arr[i].y, 2) + "%;";
     css += "width:" + String(arr[i].w, 2) + "%;height:" + String(arr[i].h, 2) + "%}";
   }
