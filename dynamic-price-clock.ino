@@ -73,7 +73,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "1.6.8"
+#define FIRMWARE_VERSION "1.6.9"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -464,6 +464,7 @@ void calculateMetrics();
 
 String priceToCentText(float price);
 String euroCostText(float value);
+float estimateFullMonthCost();
 String getLayoutValue(String key);
 
 void drawLayoutDisplay(Adafruit_GC9A01A &disp, bool ok, LayoutItem layout[]);
@@ -2384,6 +2385,35 @@ String euroCostText(float value) {
   return s;
 }
 
+// Hochrechnung: bisherige Monatskosten * (Tage im Monat / verstrichene Tage) + Grundgebuehr.
+// Wenn Uhrzeit / Daten fehlen: -1.0 zurueckgeben.
+float estimateFullMonthCost() {
+  if (tibberMonthCost < 0) return -1.0;
+
+  struct tm timeinfo;
+  if (!getLocalTime(&timeinfo, 500)) return -1.0;
+
+  int currentDay = timeinfo.tm_mday;
+  int month = timeinfo.tm_mon;
+  int year = timeinfo.tm_year + 1900;
+
+  int daysInMonth = 31;
+  if (month == 3 || month == 5 || month == 8 || month == 10) {
+    daysInMonth = 30;
+  } else if (month == 1) {
+    bool leap = (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
+    daysInMonth = leap ? 29 : 28;
+  }
+
+  // Anteil des Tages einrechnen (Stunden/24), damit die Prognose nicht bei jedem
+  // Tageswechsel springt.
+  float elapsed = (float)(currentDay - 1) + ((float)timeinfo.tm_hour + (float)timeinfo.tm_min / 60.0f) / 24.0f;
+  if (elapsed < 0.25f) elapsed = 0.25f; // vor 6 Uhr am 1. keine sinnvolle Hochrechnung
+
+  float projected = tibberMonthCost * ((float)daysInMonth / elapsed);
+  return projected + tibberBaseFeeEur;
+}
+
 String getLayoutValue(String key) {
   if (key == "cpuLoad") return getCpuLoadText();
   if (key == "freeHeap") return getFreeHeapText();
@@ -3877,16 +3907,23 @@ void handleRoot() {
   html += " Uhr</div></div>";
 
   if (tibberMonthCost >= 0) {
-    float displayCost = tibberMonthCost + tibberBaseFeeEur;
-    String displayLabel = (tibberBaseFeeEur > 0) ? "Geschaetzte Rechnung" : "Energiekosten (bisheriger Monat)";
-    html += "<div class='metric'><div class='label'>" + displayLabel + "</div><div class='value'>";
-    html += euroCostText(displayCost) + " " + htmlEscape(tibberMonthCurrency);
+    html += "<div class='metric'><div class='label'>Energiekosten (bisher)</div><div class='value'>";
+    html += euroCostText(tibberMonthCost) + " " + htmlEscape(tibberMonthCurrency);
     html += "</div><div class='sub'>";
-    html += String(tibberMonthConsumptionKwh, 1) + " kWh";
-    if (tibberBaseFeeEur > 0) {
-      html += " + " + euroCostText(tibberBaseFeeEur) + " Grundgebühr";
-    }
+    html += String(tibberMonthConsumptionKwh, 1) + " kWh seit Monatsanfang";
     html += "</div></div>";
+
+    float projected = estimateFullMonthCost();
+    if (projected >= 0) {
+      html += "<div class='metric'><div class='label'>Prognose Monatsende</div><div class='value'>";
+      html += euroCostText(projected) + " " + htmlEscape(tibberMonthCurrency);
+      html += "</div><div class='sub'>";
+      html += "hochgerechnet";
+      if (tibberBaseFeeEur > 0) {
+        html += " inkl. " + euroCostText(tibberBaseFeeEur) + " Grundgebühr";
+      }
+      html += "</div></div>";
+    }
   }
 
   html += "</div>";
@@ -4828,11 +4865,11 @@ void handleKioskPage() {
   html += ".kiosk-crosshair-line{stroke:var(--text);stroke-width:1.5;stroke-dasharray:4,4;opacity:0;pointer-events:none}";
   html += ".kiosk-crosshair-dot{fill:var(--text);stroke:#0b1224;stroke-width:2;opacity:0;pointer-events:none}";
   html += ".kiosk-tooltip{position:absolute;transform:translate(-50%,-115%);background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:6px 10px;font-size:13px;font-weight:700;white-space:nowrap;pointer-events:none;opacity:0;box-shadow:0 8px 20px var(--shadow-soft)}";
-  html += ".kiosk-chart-hint{color:var(--muted);font-size:clamp(9px,1.3vh,12px);margin:4px 0 0;flex:0 0 auto}";
+  html += ".kiosk-chart-hint{color:var(--muted);font-size:clamp(9px,1.3vh,12px);margin:clamp(10px,2vh,20px) 0 0;flex:0 0 auto}";
   html += ".kiosk-meta{color:var(--muted);font-size:clamp(9px,1.6vh,14px);display:flex;flex-wrap:wrap;gap:clamp(3px,0.8vh,6px) clamp(8px,2vw,18px);justify-content:center;align-items:center;height:100%}";
   html += ".kiosk-meta span:empty{display:none}";
-  html += ".kiosk-exit{position:fixed;top:14px;right:14px;opacity:.3;transition:opacity .2s var(--ease)}";
-  html += ".kiosk-exit:hover{opacity:1}";
+  html += ".kiosk-topbar{position:fixed;top:14px;right:14px;display:flex;gap:8px;opacity:.3;transition:opacity .2s var(--ease);z-index:10}";
+  html += ".kiosk-topbar:hover{opacity:1}";
   html += ".kiosk-hint{font-size:clamp(9px,1.3vh,12px);color:var(--muted);margin-top:clamp(4px,1vh,14px);max-width:520px}";
   html += ".actions{margin-top:clamp(6px,2vh,16px)!important;justify-content:center!important}";
   html += kioskWidgetCss(kioskPortrait);
@@ -4848,7 +4885,10 @@ void handleKioskPage() {
   html += "</style>";
   html += "</head><body>";
 
-  html += "<a class='kiosk-exit' href='/'><button class='secondary' type='button'>Dashboard</button></a>";
+  html += "<div class='kiosk-topbar'>";
+  html += "<button class='secondary' type='button' onclick='enterKioskFullscreen()'>Vollbild</button>";
+  html += "<a href='/'><button class='secondary' type='button'>Dashboard</button></a>";
+  html += "</div>";
   html += "<div class='kiosk-wrap'>";
   html += "<div class='kiosk-canvas' id='kioskCanvas'>";
 
@@ -4885,22 +4925,25 @@ void handleKioskPage() {
   }
 
   String monthCostText = "";
+  String monthEstimateText = "";
   if (tibberMonthCost >= 0) {
-    float displayCost = tibberMonthCost + tibberBaseFeeEur;
-    monthCostText = (tibberBaseFeeEur > 0 ? "Rechnung ca.: " : "Energie bisher: ")
-                    + euroCostText(displayCost) + " " + htmlEscape(tibberMonthCurrency);
+    monthCostText = "Bisher: " + euroCostText(tibberMonthCost) + " " + htmlEscape(tibberMonthCurrency);
+    float projected = estimateFullMonthCost();
+    if (projected >= 0) {
+      monthEstimateText = "Prognose: " + euroCostText(projected) + " " + htmlEscape(tibberMonthCurrency);
+    }
   }
 
   html += "<div class='kw kw-meta'><div class='kiosk-meta'>";
   html += "<span id='kioskLowText'>Tief heute: " + lowText + "</span>";
   html += "<span id='kioskAvgText'>Tagesdurchschnitt: " + avgText + "</span>";
   html += "<span id='kioskMonthCost'>" + monthCostText + "</span>";
+  html += "<span id='kioskMonthEstimate'>" + monthEstimateText + "</span>";
   html += "<span id='kioskStandText'>Stand: " + getCurrentIsoPrefix().substring(11) + " Uhr</span>";
   html += "</div></div>";
 
   html += "</div>"; // kiosk-canvas
 
-  html += "<div class='actions'><button type='button' onclick='enterKioskFullscreen()'>Vollbild</button></div>";
   html += "<p class='kiosk-hint' id='kioskWakeHint'></p>";
 
   html += "</div>";
@@ -5036,6 +5079,8 @@ function refreshKioskData(){
     if (avgEl) avgEl.innerText = 'Tagesdurchschnitt: ' + data.avgText;
     var monthEl = document.getElementById('kioskMonthCost');
     if (monthEl) monthEl.innerText = data.monthCostText || '';
+    var estEl = document.getElementById('kioskMonthEstimate');
+    if (estEl) estEl.innerText = data.monthEstimateText || '';
     var standEl = document.getElementById('kioskStandText');
     if (standEl) standEl.innerText = 'Stand: ' + data.standText;
   }).catch(function(e){ /* naechster Versuch beim naechsten Intervall */ });
@@ -5105,10 +5150,13 @@ void handleKioskData() {
   String standText = getCurrentIsoPrefix().substring(11) + " Uhr";
 
   String monthCostText = "";
+  String monthEstimateText = "";
   if (tibberMonthCost >= 0) {
-    float displayCost = tibberMonthCost + tibberBaseFeeEur;
-    monthCostText = (tibberBaseFeeEur > 0 ? "Rechnung ca.: " : "Energie bisher: ")
-                    + euroCostText(displayCost) + " " + tibberMonthCurrency;
+    monthCostText = "Bisher: " + euroCostText(tibberMonthCost) + " " + tibberMonthCurrency;
+    float projected = estimateFullMonthCost();
+    if (projected >= 0) {
+      monthEstimateText = "Prognose: " + euroCostText(projected) + " " + tibberMonthCurrency;
+    }
   }
 
   String json;
@@ -5122,7 +5170,8 @@ void handleKioskData() {
   json += "\"lowText\":\"" + jsonEscapeValue(lowText) + "\",";
   json += "\"avgText\":\"" + jsonEscapeValue(avgText) + "\",";
   json += "\"standText\":\"" + jsonEscapeValue(standText) + "\",";
-  json += "\"monthCostText\":\"" + jsonEscapeValue(monthCostText) + "\"";
+  json += "\"monthCostText\":\"" + jsonEscapeValue(monthCostText) + "\",";
+  json += "\"monthEstimateText\":\"" + jsonEscapeValue(monthEstimateText) + "\"";
   json += "}";
 
   server.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
