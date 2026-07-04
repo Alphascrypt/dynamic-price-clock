@@ -73,7 +73,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "1.6.7"
+#define FIRMWARE_VERSION "1.6.8"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -4814,7 +4814,7 @@ void handleKioskPage() {
   html += "html,body{height:100%;overflow:hidden}";
   html += "body{padding:0!important;display:flex;align-items:center;justify-content:center}";
   html += ".kiosk-wrap{display:flex;flex-direction:column;align-items:center;max-height:100vh;padding:clamp(8px,2.2vh,20px);box-sizing:border-box;text-align:center;overflow:hidden}";
-  html += ".kiosk-canvas{position:relative;height:min(82vh,1200px);max-width:94vw;aspect-ratio:9/16;flex:0 0 auto}";
+  html += ".kiosk-canvas{position:relative;height:min(82vh,1200px);width:calc(min(82vh,1200px) * 9 / 16);max-width:94vw;aspect-ratio:9/16;flex:0 0 auto}";
   html += ".kw{position:absolute;overflow:hidden;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;justify-content:center}";
   html += ".kiosk-time{font-size:clamp(18px,5vh,46px);font-weight:800;line-height:1.1;letter-spacing:1px}";
   html += ".kiosk-date{font-size:clamp(9px,1.7vh,15px);color:var(--muted);margin-top:2px;text-transform:capitalize}";
@@ -4836,8 +4836,8 @@ void handleKioskPage() {
   html += ".kiosk-hint{font-size:clamp(9px,1.3vh,12px);color:var(--muted);margin-top:clamp(4px,1vh,14px);max-width:520px}";
   html += ".actions{margin-top:clamp(6px,2vh,16px)!important;justify-content:center!important}";
   html += kioskWidgetCss(kioskPortrait);
-  html += "@media (orientation:landscape) and (max-height:820px){";
-  html += ".kiosk-canvas{height:min(80vh,900px);max-width:97vw;aspect-ratio:16/9}";
+  html += "@media (orientation:landscape){";
+  html += ".kiosk-canvas{height:min(80vh,900px);width:calc(min(80vh,900px) * 16 / 9);max-width:97vw;aspect-ratio:16/9}";
   html += ".kiosk-time{font-size:clamp(14px,4vh,30px)}";
   html += ".kiosk-date{font-size:clamp(8px,1.4vh,12px)}";
   html += ".kiosk-status{font-size:clamp(12px,2.4vh,22px)}";
