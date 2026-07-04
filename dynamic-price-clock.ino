@@ -72,7 +72,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "1.6.1"
+#define FIRMWARE_VERSION "1.6.2"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -247,6 +247,15 @@ String otaPendingUrl = "";
 String tibberToken = "";
 String selectedHomeId = "";
 
+// Monatliche Stromkosten (aktueller, noch laufender Monat), aus derselben
+// Tibber-Abfrage wie die Preisdaten mitgeliefert (consumption(resolution:
+// MONTHLY, last: 1)). Kommt von Tibbers eigener Zaehlerauswertung, nicht vom
+// Pulse - funktioniert also auch ohne Pulse, kann aber je nach Netzbetreiber
+// 1-2 Tage nachhinken.
+float tibberMonthCost = -1;
+float tibberMonthConsumptionKwh = -1;
+String tibberMonthCurrency = "";
+
 // Tibber Pulse: Live-Verbrauch per GraphQL-Subscription ueber WebSocket
 // (graphql-transport-ws). Wird automatisch versucht, sobald ein Tibber-Token
 // und eine Home-ID bekannt sind - ohne Pulse kommen einfach nie "next"-
@@ -405,6 +414,7 @@ void otaUpdateTask(void *param);
 void calculateMetrics();
 
 String priceToCentText(float price);
+String euroCostText(float value);
 String getLayoutValue(String key);
 
 void drawLayoutDisplay(Adafruit_GC9A01A &disp, bool ok, LayoutItem layout[]);
@@ -1630,7 +1640,7 @@ void updateTibber() {
   http.addHeader("Authorization", "Bearer " + tibberToken);
 
   String body =
-    "{\"query\":\"{ viewer { homes { id appNickname currentSubscription { priceInfo(resolution: QUARTER_HOURLY) { current { total startsAt } today { total startsAt } tomorrow { total startsAt } } } } } }\"}";
+    "{\"query\":\"{ viewer { homes { id appNickname currentSubscription { priceInfo(resolution: QUARTER_HOURLY) { current { total startsAt } today { total startsAt } tomorrow { total startsAt } } } consumption(resolution: MONTHLY, last: 1) { nodes { cost consumption currency } } } } }\"}";
 
   int httpCode = http.POST(body);
 
@@ -1694,6 +1704,14 @@ void updateTibber() {
 
     if (selectedHomeId.length() > 0 && id != selectedHomeId) {
       continue;
+    }
+
+    JsonArray monthNodes = home["consumption"]["nodes"];
+    if (!monthNodes.isNull() && monthNodes.size() > 0) {
+      JsonObject monthNode = monthNodes[monthNodes.size() - 1];
+      tibberMonthCost = monthNode["cost"] | -1.0;
+      tibberMonthConsumptionKwh = monthNode["consumption"] | -1.0;
+      tibberMonthCurrency = String(monthNode["currency"] | "");
     }
 
     JsonObject sub = home["currentSubscription"];
@@ -2292,6 +2310,13 @@ void calculateMetrics() {
 String priceToCentText(float price) {
   if (price < 0) return "--";
   return String(euroToCentRounded(price));
+}
+
+String euroCostText(float value) {
+  if (value < 0) return "--";
+  String s = String(value, 2);
+  s.replace(".", ",");
+  return s;
 }
 
 String getLayoutValue(String key) {
@@ -3763,6 +3788,13 @@ void handleRoot() {
   html += addMinutesToIsoTime(metricSecondLow60DayTime, 60);
   html += " Uhr</div></div>";
 
+  if (tibberMonthCost >= 0) {
+    html += "<div class='metric'><div class='label'>Stromkosten diesen Monat</div><div class='value'>";
+    html += euroCostText(tibberMonthCost) + " " + htmlEscape(tibberMonthCurrency);
+    html += "</div><div class='sub'>";
+    html += String(tibberMonthConsumptionKwh, 1) + " kWh</div></div>";
+  }
+
   html += "</div>";
 
   html += "<div class='small' style='display:flex;flex-wrap:wrap;gap:6px 16px;margin-top:16px'>";
@@ -4617,6 +4649,7 @@ void handleKioskPage() {
   html += ".kiosk-crosshair-dot{fill:var(--text);stroke:#0b1224;stroke-width:2;opacity:0;pointer-events:none}";
   html += ".kiosk-tooltip{position:absolute;transform:translate(-50%,-115%);background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:6px 10px;font-size:13px;font-weight:700;white-space:nowrap;pointer-events:none;opacity:0;box-shadow:0 8px 20px var(--shadow-soft)}";
   html += ".kiosk-meta{color:var(--muted);font-size:clamp(10px,1.7vh,15px);margin-top:clamp(4px,1.6vh,16px);display:flex;flex-wrap:wrap;gap:clamp(3px,0.8vh,6px) clamp(8px,2vw,18px);justify-content:center}";
+  html += ".kiosk-meta span:empty{display:none}";
   html += ".kiosk-exit{position:fixed;top:14px;right:14px;opacity:.3;transition:opacity .2s var(--ease)}";
   html += ".kiosk-exit:hover{opacity:1}";
   html += ".kiosk-hint{font-size:clamp(9px,1.3vh,12px);color:var(--muted);margin-top:clamp(4px,1vh,22px);max-width:520px;margin-left:auto;margin-right:auto}";
@@ -4676,9 +4709,15 @@ void handleKioskPage() {
     avgText = priceToCentText(metricDayAvg) + " ct";
   }
 
+  String monthCostText = "";
+  if (tibberMonthCost >= 0) {
+    monthCostText = "Monatskosten: " + euroCostText(tibberMonthCost) + " " + htmlEscape(tibberMonthCurrency);
+  }
+
   html += "<div class='kiosk-meta'>";
   html += "<span id='kioskLowText'>Tief heute: " + lowText + "</span>";
   html += "<span id='kioskAvgText'>Tagesdurchschnitt: " + avgText + "</span>";
+  html += "<span id='kioskMonthCost'>" + monthCostText + "</span>";
   html += "<span id='kioskStandText'>Stand: " + getCurrentIsoPrefix().substring(11) + " Uhr</span>";
   html += "</div>";
   html += "</div>";
@@ -4800,6 +4839,8 @@ function refreshKioskData(){
     if (lowEl) lowEl.innerText = 'Tief heute: ' + data.lowText;
     var avgEl = document.getElementById('kioskAvgText');
     if (avgEl) avgEl.innerText = 'Tagesdurchschnitt: ' + data.avgText;
+    var monthEl = document.getElementById('kioskMonthCost');
+    if (monthEl) monthEl.innerText = data.monthCostText || '';
     var standEl = document.getElementById('kioskStandText');
     if (standEl) standEl.innerText = 'Stand: ' + data.standText;
   }).catch(function(e){ /* naechster Versuch beim naechsten Intervall */ });
@@ -4868,6 +4909,11 @@ void handleKioskData() {
 
   String standText = getCurrentIsoPrefix().substring(11) + " Uhr";
 
+  String monthCostText = "";
+  if (tibberMonthCost >= 0) {
+    monthCostText = "Monatskosten: " + euroCostText(tibberMonthCost) + " " + tibberMonthCurrency;
+  }
+
   String json;
   json.reserve(6000);
   json += "{";
@@ -4878,7 +4924,8 @@ void handleKioskData() {
   json += "\"chartPoints\":" + buildChartPointsJson() + ",";
   json += "\"lowText\":\"" + jsonEscapeValue(lowText) + "\",";
   json += "\"avgText\":\"" + jsonEscapeValue(avgText) + "\",";
-  json += "\"standText\":\"" + jsonEscapeValue(standText) + "\"";
+  json += "\"standText\":\"" + jsonEscapeValue(standText) + "\",";
+  json += "\"monthCostText\":\"" + jsonEscapeValue(monthCostText) + "\"";
   json += "}";
 
   server.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
