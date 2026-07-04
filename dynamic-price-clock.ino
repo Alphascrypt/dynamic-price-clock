@@ -73,7 +73,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "1.7.1"
+#define FIRMWARE_VERSION "1.7.2"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -4899,7 +4899,8 @@ void handleKioskPage() {
   html += ".kiosk-crosshair-dot{fill:var(--text);stroke:#0b1224;stroke-width:2;opacity:0;pointer-events:none}";
   html += ".kiosk-tooltip{position:absolute;transform:translate(-50%,-115%);background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:6px 10px;font-size:13px;font-weight:700;white-space:nowrap;pointer-events:none;opacity:0;box-shadow:0 8px 20px var(--shadow-soft)}";
   html += ".kiosk-chart-hint{color:var(--muted);font-size:clamp(9px,1.3vh,12px);margin:clamp(10px,2vh,20px) 0 0;flex:0 0 auto}";
-  html += ".kiosk-meta{color:var(--muted);font-size:clamp(9px,1.6vh,14px);display:flex;flex-wrap:wrap;gap:clamp(3px,0.8vh,6px) clamp(8px,2vw,18px);justify-content:center;align-items:center;height:100%}";
+  html += ".kiosk-meta{color:var(--muted);font-size:clamp(9px,1.6vh,14px);display:flex;flex-wrap:wrap;gap:clamp(4px,1vh,10px);justify-content:center;align-items:center;height:100%}";
+  html += ".kiosk-meta span{padding:clamp(3px,0.7vh,7px) clamp(8px,2vw,16px);border-radius:999px;background:var(--overlay-faint);border:1px solid var(--line)}";
   html += ".kiosk-meta span:empty{display:none}";
   html += ".kiosk-topbar{position:fixed;top:14px;right:14px;display:flex;gap:8px;opacity:.3;transition:opacity .2s var(--ease);z-index:10}";
   html += ".kiosk-topbar:hover{opacity:1}";
