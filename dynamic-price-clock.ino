@@ -4,6 +4,7 @@
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
 #include <HTTPUpdate.h>
+#include <Update.h>
 #include <WebServer.h>
 #include <Preferences.h>
 #include <time.h>
@@ -72,7 +73,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "1.6.6"
+#define FIRMWARE_VERSION "1.6.7"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -527,6 +528,8 @@ void handleRestartDevice();
 void handleCheckGithubUpdate();
 void handleGithubUpdate();
 void handleOtaProgress();
+void handleUploadFirmware();
+void handleUploadFirmwareData();
 void handleAccountPage();
 void handleProviderPage();
 void handleSaveProviderAjax();
@@ -1503,6 +1506,7 @@ void setup() {
   server.on("/versioncheck", HTTP_GET, handleVersionCheck);
   server.on("/githubupdate", HTTP_POST, handleGithubUpdate);
   server.on("/otaprogress", HTTP_GET, handleOtaProgress);
+  server.on("/uploadfirmware", HTTP_POST, handleUploadFirmware, handleUploadFirmwareData);
   server.on("/account", handleAccountPage);
   server.on("/anbieter", handleProviderPage);
   server.on("/saveproviderajax", HTTP_POST, handleSaveProviderAjax);
@@ -4013,6 +4017,19 @@ void handleAccountPage() {
   html += "<p id='ghProgressText' class='small' style='margin-top:6px'></p>";
   html += "</div>";
   html += "<div class='actions'><button type='button' class='secondary' onclick='checkGhUpdate()'>Auf Updates pruefen</button><button type='button' id='ghUpdateBtn' style='display:none' onclick='startGhUpdate()'>Jetzt aktualisieren</button></div>";
+  html += "</div>";
+  html += "<div class='formSection' style='margin-top:16px;border-top:1px solid var(--surface-border);padding-top:16px'>";
+  html += "<div class='panelTitle'><h4 style='margin:0'>Firmware manuell hochladen</h4><span id='upBadge' class='badge'>Bereit</span></div>";
+  html += "<p class='small'>Lade eine .bin-Datei direkt hoch, z.B. fuer ein Downgrade auf eine aeltere Version. Nach dem Upload startet das Geraet automatisch neu.</p>";
+  html += "<form id='upForm' onsubmit='return startUpload(event)'>";
+  html += "<div class='field'><label>Firmware-Datei (.bin)</label><input type='file' name='firmware' id='upFile' accept='.bin' required></div>";
+  html += "<div id='upProgressWrap' style='display:none;margin:10px 0'>";
+  html += "<div style='background:var(--surface-border);border-radius:999px;height:10px;overflow:hidden'><div id='upProgressBar' style='background:var(--accent);height:100%;width:0%;transition:width .3s'></div></div>";
+  html += "<p id='upProgressText' class='small' style='margin-top:6px'></p>";
+  html += "</div>";
+  html += "<p id='upMsg' class='small'></p>";
+  html += "<div class='actions'><button type='submit' id='upSubmit'>Datei hochladen &amp; installieren</button></div>";
+  html += "</form>";
   html += "</div></section>";
 
   html += R"JS(
@@ -4091,6 +4108,69 @@ async function pollGhProgress() {
     ghBadge('okb', 'Neustart');
     msg.innerText = 'Verbindung unterbrochen - das Geraet startet gerade neu (normal nach einem Update).';
   }
+}
+function upBadge(cls, text) {
+  var b = document.getElementById('upBadge');
+  if (b) { b.className = 'badge ' + cls; b.innerText = text; }
+}
+function startUpload(ev) {
+  ev.preventDefault();
+  var file = document.getElementById('upFile').files[0];
+  if (!file) return false;
+  if (!file.name.toLowerCase().endsWith('.bin')) {
+    alert('Bitte eine .bin-Datei waehlen.');
+    return false;
+  }
+  if (!confirm('Firmware "' + file.name + '" jetzt installieren? Das Geraet startet danach automatisch neu. Falls die Datei nicht zur Hardware passt, kann ein serieller Flash noetig sein.')) return false;
+
+  var wrap = document.getElementById('upProgressWrap');
+  var bar = document.getElementById('upProgressBar');
+  var text = document.getElementById('upProgressText');
+  var msg = document.getElementById('upMsg');
+  var sub = document.getElementById('upSubmit');
+
+  wrap.style.display = '';
+  bar.style.width = '0%';
+  msg.innerText = '';
+  sub.disabled = true;
+  upBadge('warnb', 'Lade hoch...');
+
+  var fd = new FormData();
+  fd.append('firmware', file);
+
+  var xhr = new XMLHttpRequest();
+  xhr.open('POST', '/uploadfirmware', true);
+  xhr.upload.onprogress = function(e) {
+    if (e.lengthComputable) {
+      var p = Math.round((e.loaded / e.total) * 100);
+      bar.style.width = p + '%';
+      text.innerText = p + '% (' + formatBytes(e.loaded) + ' / ' + formatBytes(e.total) + ')';
+    }
+  };
+  xhr.onload = function() {
+    try {
+      var j = JSON.parse(xhr.responseText);
+      if (j.ok) {
+        bar.style.width = '100%';
+        upBadge('okb', 'Fertig');
+        msg.innerText = 'Upload erfolgreich, das Geraet startet jetzt neu...';
+      } else {
+        upBadge('errb', 'Fehler');
+        msg.innerText = j.error || 'Upload fehlgeschlagen.';
+        sub.disabled = false;
+      }
+    } catch(e) {
+      upBadge('errb', 'Fehler');
+      msg.innerText = 'Antwort konnte nicht gelesen werden.';
+      sub.disabled = false;
+    }
+  };
+  xhr.onerror = function() {
+    upBadge('warnb', 'Neustart');
+    msg.innerText = 'Verbindung unterbrochen - das ist beim Neustart normal.';
+  };
+  xhr.send(fd);
+  return false;
 }
 async function startGhUpdate() {
   if (!window.ghUpdateUrl) return;
@@ -7365,6 +7445,53 @@ void handleOtaProgress() {
 
   server.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
   server.send(200, "application/json", json);
+}
+
+void handleUploadFirmwareData() {
+  if (!checkAuth()) return;
+
+  HTTPUpload& upload = server.upload();
+
+  if (upload.status == UPLOAD_FILE_START) {
+    otaBytesWritten = 0;
+    otaBytesTotal = 0;
+    otaTaskError = "";
+    if (!Update.begin(UPDATE_SIZE_UNKNOWN)) {
+      otaTaskError = "Update.begin fehlgeschlagen: " + String(Update.errorString());
+    }
+  } else if (upload.status == UPLOAD_FILE_WRITE) {
+    if (Update.write(upload.buf, upload.currentSize) != upload.currentSize) {
+      otaTaskError = "Update.write fehlgeschlagen: " + String(Update.errorString());
+    }
+    otaBytesWritten += upload.currentSize;
+    otaBytesTotal = otaBytesWritten;
+  } else if (upload.status == UPLOAD_FILE_END) {
+    if (!Update.end(true)) {
+      otaTaskError = "Update.end fehlgeschlagen: " + String(Update.errorString());
+    }
+  } else if (upload.status == UPLOAD_FILE_ABORTED) {
+    Update.abort();
+    otaTaskError = "Upload abgebrochen";
+  }
+}
+
+void handleUploadFirmware() {
+  if (!checkAuth()) return;
+
+  bool ok = (otaTaskError.length() == 0) && !Update.hasError();
+  String json = "{\"ok\":" + String(ok ? "true" : "false");
+  if (!ok) {
+    json += ",\"error\":\"" + jsEscape(otaTaskError.length() > 0 ? otaTaskError : String(Update.errorString())) + "\"";
+  }
+  json += "}";
+
+  server.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+  server.send(200, "application/json", json);
+
+  if (ok) {
+    delay(500);
+    ESP.restart();
+  }
 }
 
 void handleResetWifi() {
