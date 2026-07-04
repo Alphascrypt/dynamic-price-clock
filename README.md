@@ -1,6 +1,6 @@
 # Dynamic Price Clock
 
-ESP32-C5-Firmware für ein Strompreis-Display mit zwei runden GC9A01-Bildschirmen, WS2812B-LED-Tagesring und optionaler MAX7219-Matrix – inkl. Web-Dashboard mit Layout-Editor, Hell/Dunkel-Modus und GitHub-OTA-Updates. Strompreise wahlweise über **Tibber** oder **aWATTar** (Deutschland/Österreich, ohne Anmeldung).
+ESP32-C5-Firmware für ein Strompreis-Display mit zwei runden GC9A01-Bildschirmen, WS2812B-LED-Tagesring und optionaler MAX7219-Matrix. Web-Dashboard mit Drag-and-Drop-Layout-Editor, Hell/Dunkel-Modus, Tablet-/TV-Kiosk-Ansicht, Live-Verbrauch über Tibber Pulse, Monatskosten-Tracking mit Prognose sowie GitHub-OTA- und manuelle Firmware-Uploads. Strompreise wahlweise über **Tibber** oder **aWATTar** (Deutschland/Österreich, ohne Anmeldung).
 
 ## Strompreis-Quelle
 
@@ -39,7 +39,7 @@ Jede Seite gibt es auch im Dunkelmodus (`docs/screenshots/*-dark.png`).
 
 ### Tablet-/Kiosk-Modus
 
-Über `/kiosk` gibt es eine eigene Vollbild-Ansicht für ein dauerhaft angeschlossenes Tablet oder Handy: großes Preis-Gauge, interaktives Diagramm (Fahren mit Finger/Maus zeigt Preise per Fadenkreuz) und ein Wake Lock, damit der Bildschirm nicht in den Standby geht. Im Querformat schaltet die Seite automatisch auf ein zweispaltiges Layout um.
+Über `/kiosk` gibt es eine eigene Vollbild-Ansicht für ein dauerhaft angeschlossenes Tablet, Handy, Desktop oder TV: großes Preis-Gauge, interaktives Diagramm (Fahren mit Finger/Maus zeigt Preise per Fadenkreuz), aktueller Live-Verbrauch (per Tibber Pulse, ab 1200 W als kW-Wert), Monatskosten mit Prognose fürs Monatsende und ein Wake Lock, damit der Bildschirm nicht in den Standby geht. Die Ansicht skaliert bis auf 4K-Displays und schaltet im Querformat automatisch auf ein zweispaltiges Layout um. Die Widget-Positionen können pro Ausrichtung im Layout-Editor per Drag-and-Drop angepasst werden.
 
 | Hochformat | Hochformat (Dunkelmodus) |
 |---|---|
