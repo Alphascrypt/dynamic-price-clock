@@ -73,7 +73,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "1.7.0"
+#define FIRMWARE_VERSION "1.7.1"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -256,6 +256,7 @@ String selectedHomeId = "";
 float tibberMonthCost = -1;
 float tibberMonthConsumptionKwh = -1;
 String tibberMonthCurrency = "";
+int tibberMonthDaysCounted = 0;
 
 // Monatliche Grundgebuehr (EUR) - die API liefert nur die reinen
 // Energiekosten, die tatsaechliche Rechnung enthaelt aber zusaetzlich die
@@ -465,6 +466,7 @@ void calculateMetrics();
 String priceToCentText(float price);
 String euroCostText(float value);
 float estimateFullMonthCost();
+String formatLivePowerValue();
 String getLayoutValue(String key);
 
 void drawLayoutDisplay(Adafruit_GC9A01A &disp, bool ok, LayoutItem layout[]);
@@ -1706,7 +1708,7 @@ void updateTibber() {
   http.addHeader("Authorization", "Bearer " + tibberToken);
 
   String body =
-    "{\"query\":\"{ viewer { homes { id appNickname currentSubscription { priceInfo(resolution: QUARTER_HOURLY) { current { total startsAt } today { total startsAt } tomorrow { total startsAt } } } consumption(resolution: MONTHLY, last: 1) { nodes { cost consumption currency } } } } }\"}";
+    "{\"query\":\"{ viewer { homes { id appNickname currentSubscription { priceInfo(resolution: QUARTER_HOURLY) { current { total startsAt } today { total startsAt } tomorrow { total startsAt } } } consumption(resolution: DAILY, last: 40) { nodes { from cost consumption currency } } } } }\"}";
 
   int httpCode = http.POST(body);
 
@@ -1772,12 +1774,31 @@ void updateTibber() {
       continue;
     }
 
-    JsonArray monthNodes = home["consumption"]["nodes"];
-    if (!monthNodes.isNull() && monthNodes.size() > 0) {
-      JsonObject monthNode = monthNodes[monthNodes.size() - 1];
-      tibberMonthCost = monthNode["cost"] | -1.0;
-      tibberMonthConsumptionKwh = monthNode["consumption"] | -1.0;
-      tibberMonthCurrency = String(monthNode["currency"] | "");
+    JsonArray dayNodes = home["consumption"]["nodes"];
+    if (!dayNodes.isNull() && dayNodes.size() > 0) {
+      String monthPrefix = getLocalDatePrefix().substring(0, 7); // "YYYY-MM"
+      float sumCost = 0.0f;
+      float sumKwh = 0.0f;
+      int daysCounted = 0;
+      String curr = "";
+      for (JsonObject dayNode : dayNodes) {
+        String from = String((const char*)(dayNode["from"] | ""));
+        if (from.length() < 7) continue;
+        if (from.substring(0, 7) != monthPrefix) continue;
+        float c = dayNode["cost"] | 0.0f;
+        float k = dayNode["consumption"] | 0.0f;
+        sumCost += c;
+        sumKwh += k;
+        daysCounted++;
+        String cur = String((const char*)(dayNode["currency"] | ""));
+        if (cur.length() > 0) curr = cur;
+      }
+      if (daysCounted > 0) {
+        tibberMonthCost = sumCost;
+        tibberMonthConsumptionKwh = sumKwh;
+        tibberMonthCurrency = curr;
+        tibberMonthDaysCounted = daysCounted;
+      }
     }
 
     JsonObject sub = home["currentSubscription"];
@@ -2385,15 +2406,16 @@ String euroCostText(float value) {
   return s;
 }
 
-// Hochrechnung: bisherige Monatskosten * (Tage im Monat / verstrichene Tage) + Grundgebuehr.
-// Wenn Uhrzeit / Daten fehlen: -1.0 zurueckgeben.
+// Hochrechnung: Durchschnittskosten pro tatsaechlich vorhandenem Tag * Tage im Monat
+// + Grundgebuehr. Nutzt tibberMonthDaysCounted (Anzahl Tage in der Tibber-Antwort
+// fuer den aktuellen Monat), damit die Rechnung nicht davon abhaengt, ob Tibber
+// den laufenden Tag mitschickt oder nicht.
 float estimateFullMonthCost() {
-  if (tibberMonthCost < 0) return -1.0;
+  if (tibberMonthCost < 0 || tibberMonthDaysCounted <= 0) return -1.0;
 
   struct tm timeinfo;
   if (!getLocalTime(&timeinfo, 500)) return -1.0;
 
-  int currentDay = timeinfo.tm_mday;
   int month = timeinfo.tm_mon;
   int year = timeinfo.tm_year + 1900;
 
@@ -2405,13 +2427,24 @@ float estimateFullMonthCost() {
     daysInMonth = leap ? 29 : 28;
   }
 
-  // Anteil des Tages einrechnen (Stunden/24), damit die Prognose nicht bei jedem
-  // Tageswechsel springt.
-  float elapsed = (float)(currentDay - 1) + ((float)timeinfo.tm_hour + (float)timeinfo.tm_min / 60.0f) / 24.0f;
-  if (elapsed < 0.25f) elapsed = 0.25f; // vor 6 Uhr am 1. keine sinnvolle Hochrechnung
-
-  float projected = tibberMonthCost * ((float)daysInMonth / elapsed);
+  float avgPerDay = tibberMonthCost / (float)tibberMonthDaysCounted;
+  float projected = avgPerDay * (float)daysInMonth;
   return projected + tibberBaseFeeEur;
+}
+
+// Formatiert den aktuellen Verbrauch. Bis 1200 W in Watt, ab 1200 W in Kilowatt
+// mit 3 Nachkommastellen (z.B. "1.234 kW"), damit die Anzeige immer 4 Stellen
+// nutzt und nicht springt. Leerer String, wenn kein Live-Wert vorliegt.
+String formatLivePowerValue() {
+  if (livePowerW < 0 || millis() - livePowerUpdatedAtMs > 60000) return "";
+  if (livePowerW < 1200.0f) {
+    return String((int)livePowerW) + " W";
+  }
+  char buf[16];
+  snprintf(buf, sizeof(buf), "%.3f kW", livePowerW / 1000.0f);
+  String s = String(buf);
+  s.replace(".", ",");
+  return s;
 }
 
 String getLayoutValue(String key) {
@@ -3867,7 +3900,7 @@ void handleRoot() {
   html += "</div>";
   String liveHomeText = "";
   if (livePowerW >= 0 && millis() - livePowerUpdatedAtMs < 60000) {
-    liveHomeText = "&#9889; Aktueller Verbrauch: <b>" + String((int)livePowerW) + " W</b>";
+    liveHomeText = "&#9889; Aktueller Verbrauch: <b>" + formatLivePowerValue() + "</b>";
   }
   html += "<div class='live-power' id='livePowerBadge'>" + liveHomeText + "</div>";
   html += "<div class='gridCards'>";
@@ -4856,7 +4889,7 @@ void handleKioskPage() {
   html += ".kiosk-time{font-size:clamp(18px,5vh,46px);font-weight:800;line-height:1.1;letter-spacing:1px}";
   html += ".kiosk-date{font-size:clamp(9px,1.7vh,15px);color:var(--muted);margin-top:2px;text-transform:capitalize}";
   html += ".kw-gauge svg{width:100%;height:100%;background:transparent;border:0;margin:0}";
-  html += ".kiosk-live-power{font-size:clamp(11px,1.9vh,16px);font-weight:700;color:var(--muted)}";
+  html += ".kiosk-live-power{font-size:clamp(20px,4vh,42px);font-weight:800;color:var(--text);letter-spacing:0.5px}";
   html += ".kiosk-live-power:empty{display:none}";
   html += ".kiosk-status{font-size:clamp(13px,2.8vh,25px);font-weight:800;padding:clamp(4px,0.9vh,8px) clamp(10px,3vw,22px);border-radius:999px;background:var(--overlay-faint)}";
   html += ".kw-chart{touch-action:none;cursor:crosshair}";
@@ -4878,7 +4911,7 @@ void handleKioskPage() {
   html += ".kiosk-time{font-size:clamp(14px,4vh,30px)}";
   html += ".kiosk-date{font-size:clamp(8px,1.4vh,12px)}";
   html += ".kiosk-status{font-size:clamp(12px,2.4vh,22px)}";
-  html += ".kiosk-live-power{font-size:clamp(10px,1.6vh,14px)}";
+  html += ".kiosk-live-power{font-size:clamp(18px,3.5vh,36px)}";
   html += ".kiosk-meta{font-size:clamp(8px,1.4vh,12px)}";
   html += kioskWidgetCss(kioskLandscape);
   html += "}";
@@ -4902,7 +4935,7 @@ void handleKioskPage() {
 
   String livePowerText = "";
   if (livePowerW >= 0 && millis() - livePowerUpdatedAtMs < 60000) {
-    livePowerText = "&#9889; " + String((int)livePowerW) + " W";
+    livePowerText = "&#9889; " + formatLivePowerValue();
   }
   html += "<div class='kw kw-livepower kiosk-live-power' id='kioskLivePower'>" + livePowerText + "</div>";
 
@@ -5186,7 +5219,7 @@ void handleLivePower() {
 
   String text = "";
   if (livePowerW >= 0 && millis() - livePowerUpdatedAtMs < 60000) {
-    text = "⚡ " + String((int)livePowerW) + " W";
+    text = "⚡ " + formatLivePowerValue();
   }
 
   String json = "{\"text\":\"" + jsonEscapeValue(text) + "\"}";
