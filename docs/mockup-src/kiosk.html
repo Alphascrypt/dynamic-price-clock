@@ -7,6 +7,9 @@
 <style>
 body{padding:0!important;display:flex;align-items:center;justify-content:center;min-height:100vh;overflow-x:hidden}
 .kiosk-wrap{width:min(820px,94vw);padding:20px;text-align:center}
+.kiosk-clock{margin-bottom:16px}
+.kiosk-time{font-size:48px;font-weight:800;line-height:1.1;letter-spacing:1px}
+.kiosk-date{font-size:16px;color:var(--muted);margin-top:2px;text-transform:capitalize}
 .kiosk-gauge{max-width:420px;margin:0 auto}
 .kiosk-gauge svg{width:100%;max-width:100%;height:auto;background:transparent;border:0;margin:0}
 .kiosk-status{display:inline-block;font-size:26px;font-weight:800;margin:6px 0 14px;padding:8px 22px;border-radius:999px;background:var(--overlay-faint)}
@@ -24,8 +27,11 @@ body{padding:0!important;display:flex;align-items:center;justify-content:center;
 body{padding:0!important;align-items:center}
 .kiosk-wrap{width:min(1120px,97vw);padding:14px 22px}
 .kiosk-columns{display:flex;align-items:center;gap:28px;text-align:left}
-.kiosk-col-left{flex:0 0 clamp(200px,26vw,300px)}
+.kiosk-col-left{flex:0 0 clamp(200px,26vw,300px);text-align:center}
 .kiosk-col-right{flex:1;min-width:0}
+.kiosk-clock{margin-bottom:10px}
+.kiosk-time{font-size:clamp(22px,3.4vw,32px)}
+.kiosk-date{font-size:12px}
 .kiosk-gauge{max-width:100%;margin:0}
 .kiosk-status{margin:8px 0 0;font-size:clamp(18px,2.6vw,26px)}
 .kiosk-chart{margin-top:0}
@@ -39,6 +45,7 @@ body{padding:0!important;align-items:center}
 
 <a class='kiosk-exit' href='#'><button class='secondary' type='button'>Dashboard</button></a>
 <div class='kiosk-wrap'>
+<div class='kiosk-clock'><div class='kiosk-time'>15:32</div><div class='kiosk-date'>Samstag, 4. Juli 2026</div></div>
 <div class='kiosk-columns'>
 
 <div class='kiosk-col-left'>

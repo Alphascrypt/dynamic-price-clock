@@ -71,7 +71,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "1.5.9"
+#define FIRMWARE_VERSION "1.5.10"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -4673,6 +4673,9 @@ void handleKioskPage() {
   html += "<style>";
   html += "body{padding:0!important;display:flex;align-items:center;justify-content:center;min-height:100vh;overflow-x:hidden}";
   html += ".kiosk-wrap{width:min(820px,94vw);padding:20px;text-align:center}";
+  html += ".kiosk-clock{margin-bottom:16px}";
+  html += ".kiosk-time{font-size:48px;font-weight:800;line-height:1.1;letter-spacing:1px}";
+  html += ".kiosk-date{font-size:16px;color:var(--muted);margin-top:2px;text-transform:capitalize}";
   html += ".kiosk-gauge{max-width:420px;margin:0 auto}";
   html += ".kiosk-gauge svg{width:100%;max-width:100%;height:auto;background:transparent;border:0;margin:0}";
   html += ".kiosk-status{display:inline-block;font-size:26px;font-weight:800;margin:6px 0 14px;padding:8px 22px;border-radius:999px;background:var(--overlay-faint)}";
@@ -4690,8 +4693,11 @@ void handleKioskPage() {
   html += "body{padding:0!important;align-items:center}";
   html += ".kiosk-wrap{width:min(1120px,97vw);padding:14px 22px}";
   html += ".kiosk-columns{display:flex;align-items:center;gap:28px;text-align:left}";
-  html += ".kiosk-col-left{flex:0 0 clamp(200px,26vw,300px)}";
+  html += ".kiosk-col-left{flex:0 0 clamp(200px,26vw,300px);text-align:center}";
   html += ".kiosk-col-right{flex:1;min-width:0}";
+  html += ".kiosk-clock{margin-bottom:10px}";
+  html += ".kiosk-time{font-size:clamp(22px,3.4vw,32px)}";
+  html += ".kiosk-date{font-size:12px}";
   html += ".kiosk-gauge{max-width:100%;margin:0}";
   html += ".kiosk-status{margin:8px 0 0;font-size:clamp(18px,2.6vw,26px)}";
   html += ".kiosk-chart{margin-top:0}";
@@ -4705,6 +4711,7 @@ void handleKioskPage() {
 
   html += "<a class='kiosk-exit' href='/'><button class='secondary' type='button'>Dashboard</button></a>";
   html += "<div class='kiosk-wrap'>";
+  html += "<div class='kiosk-clock'><div class='kiosk-time' id='kioskTime'>--:--</div><div class='kiosk-date' id='kioskDate'></div></div>";
   html += "<div class='kiosk-columns'>";
 
   html += "<div class='kiosk-col-left'>";
@@ -4753,6 +4760,17 @@ function enterKioskFullscreen(){
   var el = document.documentElement;
   if (el.requestFullscreen) el.requestFullscreen();
 }
+
+function updateKioskClock(){
+  var timeEl = document.getElementById('kioskTime');
+  var dateEl = document.getElementById('kioskDate');
+  if (!timeEl && !dateEl) return;
+  var d = new Date();
+  if (timeEl) timeEl.innerText = d.toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'});
+  if (dateEl) dateEl.innerText = d.toLocaleDateString('de-DE', {weekday:'long', day:'2-digit', month:'long', year:'numeric'});
+}
+updateKioskClock();
+setInterval(updateKioskClock, 1000);
 
 (function setupKioskChartCrosshair(){
   var svg = document.getElementById('priceChartSvg');
