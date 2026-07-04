@@ -72,7 +72,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "1.6.2"
+#define FIRMWARE_VERSION "1.6.3"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -396,6 +396,47 @@ LayoutItem d1Layout[LAYOUT_ITEMS];
 LayoutItem d2Layout[LAYOUT_ITEMS];
 
 // -----------------------------------------------------------------------------
+// Tablet-/Kiosk-Modus: frei anordenbares Widget-Layout
+// -----------------------------------------------------------------------------
+// Jedes Widget hat eine Position/Groesse in Prozent eines Design-Canvas -
+// getrennt fuer Hoch- und Querformat, damit beide Ausrichtungen unabhaengig
+// voneinander gestaltet werden koennen. Prozent statt Pixel, damit es auf
+// jeder Aufloesung (Handy bis grosses Tablet) proportional gleich aussieht.
+#define KIOSK_WIDGET_COUNT 6
+
+struct KioskWidgetLayout {
+  float x;
+  float y;
+  float w;
+  float h;
+  bool visible;
+};
+
+const char* KIOSK_WIDGET_KEYS[KIOSK_WIDGET_COUNT] = { "clock", "gauge", "status", "livepower", "chart", "meta" };
+const char* KIOSK_WIDGET_LABELS[KIOSK_WIDGET_COUNT] = { "Uhrzeit", "Preis-Gauge", "Status-Badge", "Live-Verbrauch", "Diagramm", "Infozeile" };
+
+const KioskWidgetLayout KIOSK_PORTRAIT_DEFAULTS[KIOSK_WIDGET_COUNT] = {
+  { 10, 2, 80, 9, true },
+  { 10, 13, 80, 32, true },
+  { 20, 47, 60, 7, true },
+  { 20, 55, 60, 5, true },
+  { 3, 62, 94, 28, true },
+  { 3, 92, 94, 7, true },
+};
+
+const KioskWidgetLayout KIOSK_LANDSCAPE_DEFAULTS[KIOSK_WIDGET_COUNT] = {
+  { 20, 2, 60, 10, true },
+  { 3, 14, 34, 55, true },
+  { 3, 71, 34, 10, true },
+  { 3, 82, 34, 8, true },
+  { 40, 14, 57, 65, true },
+  { 40, 81, 57, 15, true },
+};
+
+KioskWidgetLayout kioskPortrait[KIOSK_WIDGET_COUNT];
+KioskWidgetLayout kioskLandscape[KIOSK_WIDGET_COUNT];
+
+// -----------------------------------------------------------------------------
 // Funktions-Prototypen
 // -----------------------------------------------------------------------------
 
@@ -440,6 +481,12 @@ String trimTextToFitAligned(Adafruit_GC9A01A &disp, String text, int anchorX, in
 void loadLayoutDefaults();
 void loadLayoutFromPrefs();
 void saveLayoutItem(int d, int i, LayoutItem item);
+
+void loadKioskLayoutFromPrefs();
+void saveKioskWidget(bool landscape, int i, KioskWidgetLayout item);
+void handleKioskLayoutPage();
+void handleSaveKioskLayoutAjax();
+void handleResetKioskLayout();
 
 bool checkAuth();
 String generateRandomToken(int length);
@@ -537,6 +584,8 @@ String buildChartPointsJson();
 String buildPinoutSvg();
 String buildPriceGaugeSvg();
 void getKioskPriceStatus(String &statusText, String &statusColor);
+String kioskWidgetCss(KioskWidgetLayout arr[]);
+String kioskLayoutJson(KioskWidgetLayout arr[]);
 String pinoutPinSvg(bool leftSide, int y, String title, String sub, String color);
 
 String htmlHeader(String title);
@@ -1321,6 +1370,7 @@ void setup() {
 
   loadLayoutDefaults();
   loadLayoutFromPrefs();
+  loadKioskLayoutFromPrefs();
 
   if (!layoutMigratedTo240) {
     for (int d = 1; d <= 2; d++) {
@@ -1435,6 +1485,9 @@ void setup() {
   server.on("/wifi", handleWifiPage);
   server.on("/kiosk", handleKioskPage);
   server.on("/kioskdata", HTTP_GET, handleKioskData);
+  server.on("/kiosklayout", handleKioskLayoutPage);
+  server.on("/savekiosklayoutajax", HTTP_POST, handleSaveKioskLayoutAjax);
+  server.on("/resetkiosklayout", HTTP_POST, handleResetKioskLayout);
   server.on("/pinout", handlePinoutPage);
   server.on("/savepins", HTTP_POST, handleSavePins);
   server.on("/restartdevice", HTTP_POST, handleRestartDevice);
@@ -2827,6 +2880,34 @@ void saveLayoutItem(int d, int i, LayoutItem item) {
   prefs.putInt((prefix + "al").c_str(), item.align);
 }
 
+void loadKioskLayoutFromPrefs() {
+  for (int i = 0; i < KIOSK_WIDGET_COUNT; i++) {
+    String pPrefix = "kwP" + String(i);
+    kioskPortrait[i].x = prefs.getFloat((pPrefix + "x").c_str(), KIOSK_PORTRAIT_DEFAULTS[i].x);
+    kioskPortrait[i].y = prefs.getFloat((pPrefix + "y").c_str(), KIOSK_PORTRAIT_DEFAULTS[i].y);
+    kioskPortrait[i].w = prefs.getFloat((pPrefix + "w").c_str(), KIOSK_PORTRAIT_DEFAULTS[i].w);
+    kioskPortrait[i].h = prefs.getFloat((pPrefix + "h").c_str(), KIOSK_PORTRAIT_DEFAULTS[i].h);
+    kioskPortrait[i].visible = prefs.getBool((pPrefix + "v").c_str(), KIOSK_PORTRAIT_DEFAULTS[i].visible);
+
+    String lPrefix = "kwL" + String(i);
+    kioskLandscape[i].x = prefs.getFloat((lPrefix + "x").c_str(), KIOSK_LANDSCAPE_DEFAULTS[i].x);
+    kioskLandscape[i].y = prefs.getFloat((lPrefix + "y").c_str(), KIOSK_LANDSCAPE_DEFAULTS[i].y);
+    kioskLandscape[i].w = prefs.getFloat((lPrefix + "w").c_str(), KIOSK_LANDSCAPE_DEFAULTS[i].w);
+    kioskLandscape[i].h = prefs.getFloat((lPrefix + "h").c_str(), KIOSK_LANDSCAPE_DEFAULTS[i].h);
+    kioskLandscape[i].visible = prefs.getBool((lPrefix + "v").c_str(), KIOSK_LANDSCAPE_DEFAULTS[i].visible);
+  }
+}
+
+void saveKioskWidget(bool landscape, int i, KioskWidgetLayout item) {
+  String prefix = (landscape ? "kwL" : "kwP") + String(i);
+
+  prefs.putFloat((prefix + "x").c_str(), item.x);
+  prefs.putFloat((prefix + "y").c_str(), item.y);
+  prefs.putFloat((prefix + "w").c_str(), item.w);
+  prefs.putFloat((prefix + "h").c_str(), item.h);
+  prefs.putBool((prefix + "v").c_str(), item.visible);
+}
+
 // -----------------------------------------------------------------------------
 // Systemmonitor / CPU-Last
 // -----------------------------------------------------------------------------
@@ -3694,9 +3775,8 @@ void handleRoot() {
 
   {
     bool needsWifi = apMode;
-    bool needsTls = (tibberRootCaPem.length() == 0) && (priceProvider == "tibber");
     bool needsToken = (tibberToken.length() == 0) && (priceProvider == "tibber");
-    int openSteps = (needsWifi ? 1 : 0) + (needsTls ? 1 : 0) + (needsToken ? 1 : 0);
+    int openSteps = (needsWifi ? 1 : 0) + (needsToken ? 1 : 0);
 
     if (openSteps > 0) {
       html += "<section class='card' style='border-color:rgba(250,204,21,.35)'>";
@@ -3707,10 +3787,6 @@ void handleRoot() {
 
       if (needsWifi) {
         html += "<div class='formSection' style='display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap'><span>Setup-Modus aktiv - WLAN noch nicht eingerichtet</span><a href='/wifi'><button type='button' class='secondary'>WLAN einrichten</button></a></div>";
-      }
-
-      if (needsTls) {
-        html += "<div class='formSection' style='display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap'><span>TLS-Zertifikatspruefung fuer die Tibber-API nicht aktiv</span><a href='/account'><button type='button' class='secondary'>Zertifikat hinterlegen</button></a></div>";
       }
 
       if (needsToken) {
@@ -4634,70 +4710,66 @@ void handleKioskPage() {
   html += "<style>";
   html += "html,body{height:100%;overflow:hidden}";
   html += "body{padding:0!important;display:flex;align-items:center;justify-content:center}";
-  html += ".kiosk-wrap{width:min(820px,94vw);max-height:100vh;padding:clamp(8px,2.2vh,20px);box-sizing:border-box;text-align:center;overflow:hidden}";
-  html += ".kiosk-clock{margin-bottom:clamp(4px,1.6vh,16px)}";
-  html += ".kiosk-time{font-size:clamp(20px,5.5vh,48px);font-weight:800;line-height:1.1;letter-spacing:1px}";
-  html += ".kiosk-date{font-size:clamp(10px,1.8vh,16px);color:var(--muted);margin-top:2px;text-transform:capitalize}";
-  html += ".kiosk-gauge{max-width:min(420px,50vh,90vw);margin:0 auto}";
-  html += ".kiosk-gauge svg{width:100%;max-width:100%;height:auto;background:transparent;border:0;margin:0}";
-  html += ".kiosk-live-power{font-size:clamp(12px,2vh,16px);font-weight:700;color:var(--muted);margin-top:clamp(2px,0.8vh,6px)}";
+  html += ".kiosk-wrap{display:flex;flex-direction:column;align-items:center;max-height:100vh;padding:clamp(8px,2.2vh,20px);box-sizing:border-box;text-align:center;overflow:hidden}";
+  html += ".kiosk-canvas{position:relative;height:min(82vh,700px);max-width:94vw;aspect-ratio:9/16;flex:0 0 auto}";
+  html += ".kw{position:absolute;overflow:hidden;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;justify-content:center}";
+  html += ".kiosk-time{font-size:clamp(18px,5vh,46px);font-weight:800;line-height:1.1;letter-spacing:1px}";
+  html += ".kiosk-date{font-size:clamp(9px,1.7vh,15px);color:var(--muted);margin-top:2px;text-transform:capitalize}";
+  html += ".kw-gauge svg{width:100%;height:100%;background:transparent;border:0;margin:0}";
+  html += ".kiosk-live-power{font-size:clamp(11px,1.9vh,16px);font-weight:700;color:var(--muted)}";
   html += ".kiosk-live-power:empty{display:none}";
-  html += ".kiosk-status{display:inline-block;font-size:clamp(14px,3vh,26px);font-weight:800;margin:clamp(2px,1vh,6px) 0 clamp(4px,1.4vh,14px);padding:clamp(4px,0.9vh,8px) clamp(10px,3vw,22px);border-radius:999px;background:var(--overlay-faint)}";
-  html += ".kiosk-chart{margin-top:clamp(6px,1.8vh,18px);max-width:min(100%,64vh);margin-left:auto;margin-right:auto;position:relative;touch-action:none;cursor:crosshair}";
-  html += ".kiosk-chart svg{width:100%;height:auto;display:block}";
+  html += ".kiosk-status{font-size:clamp(13px,2.8vh,25px);font-weight:800;padding:clamp(4px,0.9vh,8px) clamp(10px,3vw,22px);border-radius:999px;background:var(--overlay-faint)}";
+  html += ".kw-chart{touch-action:none;cursor:crosshair}";
+  html += ".kiosk-chart{position:relative;flex:1;min-height:0;width:100%}";
+  html += ".kiosk-chart svg{width:100%;height:100%;display:block}";
   html += ".kiosk-crosshair-line{stroke:var(--text);stroke-width:1.5;stroke-dasharray:4,4;opacity:0;pointer-events:none}";
   html += ".kiosk-crosshair-dot{fill:var(--text);stroke:#0b1224;stroke-width:2;opacity:0;pointer-events:none}";
   html += ".kiosk-tooltip{position:absolute;transform:translate(-50%,-115%);background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:6px 10px;font-size:13px;font-weight:700;white-space:nowrap;pointer-events:none;opacity:0;box-shadow:0 8px 20px var(--shadow-soft)}";
-  html += ".kiosk-meta{color:var(--muted);font-size:clamp(10px,1.7vh,15px);margin-top:clamp(4px,1.6vh,16px);display:flex;flex-wrap:wrap;gap:clamp(3px,0.8vh,6px) clamp(8px,2vw,18px);justify-content:center}";
+  html += ".kiosk-chart-hint{color:var(--muted);font-size:clamp(9px,1.3vh,12px);margin:4px 0 0;flex:0 0 auto}";
+  html += ".kiosk-meta{color:var(--muted);font-size:clamp(9px,1.6vh,14px);display:flex;flex-wrap:wrap;gap:clamp(3px,0.8vh,6px) clamp(8px,2vw,18px);justify-content:center;align-items:center;height:100%}";
   html += ".kiosk-meta span:empty{display:none}";
   html += ".kiosk-exit{position:fixed;top:14px;right:14px;opacity:.3;transition:opacity .2s var(--ease)}";
   html += ".kiosk-exit:hover{opacity:1}";
-  html += ".kiosk-hint{font-size:clamp(9px,1.3vh,12px);color:var(--muted);margin-top:clamp(4px,1vh,22px);max-width:520px;margin-left:auto;margin-right:auto}";
-  html += ".kiosk-chart-hint{color:var(--muted);margin-top:6px}";
-  html += ".actions{margin-top:clamp(6px,2vh,20px)!important;justify-content:center!important}";
+  html += ".kiosk-hint{font-size:clamp(9px,1.3vh,12px);color:var(--muted);margin-top:clamp(4px,1vh,14px);max-width:520px}";
+  html += ".actions{margin-top:clamp(6px,2vh,16px)!important;justify-content:center!important}";
+  html += kioskWidgetCss(kioskPortrait);
   html += "@media (orientation:landscape) and (max-height:820px){";
-  html += ".kiosk-wrap{width:min(1120px,97vw);padding:clamp(6px,2vh,14px) clamp(10px,3vw,22px)}";
-  html += ".kiosk-columns{display:flex;align-items:center;gap:clamp(10px,3vw,28px);text-align:left}";
-  html += ".kiosk-col-left{flex:0 0 clamp(160px,24vw,300px);text-align:center}";
-  html += ".kiosk-col-right{flex:1;min-width:0}";
-  html += ".kiosk-clock{margin-bottom:clamp(2px,1vh,10px)}";
-  html += ".kiosk-time{font-size:clamp(16px,4.2vh,32px)}";
-  html += ".kiosk-date{font-size:clamp(9px,1.5vh,12px)}";
-  html += ".kiosk-gauge{max-width:min(100%,40vh)}";
-  html += ".kiosk-live-power{font-size:clamp(11px,1.6vh,14px)}";
-  html += ".kiosk-status{margin:clamp(4px,1vh,8px) 0 0;font-size:clamp(13px,2.6vh,26px)}";
-  html += ".kiosk-chart{margin-top:0;max-width:min(100%,150vh)}";
-  html += ".kiosk-meta{justify-content:flex-start;margin-top:clamp(4px,1vh,10px);font-size:clamp(10px,1.5vh,13px)}";
-  html += ".kiosk-chart-hint{text-align:left}";
-  html += ".actions{justify-content:flex-start!important;margin-top:clamp(4px,1.2vh,12px)!important}";
-  html += ".kiosk-hint{margin-top:clamp(2px,0.8vh,8px);max-width:100%;margin-left:0;margin-right:0}";
+  html += ".kiosk-canvas{height:min(80vh,480px);max-width:97vw;aspect-ratio:16/9}";
+  html += ".kiosk-time{font-size:clamp(14px,4vh,30px)}";
+  html += ".kiosk-date{font-size:clamp(8px,1.4vh,12px)}";
+  html += ".kiosk-status{font-size:clamp(12px,2.4vh,22px)}";
+  html += ".kiosk-live-power{font-size:clamp(10px,1.6vh,14px)}";
+  html += ".kiosk-meta{font-size:clamp(8px,1.4vh,12px)}";
+  html += kioskWidgetCss(kioskLandscape);
   html += "}";
   html += "</style>";
   html += "</head><body>";
 
   html += "<a class='kiosk-exit' href='/'><button class='secondary' type='button'>Dashboard</button></a>";
   html += "<div class='kiosk-wrap'>";
-  html += "<div class='kiosk-clock'><div class='kiosk-time' id='kioskTime'>--:--</div><div class='kiosk-date' id='kioskDate'></div></div>";
-  html += "<div class='kiosk-columns'>";
+  html += "<div class='kiosk-canvas' id='kioskCanvas'>";
 
-  html += "<div class='kiosk-col-left'>";
-  html += "<div class='kiosk-gauge' id='kioskGaugeWrap'>";
+  html += "<div class='kw kw-clock'><div class='kiosk-time' id='kioskTime'>--:--</div><div class='kiosk-date' id='kioskDate'></div></div>";
+
+  html += "<div class='kw kw-gauge' id='kioskGaugeWrap'>";
   html += buildPriceGaugeSvg();
   html += "</div>";
+
+  html += "<div class='kw kw-status kiosk-status' id='kioskStatus' style='color:" + statusColor + "'>" + statusText + "</div>";
+
   String livePowerText = "";
   if (livePowerW >= 0 && millis() - livePowerUpdatedAtMs < 60000) {
     livePowerText = "&#9889; " + String((int)livePowerW) + " W";
   }
-  html += "<div class='kiosk-live-power' id='kioskLivePower'>" + livePowerText + "</div>";
-  html += "<div class='kiosk-status' id='kioskStatus' style='color:" + statusColor + "'>" + statusText + "</div>";
-  html += "</div>";
+  html += "<div class='kw kw-livepower kiosk-live-power' id='kioskLivePower'>" + livePowerText + "</div>";
 
-  html += "<div class='kiosk-col-right'>";
+  html += "<div class='kw kw-chart'>";
   html += "<div class='kiosk-chart' id='kioskChartWrap'>";
   html += buildSvgChart();
   html += "<div class='kiosk-tooltip' id='kioskTooltip'></div>";
   html += "</div>";
   html += "<p class='small kiosk-chart-hint'>Mit Finger oder Maus über das Diagramm fahren, um Preise zu sehen.</p>";
+  html += "</div>";
 
   String lowText = "--";
   if (metricLow15Day >= 0) {
@@ -4714,15 +4786,14 @@ void handleKioskPage() {
     monthCostText = "Monatskosten: " + euroCostText(tibberMonthCost) + " " + htmlEscape(tibberMonthCurrency);
   }
 
-  html += "<div class='kiosk-meta'>";
+  html += "<div class='kw kw-meta'><div class='kiosk-meta'>";
   html += "<span id='kioskLowText'>Tief heute: " + lowText + "</span>";
   html += "<span id='kioskAvgText'>Tagesdurchschnitt: " + avgText + "</span>";
   html += "<span id='kioskMonthCost'>" + monthCostText + "</span>";
   html += "<span id='kioskStandText'>Stand: " + getCurrentIsoPrefix().substring(11) + " Uhr</span>";
-  html += "</div>";
-  html += "</div>";
+  html += "</div></div>";
 
-  html += "</div>";
+  html += "</div>"; // kiosk-canvas
 
   html += "<div class='actions'><button type='button' onclick='enterKioskFullscreen()'>Vollbild</button></div>";
   html += "<p class='kiosk-hint' id='kioskWakeHint'></p>";
@@ -4782,9 +4853,28 @@ function kioskNearestPoint(svgX){
   return best;
 }
 
+// Das Diagramm-Widget kann jetzt frei in Groesse/Seitenverhaeltnis
+// veraendert werden, deshalb passt das SVG (viewBox 760x320) per Default
+// preserveAspectRatio="xMidYMid meet" oft mit Letterboxing rein - die
+// tatsaechliche Inhaltsflaeche ist dann kleiner als die Bounding-Box.
+function getSvgContentRect(svg){
+  var rect = svg.getBoundingClientRect();
+  var vb = svg.viewBox && svg.viewBox.baseVal;
+  if (!vb || !vb.width || !vb.height || !rect.width || !rect.height) return rect;
+  var scale = Math.min(rect.width / vb.width, rect.height / vb.height);
+  var contentW = vb.width * scale;
+  var contentH = vb.height * scale;
+  return {
+    left: rect.left + (rect.width - contentW) / 2,
+    top: rect.top + (rect.height - contentH) / 2,
+    width: contentW,
+    height: contentH
+  };
+}
+
 function kioskShowCrosshairAt(clientX, clientY){
   if (!kioskSvg || !kioskChartPoints || !kioskChartPoints.length) return;
-  var rect = kioskSvg.getBoundingClientRect();
+  var rect = getSvgContentRect(kioskSvg);
   var svgX = (clientX - rect.left) / rect.width * 760;
   var pt = kioskNearestPoint(svgX);
 
@@ -4947,6 +5037,259 @@ void handleLivePower() {
 
   server.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
   server.send(200, "application/json", json);
+}
+
+// Speichert Position/Groesse/Sichtbarkeit genau eines Kiosk-Widgets - wird
+// nach jedem Ziehen/Skalieren im Editor per AJAX aufgerufen (wie saveLayoutNow()
+// beim Display-Layout-Editor), statt das ganze Formular auf einmal abzuschicken.
+void handleSaveKioskLayoutAjax() {
+  if (!checkAuth()) return;
+
+  int index = server.hasArg("index") ? server.arg("index").toInt() : -1;
+  bool landscape = server.hasArg("orientation") && server.arg("orientation") == "landscape";
+
+  if (index < 0 || index >= KIOSK_WIDGET_COUNT) {
+    server.send(200, "application/json", "{\"ok\":false,\"error\":\"Ungueltiger Index\"}");
+    return;
+  }
+
+  KioskWidgetLayout item;
+  item.x = server.hasArg("x") ? server.arg("x").toFloat() : 0;
+  item.y = server.hasArg("y") ? server.arg("y").toFloat() : 0;
+  item.w = server.hasArg("w") ? server.arg("w").toFloat() : 10;
+  item.h = server.hasArg("h") ? server.arg("h").toFloat() : 10;
+  item.visible = server.hasArg("visible") ? server.arg("visible") == "1" : true;
+
+  if (item.x < 0) item.x = 0;
+  if (item.y < 0) item.y = 0;
+  if (item.w < 2) item.w = 2;
+  if (item.h < 2) item.h = 2;
+  if (item.x > 98) item.x = 98;
+  if (item.y > 98) item.y = 98;
+  if (item.x + item.w > 100) item.w = 100 - item.x;
+  if (item.y + item.h > 100) item.h = 100 - item.y;
+
+  if (landscape) {
+    kioskLandscape[index] = item;
+  } else {
+    kioskPortrait[index] = item;
+  }
+  saveKioskWidget(landscape, index, item);
+
+  server.send(200, "application/json", "{\"ok\":true}");
+}
+
+void handleResetKioskLayout() {
+  if (!checkAuth()) return;
+
+  for (int i = 0; i < KIOSK_WIDGET_COUNT; i++) {
+    kioskPortrait[i] = KIOSK_PORTRAIT_DEFAULTS[i];
+    kioskLandscape[i] = KIOSK_LANDSCAPE_DEFAULTS[i];
+    saveKioskWidget(false, i, kioskPortrait[i]);
+    saveKioskWidget(true, i, kioskLandscape[i]);
+  }
+
+  server.send(200, "application/json", "{\"ok\":true}");
+}
+
+// Figma-artiger Drag/Resize-Editor fuer das Kiosk-Widget-Layout - siehe
+// KioskWidgetLayout weiter oben. Hoch- und Querformat werden getrennt
+// bearbeitet (Umschalter oben), aber ohne Neuladen der Seite. Jede
+// Ziehen-/Skalieren-Aktion speichert sofort per AJAX (siehe
+// handleSaveKioskLayoutAjax), analog zum saveLayoutNow()-Muster des
+// Display-Layout-Editors.
+void handleKioskLayoutPage() {
+  if (!checkAuth()) return;
+
+  String html;
+  html.reserve(9500);
+
+  html += htmlHeader("Kiosk-Layout");
+  html += "<section class='hero' style='background:linear-gradient(120deg,rgba(96,165,250,.20),rgba(219,39,119,.10))'><h1>Kiosk-Layout</h1><p>Anordnung des Tablet-Modus frei per Ziehen/Skalieren gestalten - getrennt fuer Hoch- und Querformat.</p></section>";
+  html += navTabs("/kiosklayout");
+
+  html += R"CSS(<style>
+.kl-shell{display:flex;gap:16px;flex-wrap:wrap;margin-top:14px}
+.kl-canvas-wrap{flex:1;min-width:280px;display:flex;justify-content:center}
+.kl-canvas{position:relative;width:min(360px,90vw);aspect-ratio:9/16;background:repeating-linear-gradient(0deg,var(--overlay-faint),var(--overlay-faint) 1px,transparent 1px,transparent 10%),repeating-linear-gradient(90deg,var(--overlay-faint),var(--overlay-faint) 1px,transparent 1px,transparent 10%);border:1px solid var(--line);border-radius:12px;overflow:hidden;touch-action:none}
+.kl-canvas.landscape{width:min(560px,90vw);aspect-ratio:16/9}
+.kl-item{position:absolute;border:2px dashed var(--accent2);background:rgba(96,165,250,.14);border-radius:6px;display:flex;align-items:center;justify-content:center;cursor:move;box-sizing:border-box;user-select:none}
+.kl-item.selected{border-style:solid;background:rgba(96,165,250,.24)}
+.kl-item.kl-hidden{opacity:.32;border-style:dotted}
+.kl-item-label{font-size:11px;font-weight:800;color:var(--text);pointer-events:none;text-align:center;padding:2px}
+.kl-resize{position:absolute;right:-7px;bottom:-7px;width:16px;height:16px;background:var(--accent2);border:2px solid var(--panel);border-radius:50%;cursor:nwse-resize}
+.kl-layers{width:230px;border:1px solid var(--line);border-radius:12px;padding:8px;background:var(--overlay-faint)}
+.kl-layer-row{display:flex;align-items:center;gap:8px;padding:8px;border-radius:8px;cursor:pointer}
+.kl-layer-row:hover{background:var(--overlay-hover)}
+.kl-layer-row.selected{background:var(--accent-tint-bg)}
+.kl-layer-row span{flex:1;font-size:13px;font-weight:700}
+.kl-layer-row button{padding:2px 10px;min-height:30px;font-size:15px}
+</style>)CSS";
+
+  html += "<section class='card'>";
+  html += "<div class='panelTitle'><h2>Anordnung</h2><div style='display:flex;gap:8px'>";
+  html += "<button type='button' id='klTabPortrait' onclick=\"klSwitchOrientation('portrait')\">Hochformat</button>";
+  html += "<button type='button' class='secondary' id='klTabLandscape' onclick=\"klSwitchOrientation('landscape')\">Querformat</button>";
+  html += "</div></div>";
+  html += "<p class='small'>Elemente ziehen zum Verschieben, Punkt unten rechts zum Skalieren. Auge-Symbol = ein-/ausblenden. Aenderungen werden automatisch gespeichert.</p>";
+
+  html += "<div class='kl-shell'>";
+  html += "<div class='kl-canvas-wrap'><div class='kl-canvas' id='klCanvas'></div></div>";
+  html += "<div class='kl-layers' id='klLayers'></div>";
+  html += "</div>";
+
+  html += "<div class='actions'><button type='button' class='secondary' onclick='klReset()'>Beide Ausrichtungen zuruecksetzen</button><a href='/kiosk' target='_blank'><button type='button' class='secondary'>Tablet-Modus oeffnen</button></a><span id='klSaveState' class='badge warnb'>Bereit</span></div>";
+  html += "</section>";
+
+  html += "<script>var klData = {portrait:" + kioskLayoutJson(kioskPortrait) + ",landscape:" + kioskLayoutJson(kioskLandscape) + "};</script>";
+
+  html += R"JS(<script>
+var klOrientation = 'portrait';
+var klSelected = 0;
+
+function klPoint(e){ return { x: e.clientX, y: e.clientY }; }
+
+function klRenderCanvas(){
+  var canvas = document.getElementById('klCanvas');
+  canvas.innerHTML = '';
+  canvas.className = 'kl-canvas' + (klOrientation === 'landscape' ? ' landscape' : '');
+  var items = klData[klOrientation];
+  items.forEach(function(item, i){
+    var el = document.createElement('div');
+    el.className = 'kl-item' + (i === klSelected ? ' selected' : '') + (!item.visible ? ' kl-hidden' : '');
+    el.style.left = item.x + '%';
+    el.style.top = item.y + '%';
+    el.style.width = item.w + '%';
+    el.style.height = item.h + '%';
+    var label = document.createElement('span');
+    label.className = 'kl-item-label';
+    label.textContent = item.label;
+    el.appendChild(label);
+    var handle = document.createElement('span');
+    handle.className = 'kl-resize';
+    handle.addEventListener('pointerdown', function(e){ klStartResize(e, i); });
+    el.appendChild(handle);
+    el.addEventListener('pointerdown', function(e){ klStartDrag(e, i); });
+    canvas.appendChild(el);
+  });
+  klRenderLayers();
+}
+
+function klRenderLayers(){
+  var wrap = document.getElementById('klLayers');
+  wrap.innerHTML = '';
+  klData[klOrientation].forEach(function(item, i){
+    var row = document.createElement('div');
+    row.className = 'kl-layer-row' + (i === klSelected ? ' selected' : '');
+    row.addEventListener('click', function(){ klSelected = i; klRenderCanvas(); });
+    var label = document.createElement('span');
+    label.textContent = item.label;
+    var vis = document.createElement('button');
+    vis.type = 'button';
+    vis.className = 'secondary';
+    vis.textContent = item.visible ? '●' : '○';
+    vis.title = item.visible ? 'Ausblenden' : 'Einblenden';
+    vis.addEventListener('click', function(e){ e.stopPropagation(); item.visible = !item.visible; klSave(i); klRenderCanvas(); });
+    row.appendChild(label);
+    row.appendChild(vis);
+    wrap.appendChild(row);
+  });
+}
+
+function klStartDrag(e, i){
+  e.preventDefault();
+  klSelected = i;
+  var canvas = document.getElementById('klCanvas');
+  var rect = canvas.getBoundingClientRect();
+  var item = klData[klOrientation][i];
+  var startP = klPoint(e);
+  var startX = item.x, startY = item.y;
+  function onMove(ev){
+    var p = klPoint(ev);
+    var dxPct = (p.x - startP.x) / rect.width * 100;
+    var dyPct = (p.y - startP.y) / rect.height * 100;
+    var nx = Math.max(0, Math.min(98, startX + dxPct));
+    var ny = Math.max(0, Math.min(98, startY + dyPct));
+    item.x = Math.round(nx * 10) / 10;
+    item.y = Math.round(ny * 10) / 10;
+    klRenderCanvas();
+  }
+  function onUp(){
+    document.removeEventListener('pointermove', onMove);
+    document.removeEventListener('pointerup', onUp);
+    klSave(i);
+  }
+  document.addEventListener('pointermove', onMove);
+  document.addEventListener('pointerup', onUp);
+}
+
+function klStartResize(e, i){
+  e.preventDefault();
+  e.stopPropagation();
+  klSelected = i;
+  var canvas = document.getElementById('klCanvas');
+  var rect = canvas.getBoundingClientRect();
+  var item = klData[klOrientation][i];
+  var startP = klPoint(e);
+  var startW = item.w, startH = item.h;
+  function onMove(ev){
+    var p = klPoint(ev);
+    var dwPct = (p.x - startP.x) / rect.width * 100;
+    var dhPct = (p.y - startP.y) / rect.height * 100;
+    var nw = Math.max(4, Math.min(100 - item.x, startW + dwPct));
+    var nh = Math.max(4, Math.min(100 - item.y, startH + dhPct));
+    item.w = Math.round(nw * 10) / 10;
+    item.h = Math.round(nh * 10) / 10;
+    klRenderCanvas();
+  }
+  function onUp(){
+    document.removeEventListener('pointermove', onMove);
+    document.removeEventListener('pointerup', onUp);
+    klSave(i);
+  }
+  document.addEventListener('pointermove', onMove);
+  document.addEventListener('pointerup', onUp);
+}
+
+function klSave(i){
+  var item = klData[klOrientation][i];
+  var state = document.getElementById('klSaveState');
+  if (state) { state.className = 'badge warnb'; state.textContent = 'Speichere...'; }
+  var body = new URLSearchParams();
+  body.set('orientation', klOrientation);
+  body.set('index', i);
+  body.set('x', item.x);
+  body.set('y', item.y);
+  body.set('w', item.w);
+  body.set('h', item.h);
+  body.set('visible', item.visible ? '1' : '0');
+  fetch('/savekiosklayoutajax', { method: 'POST', headers: {'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'}, body: body.toString() })
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if (state) { state.className = d.ok ? 'badge okb' : 'badge errb'; state.textContent = d.ok ? 'Gespeichert' : 'Fehler'; }
+    })
+    .catch(function(){ if (state) { state.className = 'badge errb'; state.textContent = 'Fehler'; } });
+}
+
+function klSwitchOrientation(o){
+  klOrientation = o;
+  klSelected = 0;
+  document.getElementById('klTabPortrait').className = o === 'portrait' ? '' : 'secondary';
+  document.getElementById('klTabLandscape').className = o === 'landscape' ? '' : 'secondary';
+  klRenderCanvas();
+}
+
+function klReset(){
+  if (!confirm('Beide Ausrichtungen auf Standard zuruecksetzen?')) return;
+  fetch('/resetkiosklayout', { method: 'POST' }).then(function(){ location.reload(); });
+}
+
+klRenderCanvas();
+</script>)JS";
+
+  html += htmlFooter();
+  server.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+  server.send(200, "text/html", html);
 }
 
 void handleWifiPage() {
@@ -6558,6 +6901,48 @@ void getKioskPriceStatus(String &statusText, String &statusColor) {
   }
 }
 
+// Erzeugt die Positions-/Groessen-/Sichtbarkeits-CSS-Regeln fuer alle
+// Kiosk-Widgets aus einem Layout-Array (Prozentwerte relativ zum
+// .kiosk-canvas-Container). Wird einmal fuer Hochformat (Basis-Styles) und
+// einmal fuer Querformat (innerhalb der Media-Query) aufgerufen.
+String kioskWidgetCss(KioskWidgetLayout arr[]) {
+  String css;
+  css.reserve(700);
+
+  for (int i = 0; i < KIOSK_WIDGET_COUNT; i++) {
+    css += ".kw-" + String(KIOSK_WIDGET_KEYS[i]) + "{";
+    if (!arr[i].visible) {
+      css += "display:none}";
+      continue;
+    }
+    css += "left:" + String(arr[i].x, 2) + "%;top:" + String(arr[i].y, 2) + "%;";
+    css += "width:" + String(arr[i].w, 2) + "%;height:" + String(arr[i].h, 2) + "%}";
+  }
+
+  return css;
+}
+
+// Serialisiert ein Layout-Array fuer den Kiosk-Layout-Editor (JS-Objekt beim
+// Seitenaufbau), damit der Editor Hoch- und Querformat clientseitig ohne
+// Neuladen umschalten kann.
+String kioskLayoutJson(KioskWidgetLayout arr[]) {
+  String json = "[";
+  for (int i = 0; i < KIOSK_WIDGET_COUNT; i++) {
+    if (i > 0) json += ",";
+    json += "{";
+    json += "\"key\":\"" + String(KIOSK_WIDGET_KEYS[i]) + "\",";
+    json += "\"label\":\"" + String(KIOSK_WIDGET_LABELS[i]) + "\",";
+    json += "\"x\":" + String(arr[i].x, 2) + ",";
+    json += "\"y\":" + String(arr[i].y, 2) + ",";
+    json += "\"w\":" + String(arr[i].w, 2) + ",";
+    json += "\"h\":" + String(arr[i].h, 2) + ",";
+    json += "\"visible\":" + String(arr[i].visible ? "true" : "false");
+    json += "}";
+  }
+  json += "]";
+  return json;
+}
+
 // -----------------------------------------------------------------------------
 // Diagramm
 // -----------------------------------------------------------------------------
@@ -7331,6 +7716,7 @@ String navTabs(String current) {
   String iconSun = "<svg viewBox='0 0 24 24' width='18' height='18'><circle cx='12' cy='12' r='4' fill='none' stroke='currentColor' stroke-width='2'/><path d='M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg>";
   String iconGrid = "<svg viewBox='0 0 24 24' width='18' height='18'><rect x='3' y='3' width='4' height='4' fill='currentColor'/><rect x='10' y='3' width='4' height='4' fill='currentColor'/><rect x='17' y='3' width='4' height='4' fill='currentColor'/><rect x='3' y='10' width='4' height='4' fill='currentColor'/><rect x='10' y='10' width='4' height='4' fill='currentColor'/><rect x='17' y='10' width='4' height='4' fill='currentColor'/><rect x='3' y='17' width='4' height='4' fill='currentColor'/><rect x='10' y='17' width='4' height='4' fill='currentColor'/><rect x='17' y='17' width='4' height='4' fill='currentColor'/></svg>";
   String iconPlug = "<svg viewBox='0 0 24 24' width='18' height='18'><path d='M9 2v4M15 2v4M7 6h10v4a5 5 0 0 1-5 5 5 5 0 0 1-5-5V6z' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/><path d='M12 15v4M9 21h6' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg>";
+  String iconTablet = "<svg viewBox='0 0 24 24' width='18' height='18'><rect x='4' y='2' width='16' height='20' rx='2' fill='none' stroke='currentColor' stroke-width='2'/><circle cx='12' cy='18' r='1.2' fill='currentColor'/></svg>";
 
   String html;
   html += "<nav class='nav'>";
@@ -7350,6 +7736,7 @@ String navTabs(String current) {
   html += navTabsItem("/displays", "Displays", iconMonitor, current);
   html += navTabsItem("/ring", "Tagesring", iconSun, current);
   html += navTabsItem("/matrix", "Matrix", iconGrid, current);
+  html += navTabsItem("/kiosklayout", "Kiosk", iconTablet, current);
   html += "<span class='navDivider'></span>";
   html += "<button type='button' class='themeToggle' onclick='toggleTheme()' title='Hell/Dunkel umschalten'>";
   html += "<svg class='iconSun' viewBox='0 0 24 24'><circle cx='12' cy='12' r='5' fill='currentColor'/><path d='M12 1v2M12 21v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M1 12h2M21 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg>";
