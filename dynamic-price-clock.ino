@@ -71,7 +71,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "1.5.12"
+#define FIRMWARE_VERSION "1.5.13"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -1195,14 +1195,10 @@ void showBootCredentials() {
 // -----------------------------------------------------------------------------
 // Auth
 // -----------------------------------------------------------------------------
-// HTTP Basic Auth fuer das gesamte Webinterface. Jeder Handler ruft zu Beginn
-// checkAuth() auf; bei fehlender/falscher Authentifizierung sendet
-// server.requestAuthentication() einen 401 und der Handler bricht ab.
+// HTTP Basic Auth ist deaktiviert - das Geraet wird nur im lokalen Netzwerk
+// genutzt, ein Login ist dort nicht noetig. Jeder Handler ruft weiterhin
+// checkAuth() auf, es gibt aber immer Zugriff frei.
 bool checkAuth() {
-  if (!server.authenticate(webAdminUser.c_str(), webAdminPassword.c_str())) {
-    server.requestAuthentication(BASIC_AUTH, AUTH_REALM, "Anmeldung erforderlich");
-    return false;
-  }
   return true;
 }
 
