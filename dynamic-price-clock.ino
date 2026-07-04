@@ -71,7 +71,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "1.5.10"
+#define FIRMWARE_VERSION "1.5.11"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -455,6 +455,7 @@ String wifiQualityLabel(int quality);
 void handleRoot();
 void handleWifiPage();
 void handleKioskPage();
+void handleKioskData();
 void handlePinoutPage();
 void handleSavePins();
 void handleRestartDevice();
@@ -523,6 +524,7 @@ String buildSvgChart();
 String buildChartPointsJson();
 String buildPinoutSvg();
 String buildPriceGaugeSvg();
+void getKioskPriceStatus(String &statusText, String &statusColor);
 String pinoutPinSvg(bool leftSide, int y, String title, String sub, String color);
 
 String htmlHeader(String title);
@@ -1490,6 +1492,7 @@ void setup() {
   server.on("/", handleRoot);
   server.on("/wifi", handleWifiPage);
   server.on("/kiosk", handleKioskPage);
+  server.on("/kioskdata", HTTP_GET, handleKioskData);
   server.on("/pinout", handlePinoutPage);
   server.on("/savepins", HTTP_POST, handleSavePins);
   server.on("/restartdevice", HTTP_POST, handleRestartDevice);
@@ -4640,22 +4643,8 @@ void handlePinoutPage() {
 void handleKioskPage() {
   if (!checkAuth()) return;
 
-  String statusText = "Keine Daten";
-  String statusColor = "var(--muted)";
-
-  if (quarterCount > 0 && metricCurrent15 >= 0) {
-    int nowCent = euroToCentRounded(metricCurrent15);
-    if (nowCent >= ledRedCent) {
-      statusText = "Teuer";
-      statusColor = "#fb7185";
-    } else if (nowCent >= ledYellowCent) {
-      statusText = "Mittel";
-      statusColor = "#facc15";
-    } else {
-      statusText = "Günstig";
-      statusColor = "#4ade80";
-    }
-  }
+  String statusText, statusColor;
+  getKioskPriceStatus(statusText, statusColor);
 
   String html;
   html.reserve(19500);
@@ -4663,7 +4652,6 @@ void handleKioskPage() {
   html += "<!DOCTYPE html><html><head>";
   html += "<meta charset='utf-8'>";
   html += "<meta name='viewport' content='width=device-width, initial-scale=1'>";
-  html += "<meta http-equiv='refresh' content='30'>";
   html += "<title>";
   html += htmlEscape(webInterfaceName + " - Tablet-Modus");
   html += "</title>";
@@ -4715,10 +4703,10 @@ void handleKioskPage() {
   html += "<div class='kiosk-columns'>";
 
   html += "<div class='kiosk-col-left'>";
-  html += "<div class='kiosk-gauge'>";
+  html += "<div class='kiosk-gauge' id='kioskGaugeWrap'>";
   html += buildPriceGaugeSvg();
   html += "</div>";
-  html += "<div class='kiosk-status' style='color:" + statusColor + "'>" + statusText + "</div>";
+  html += "<div class='kiosk-status' id='kioskStatus' style='color:" + statusColor + "'>" + statusText + "</div>";
   html += "</div>";
 
   html += "<div class='kiosk-col-right'>";
@@ -4739,9 +4727,9 @@ void handleKioskPage() {
   }
 
   html += "<div class='kiosk-meta'>";
-  html += "<span>Tief heute: " + lowText + "</span>";
-  html += "<span>Tagesdurchschnitt: " + avgText + "</span>";
-  html += "<span>Stand: " + getCurrentIsoPrefix().substring(11) + " Uhr</span>";
+  html += "<span id='kioskLowText'>Tief heute: " + lowText + "</span>";
+  html += "<span id='kioskAvgText'>Tagesdurchschnitt: " + avgText + "</span>";
+  html += "<span id='kioskStandText'>Stand: " + getCurrentIsoPrefix().substring(11) + " Uhr</span>";
   html += "</div>";
   html += "</div>";
 
@@ -4772,65 +4760,101 @@ function updateKioskClock(){
 updateKioskClock();
 setInterval(updateKioskClock, 1000);
 
-(function setupKioskChartCrosshair(){
-  var svg = document.getElementById('priceChartSvg');
-  var wrap = document.getElementById('kioskChartWrap');
-  var tooltip = document.getElementById('kioskTooltip');
-  if (!svg || !wrap || !tooltip || !kioskChartPoints || !kioskChartPoints.length) return;
+var kioskSvg = null, kioskChartWrapEl = null, kioskTooltipEl = null, kioskVLine = null, kioskDot = null;
+
+// Haengt Fadenkreuz-Linie/-Punkt an das (ggf. gerade per AJAX neu eingesetzte)
+// Diagramm-SVG an. Wird beim ersten Laden und nach jedem refreshKioskData()
+// erneut aufgerufen, weil chartSvg dabei komplett ersetzt wird.
+function attachKioskChartCrosshair(){
+  kioskSvg = document.getElementById('priceChartSvg');
+  kioskTooltipEl = document.getElementById('kioskTooltip');
+  if (!kioskSvg || !kioskTooltipEl) return;
 
   var svgNs = 'http://www.w3.org/2000/svg';
-  var vLine = document.createElementNS(svgNs, 'line');
-  vLine.setAttribute('class', 'kiosk-crosshair-line');
-  vLine.setAttribute('y1', '25');
-  vLine.setAttribute('y2', '265');
-  svg.appendChild(vLine);
+  kioskVLine = document.createElementNS(svgNs, 'line');
+  kioskVLine.setAttribute('class', 'kiosk-crosshair-line');
+  kioskVLine.setAttribute('y1', '25');
+  kioskVLine.setAttribute('y2', '265');
+  kioskSvg.appendChild(kioskVLine);
 
-  var dot = document.createElementNS(svgNs, 'circle');
-  dot.setAttribute('class', 'kiosk-crosshair-dot');
-  dot.setAttribute('r', '6');
-  svg.appendChild(dot);
+  kioskDot = document.createElementNS(svgNs, 'circle');
+  kioskDot.setAttribute('class', 'kiosk-crosshair-dot');
+  kioskDot.setAttribute('r', '6');
+  kioskSvg.appendChild(kioskDot);
+}
 
-  function nearestPoint(svgX){
-    var best = kioskChartPoints[0];
-    var bestDist = Math.abs(best.x - svgX);
-    for (var i = 1; i < kioskChartPoints.length; i++) {
-      var d = Math.abs(kioskChartPoints[i].x - svgX);
-      if (d < bestDist) { bestDist = d; best = kioskChartPoints[i]; }
+function kioskNearestPoint(svgX){
+  var best = kioskChartPoints[0];
+  var bestDist = Math.abs(best.x - svgX);
+  for (var i = 1; i < kioskChartPoints.length; i++) {
+    var d = Math.abs(kioskChartPoints[i].x - svgX);
+    if (d < bestDist) { bestDist = d; best = kioskChartPoints[i]; }
+  }
+  return best;
+}
+
+function kioskShowCrosshairAt(clientX, clientY){
+  if (!kioskSvg || !kioskChartPoints || !kioskChartPoints.length) return;
+  var rect = kioskSvg.getBoundingClientRect();
+  var svgX = (clientX - rect.left) / rect.width * 760;
+  var pt = kioskNearestPoint(svgX);
+
+  kioskVLine.setAttribute('x1', pt.x);
+  kioskVLine.setAttribute('x2', pt.x);
+  kioskVLine.style.opacity = '1';
+  kioskDot.setAttribute('cx', pt.x);
+  kioskDot.setAttribute('cy', pt.y);
+  kioskDot.style.opacity = '1';
+
+  var dotClientX = rect.left + (pt.x / 760) * rect.width;
+  var dotClientY = rect.top + (pt.y / 320) * rect.height;
+  var wrapRect = kioskChartWrapEl.getBoundingClientRect();
+  kioskTooltipEl.style.left = (dotClientX - wrapRect.left) + 'px';
+  kioskTooltipEl.style.top = (dotClientY - wrapRect.top) + 'px';
+  kioskTooltipEl.innerText = pt.p + ' ct um ' + pt.t;
+  kioskTooltipEl.style.opacity = '1';
+}
+
+function kioskHideCrosshair(){
+  if (kioskVLine) kioskVLine.style.opacity = '0';
+  if (kioskDot) kioskDot.style.opacity = '0';
+  if (kioskTooltipEl) kioskTooltipEl.style.opacity = '0';
+}
+
+kioskChartWrapEl = document.getElementById('kioskChartWrap');
+var kioskGaugeWrapEl = document.getElementById('kioskGaugeWrap');
+attachKioskChartCrosshair();
+if (kioskChartWrapEl) {
+  kioskChartWrapEl.addEventListener('pointermove', function(e){ kioskShowCrosshairAt(e.clientX, e.clientY); });
+  kioskChartWrapEl.addEventListener('pointerdown', function(e){ kioskShowCrosshairAt(e.clientX, e.clientY); });
+  kioskChartWrapEl.addEventListener('pointerleave', kioskHideCrosshair);
+}
+
+// Statt eines vollen Seiten-Reloads (das den Vollbildmodus beenden wuerde,
+// weil requestFullscreen() eine Nutzer-Geste braucht) werden die Preisdaten
+// periodisch per fetch() nachgeladen und nur die betroffenen Elemente ersetzt.
+function refreshKioskData(){
+  fetch('/kioskdata').then(function(r){ return r.json(); }).then(function(data){
+    var statusEl = document.getElementById('kioskStatus');
+    if (statusEl) { statusEl.innerText = data.statusText; statusEl.style.color = data.statusColor; }
+
+    if (kioskGaugeWrapEl) kioskGaugeWrapEl.innerHTML = data.gaugeSvg;
+
+    if (kioskChartWrapEl) {
+      kioskChartWrapEl.innerHTML = data.chartSvg + "<div class='kiosk-tooltip' id='kioskTooltip'></div>";
+      kioskChartPoints = data.chartPoints;
+      attachKioskChartCrosshair();
     }
-    return best;
-  }
 
-  function showAt(clientX, clientY){
-    var rect = svg.getBoundingClientRect();
-    var svgX = (clientX - rect.left) / rect.width * 760;
-    var pt = nearestPoint(svgX);
-
-    vLine.setAttribute('x1', pt.x);
-    vLine.setAttribute('x2', pt.x);
-    vLine.style.opacity = '1';
-    dot.setAttribute('cx', pt.x);
-    dot.setAttribute('cy', pt.y);
-    dot.style.opacity = '1';
-
-    var dotClientX = rect.left + (pt.x / 760) * rect.width;
-    var dotClientY = rect.top + (pt.y / 320) * rect.height;
-    var wrapRect = wrap.getBoundingClientRect();
-    tooltip.style.left = (dotClientX - wrapRect.left) + 'px';
-    tooltip.style.top = (dotClientY - wrapRect.top) + 'px';
-    tooltip.innerText = pt.p + ' ct um ' + pt.t;
-    tooltip.style.opacity = '1';
-  }
-
-  function hide(){
-    vLine.style.opacity = '0';
-    dot.style.opacity = '0';
-    tooltip.style.opacity = '0';
-  }
-
-  wrap.addEventListener('pointermove', function(e){ showAt(e.clientX, e.clientY); });
-  wrap.addEventListener('pointerdown', function(e){ showAt(e.clientX, e.clientY); });
-  wrap.addEventListener('pointerleave', hide);
-})();
+    var lowEl = document.getElementById('kioskLowText');
+    if (lowEl) lowEl.innerText = 'Tief heute: ' + data.lowText;
+    var avgEl = document.getElementById('kioskAvgText');
+    if (avgEl) avgEl.innerText = 'Tagesdurchschnitt: ' + data.avgText;
+    var standEl = document.getElementById('kioskStandText');
+    if (standEl) standEl.innerText = 'Stand: ' + data.standText;
+  }).catch(function(e){ /* naechster Versuch beim naechsten Intervall */ });
+}
+setInterval(refreshKioskData, 30000);
 
 let kioskWakeLock = null;
 async function requestKioskWakeLock(){
@@ -4858,6 +4882,44 @@ requestKioskWakeLock();
 
   server.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
   server.send(200, "text/html", html);
+}
+
+// Liefert die Preisdaten fuer den Tablet-Modus als JSON, damit die Seite sie
+// periodisch per fetch() nachladen kann, statt komplett neu zu laden (das
+// wuerde den Vollbildmodus des Tablets beenden).
+void handleKioskData() {
+  if (!checkAuth()) return;
+
+  String statusText, statusColor;
+  getKioskPriceStatus(statusText, statusColor);
+
+  String lowText = "--";
+  if (metricLow15Day >= 0) {
+    lowText = priceToCentText(metricLow15Day) + " ct um " + formatTimeOnly(metricLow15DayTime);
+  }
+
+  String avgText = "--";
+  if (metricDayAvg >= 0) {
+    avgText = priceToCentText(metricDayAvg) + " ct";
+  }
+
+  String standText = getCurrentIsoPrefix().substring(11) + " Uhr";
+
+  String json;
+  json.reserve(6000);
+  json += "{";
+  json += "\"statusText\":\"" + jsonEscapeValue(statusText) + "\",";
+  json += "\"statusColor\":\"" + jsonEscapeValue(statusColor) + "\",";
+  json += "\"gaugeSvg\":\"" + jsonEscapeValue(buildPriceGaugeSvg()) + "\",";
+  json += "\"chartSvg\":\"" + jsonEscapeValue(buildSvgChart()) + "\",";
+  json += "\"chartPoints\":" + buildChartPointsJson() + ",";
+  json += "\"lowText\":\"" + jsonEscapeValue(lowText) + "\",";
+  json += "\"avgText\":\"" + jsonEscapeValue(avgText) + "\",";
+  json += "\"standText\":\"" + jsonEscapeValue(standText) + "\"";
+  json += "}";
+
+  server.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+  server.send(200, "application/json", json);
 }
 
 void handleWifiPage() {
@@ -6448,6 +6510,25 @@ String buildPriceGaugeSvg() {
   svg += "</svg>";
 
   return svg;
+}
+
+void getKioskPriceStatus(String &statusText, String &statusColor) {
+  statusText = "Keine Daten";
+  statusColor = "var(--muted)";
+
+  if (quarterCount > 0 && metricCurrent15 >= 0) {
+    int nowCent = euroToCentRounded(metricCurrent15);
+    if (nowCent >= ledRedCent) {
+      statusText = "Teuer";
+      statusColor = "#fb7185";
+    } else if (nowCent >= ledYellowCent) {
+      statusText = "Mittel";
+      statusColor = "#facc15";
+    } else {
+      statusText = "Günstig";
+      statusColor = "#4ade80";
+    }
+  }
 }
 
 // -----------------------------------------------------------------------------
