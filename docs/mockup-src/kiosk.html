@@ -26,8 +26,8 @@ body{padding:0!important;display:flex;align-items:center;justify-content:center}
 .kiosk-meta{color:var(--muted);font-size:clamp(9px,1.6vh,14px);display:flex;flex-wrap:wrap;gap:clamp(4px,1vh,10px);justify-content:center;align-items:center;height:100%}
 .kiosk-meta span{padding:clamp(3px,0.7vh,7px) clamp(8px,2vw,16px);border-radius:999px;background:var(--overlay-faint);border:1px solid var(--line)}
 .kiosk-meta span:empty{display:none}
-.kiosk-exit{position:fixed;top:14px;right:14px;opacity:.3;transition:opacity .2s var(--ease)}
-.kiosk-exit:hover{opacity:1}
+.kiosk-topbar{position:fixed;top:14px;right:14px;display:flex;gap:8px;opacity:.3;transition:opacity .2s var(--ease);z-index:10}
+.kiosk-topbar:hover{opacity:1}
 .kiosk-hint{font-size:clamp(9px,1.3vh,12px);color:var(--muted);margin-top:clamp(4px,1vh,14px);max-width:520px}
 .actions{margin-top:clamp(6px,2vh,16px)!important;justify-content:center!important}
 .kw-clock{left:10.00%;top:2.00%;width:80.00%;height:9.00%}
@@ -53,7 +53,10 @@ body{padding:0!important;display:flex;align-items:center;justify-content:center}
 </style>
 </head><body>
 
-<a class='kiosk-exit' href='#'><button class='secondary' type='button'>Dashboard</button></a>
+<div class='kiosk-topbar'>
+<button class='secondary' type='button'>Vollbild</button>
+<a href='#'><button class='secondary' type='button'>Dashboard</button></a>
+</div>
 <div class='kiosk-wrap'>
 <div class='kiosk-canvas' id='kioskCanvas'>
 
@@ -65,7 +68,7 @@ body{padding:0!important;display:flex;align-items:center;justify-content:center}
 
 <div class='kw kw-status kiosk-status' id='kioskStatus' style='color:#4ade80'>Günstig</div>
 
-<div class='kw kw-livepower kiosk-live-power' id='kioskLivePower'>&#9889; 1234 W</div>
+<div class='kw kw-livepower kiosk-live-power' id='kioskLivePower'>&#9889; 1,234 kW</div>
 
 <div class='kw kw-chart'>
 <div class='kiosk-chart' id='kioskChartWrap'>
@@ -94,13 +97,13 @@ body{padding:0!important;display:flex;align-items:center;justify-content:center}
 <div class='kw kw-meta'><div class='kiosk-meta'>
 <span>Tief heute: 18 ct um 12:00</span>
 <span>Tagesdurchschnitt: 27 ct</span>
-<span>Monatskosten: 42,37 EUR</span>
+<span>Bisher: 42,37 EUR</span>
+<span>Prognose: 158,90 EUR</span>
 <span>Stand: 15:32 Uhr</span>
 </div></div>
 
 </div>
 
-<div class='actions'><button type='button'>Vollbild</button></div>
 <p class='kiosk-hint'>Bildschirm bleibt dauerhaft an (Wake Lock aktiv).</p>
 
 </div>
