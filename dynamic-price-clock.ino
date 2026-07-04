@@ -13,6 +13,7 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_GC9A01A.h>
 #include <Adafruit_NeoPixel.h>
+#include <WebSocketsClient.h>
 
 // -----------------------------------------------------------------------------
 // Hardware
@@ -67,11 +68,11 @@
 
 // Version fuer /style.css und /app.js. Bei Aenderungen an CSS/JS erhoehen,
 // damit Browser-Caches (siehe Cache-Control dort) sofort ungueltig werden.
-#define ASSET_VERSION "8"
+#define ASSET_VERSION "9"
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "1.5.13"
+#define FIRMWARE_VERSION "1.5.14"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -195,18 +196,6 @@ const char* TIBBER_HOST = "api.tibber.com";
 
 const char* TZ_INFO = "CET-1CEST,M3.5.0/02:00:00,M10.5.0/03:00:00";
 
-// -----------------------------------------------------------------------------
-// PRODUKTIONS-SICHERHEIT
-// -----------------------------------------------------------------------------
-// Das Webinterface verlangt jetzt HTTP Basic Auth. Benutzername/Passwort
-// werden NICHT im Code hinterlegt, sondern beim allerersten Boot zufaellig
-// erzeugt und in Preferences (NVS) gespeichert. Der Erstwert wird einmalig
-// ueber die serielle Konsole ausgegeben und kann danach im Webinterface
-// (/account) geaendert werden.
-const char* AUTH_REALM = "Dynamic Price Clock";
-String webAdminUser = "";
-String webAdminPassword = "";
-bool authBootstrapped = false;
 
 // TLS-Zertifikatspruefung fuer die Tibber-API.
 // Es wird bewusst KEIN Root-CA-Zertifikat hier im Quelltext fest verdrahtet:
@@ -257,6 +246,17 @@ String otaPendingUrl = "";
 
 String tibberToken = "";
 String selectedHomeId = "";
+
+// Tibber Pulse: Live-Verbrauch per GraphQL-Subscription ueber WebSocket
+// (graphql-transport-ws). Wird automatisch versucht, sobald ein Tibber-Token
+// und eine Home-ID bekannt sind - ohne Pulse kommen einfach nie "next"-
+// Nachrichten an und livePowerW bleibt -1, dann wird nirgends etwas angezeigt.
+const char* TIBBER_WS_HOST = "websocket-api.tibber.com";
+const char* TIBBER_WS_URL = "/v1-beta/gql/subscriptions";
+WebSocketsClient tibberWs;
+bool tibberWsStarted = false;
+float livePowerW = -1;
+unsigned long livePowerUpdatedAtMs = 0;
 
 // Strompreis-Quelle: "tibber" (Standard), "awattar_de" oder "awattar_at".
 // aWATTar liefert nur den Boersenpreis ohne Netzentgelte/Steuern, deshalb
@@ -395,6 +395,8 @@ void ensureWifiConnected();
 void updateTibber();
 void updateAwattarPrices();
 void updatePrices();
+void updateTibberLiveMeasurement();
+void handleTibberWsEvent(WStype_t type, uint8_t *payload, size_t length);
 bool checkGithubUpdate();
 bool checkGithubUpdateQuiet();
 void handleVersionCheck();
@@ -431,7 +433,6 @@ void saveLayoutItem(int d, int i, LayoutItem item);
 
 bool checkAuth();
 String generateRandomToken(int length);
-void bootstrapAdminCredentials();
 void bootstrapApPassword();
 void randomizeWifiStaMac();
 String getStaMacText();
@@ -563,41 +564,6 @@ String generateRandomToken(int length) {
   }
 
   return out;
-}
-
-// Festes Standard-Admin-Login: Benutzername "admin", Passwort "admin".
-// ACHTUNG: Das ist ein bekanntes Standardpasswort und bietet keinen
-// wirksamen Schutz, sobald das Geraet im Netzwerk erreichbar ist. Es wird
-// einmalig in Preferences gespeichert, damit es bei Bedarf unter /account
-// individuell geaendert werden kann. Solange das Passwort noch "admin" ist,
-// zeigt das Webinterface (/ und /account) eine deutliche Warnung an.
-const char* DEFAULT_ADMIN_USER = "admin";
-const char* DEFAULT_ADMIN_PASSWORD = "admin";
-
-void bootstrapAdminCredentials() {
-  webAdminUser = prefs.getString("adminUser", DEFAULT_ADMIN_USER);
-
-  if (prefs.isKey("adminPass")) {
-    webAdminPassword = prefs.getString("adminPass", DEFAULT_ADMIN_PASSWORD);
-    authBootstrapped = true;
-    return;
-  }
-
-  webAdminPassword = DEFAULT_ADMIN_PASSWORD;
-  prefs.putString("adminUser", webAdminUser);
-  prefs.putString("adminPass", webAdminPassword);
-  authBootstrapped = true;
-
-  Serial.println();
-  Serial.println("================================================================");
-  Serial.println("ERSTSTART: Webinterface-Login auf Standardwerte gesetzt.");
-  Serial.print("Benutzername: ");
-  Serial.println(webAdminUser);
-  Serial.print("Passwort:     ");
-  Serial.println(webAdminPassword);
-  Serial.println("WARNUNG: Standardpasswort, bitte unter http://<IP>/account aendern.");
-  Serial.println("================================================================");
-  Serial.println();
 }
 
 // Gleiches Prinzip fuer das Setup-WLAN-Passwort: kein fester Wert im Code,
@@ -1126,40 +1092,10 @@ void drawTftBootTest(Adafruit_GC9A01A &disp, const char* name, uint16_t color) {
   disp.print(name);
 }
 
-// Zeigt die aktuellen Zugangsdaten bei jedem Boot direkt auf den TFTs an:
-// Admin-Login (Webinterface, Standard admin/admin) auf Display 1,
-// Setup-WLAN auf Display 2. Das ersetzt nicht die Serial-Ausgabe, sondern
-// ergaenzt sie fuer den Fall, dass niemand eine serielle Konsole offen hat.
+// Zeigt das Setup-WLAN (falls aktiv) bei jedem Boot direkt auf dem TFT an.
+// Ergaenzt die Serial-Ausgabe fuer den Fall, dass niemand eine serielle
+// Konsole offen hat.
 void showBootCredentials() {
-  if (displayCurrentOk) {
-    displayCurrent.fillScreen(DISPLAY_BLACK);
-    displayCurrent.setTextColor(DISPLAY_WHITE);
-
-    displayCurrent.setTextSize(2);
-    displayCurrent.setCursor(28, 36);
-    displayCurrent.print("Admin-Login");
-
-    displayCurrent.setTextSize(1);
-    displayCurrent.setCursor(20, 78);
-    displayCurrent.print("Benutzername:");
-
-    displayCurrent.setTextSize(2);
-    displayCurrent.setCursor(20, 96);
-    displayCurrent.print(webAdminUser);
-
-    displayCurrent.setTextSize(1);
-    displayCurrent.setCursor(20, 138);
-    displayCurrent.print("Passwort:");
-
-    displayCurrent.setTextSize(2);
-    displayCurrent.setCursor(20, 156);
-    displayCurrent.print(webAdminPassword);
-
-    displayCurrent.setTextSize(1);
-    displayCurrent.setCursor(20, 206);
-    displayCurrent.print("Aenderbar unter /account");
-  }
-
   if (displayBestOk) {
     displayBest.fillScreen(DISPLAY_BLACK);
     displayBest.setTextColor(DISPLAY_WHITE);
@@ -1221,7 +1157,6 @@ void setup() {
 
   prefs.begin("tibber", false);
 
-  bootstrapAdminCredentials();
   bootstrapApPassword();
 
   wifiSsid = prefs.getString("wifiSsid", DEFAULT_WIFI_SSID);
@@ -1562,6 +1497,10 @@ void loop() {
     updatePrices();
   }
 
+  if (!apMode) {
+    updateTibberLiveMeasurement();
+  }
+
   #if ENABLE_TFT_DISPLAYS
   if (millis() - lastDisplayRefresh >= displayRefreshInterval) {
     lastDisplayRefresh = millis();
@@ -1822,6 +1761,71 @@ void updateTibber() {
   lastError = "";
   showLayoutDisplays();
   updatePriceMatrix();
+}
+
+// -----------------------------------------------------------------------------
+// Tibber Pulse - Live-Verbrauch (GraphQL-Subscription per WebSocket)
+// -----------------------------------------------------------------------------
+
+// Startet die WebSocket-Verbindung einmalig, sobald Token+Home-ID bekannt
+// sind. Wird jeden loop()-Durchlauf aufgerufen, die Guards machen das billig.
+void updateTibberLiveMeasurement() {
+  if (priceProvider != "tibber" || tibberToken.length() < 10 || selectedHomeId.length() == 0) {
+    if (tibberWsStarted) {
+      tibberWs.disconnect();
+      tibberWsStarted = false;
+      livePowerW = -1;
+    }
+    return;
+  }
+
+  if (!tibberWsStarted) {
+    tibberWs.beginSSL(TIBBER_WS_HOST, 443, TIBBER_WS_URL, "", "graphql-transport-ws");
+    tibberWs.onEvent(handleTibberWsEvent);
+    tibberWs.setReconnectInterval(15000);
+    tibberWsStarted = true;
+  }
+
+  tibberWs.loop();
+}
+
+void handleTibberWsEvent(WStype_t type, uint8_t *payload, size_t length) {
+  switch (type) {
+    case WStype_CONNECTED: {
+      String initMsg = "{\"type\":\"connection_init\",\"payload\":{\"token\":\"" + tibberToken + "\"}}";
+      tibberWs.sendTXT(initMsg);
+      break;
+    }
+
+    case WStype_DISCONNECTED:
+      livePowerW = -1;
+      break;
+
+    case WStype_TEXT: {
+      DynamicJsonDocument doc(2048);
+      if (deserializeJson(doc, payload, length)) return;
+
+      String msgType = doc["type"] | "";
+
+      if (msgType == "connection_ack") {
+        String subMsg =
+          "{\"id\":\"live1\",\"type\":\"subscribe\",\"payload\":{\"query\":\"subscription($homeId: ID!){ liveMeasurement(homeId: $homeId){ power } }\",\"variables\":{\"homeId\":\"" + selectedHomeId + "\"}}}";
+        tibberWs.sendTXT(subMsg);
+      } else if (msgType == "next") {
+        float p = doc["payload"]["data"]["liveMeasurement"]["power"] | -1.0;
+        if (p >= 0) {
+          livePowerW = p;
+          livePowerUpdatedAtMs = millis();
+        }
+      } else if (msgType == "ping") {
+        tibberWs.sendTXT("{\"type\":\"pong\"}");
+      }
+      break;
+    }
+
+    default:
+      break;
+  }
 }
 
 // -----------------------------------------------------------------------------
@@ -3663,10 +3667,9 @@ void handleRoot() {
 
   {
     bool needsWifi = apMode;
-    bool needsPassword = (webAdminPassword == String(DEFAULT_ADMIN_PASSWORD));
     bool needsTls = (tibberRootCaPem.length() == 0) && (priceProvider == "tibber");
     bool needsToken = (tibberToken.length() == 0) && (priceProvider == "tibber");
-    int openSteps = (needsWifi ? 1 : 0) + (needsPassword ? 1 : 0) + (needsTls ? 1 : 0) + (needsToken ? 1 : 0);
+    int openSteps = (needsWifi ? 1 : 0) + (needsTls ? 1 : 0) + (needsToken ? 1 : 0);
 
     if (openSteps > 0) {
       html += "<section class='card' style='border-color:rgba(250,204,21,.35)'>";
@@ -3677,10 +3680,6 @@ void handleRoot() {
 
       if (needsWifi) {
         html += "<div class='formSection' style='display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap'><span>Setup-Modus aktiv - WLAN noch nicht eingerichtet</span><a href='/wifi'><button type='button' class='secondary'>WLAN einrichten</button></a></div>";
-      }
-
-      if (needsPassword) {
-        html += "<div class='formSection' style='display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap'><span>Standardpasswort (admin/admin) wird noch verwendet</span><a href='/account'><button type='button' class='secondary'>Passwort aendern</button></a></div>";
       }
 
       if (needsTls) {
@@ -3721,6 +3720,9 @@ void handleRoot() {
   html += "<div class='gaugeWrap'>";
   html += buildPriceGaugeSvg();
   html += "</div>";
+  if (livePowerW >= 0 && millis() - livePowerUpdatedAtMs < 60000) {
+    html += "<div class='live-power'>&#9889; Aktueller Verbrauch: <b>" + String((int)livePowerW) + " W</b></div>";
+  }
   html += "<div class='gridCards'>";
 
   html += "<div class='metric'><div class='label'>15-Minuten-Preis</div><div class='value'>";
@@ -3854,21 +3856,6 @@ void handleAccountPage() {
   html += "'></div>";
   html += "</div>";
   html += "<div class='actions'><button type='submit'>Einstellungen speichern</button></div>";
-  html += "</form></section>";
-
-  html += "<section class='card'><div class='panelTitle'><h2>Webinterface-Login</h2><span class='badge ";
-  html += (webAdminPassword == String(DEFAULT_ADMIN_PASSWORD)) ? "errb'>Standardpasswort" : "okb'>Angepasst";
-  html += "</span></div>";
-  if (webAdminPassword == String(DEFAULT_ADMIN_PASSWORD)) {
-    html += "<p class='err'>Es wird noch das Standardpasswort (admin/admin) verwendet. Bitte aendern, sobald das Geraet im Netzwerk erreichbar ist.</p>";
-  }
-  html += "<form action='/saveaccount' method='post'>";
-  html += "<div class='formGrid'>";
-  html += "<div class='field'><label>Benutzername</label><input name='adminUser' maxlength='32' value='" + htmlEscape(webAdminUser) + "'></div>";
-  html += "<div class='field'><label>Neues Passwort (leer lassen = unveraendert)</label><input id='adminPassInput' name='adminPass' type='password' maxlength='64'></div>";
-  html += "<div class='field'><label>Neues Passwort wiederholen</label><input id='adminPassRepeatInput' name='adminPassRepeat' type='password' maxlength='64'><div id='pwMatchHint' class='small' style='margin-top:6px'></div></div>";
-  html += "</div>";
-  html += "<div class='actions'><button type='submit' name='formType' value='account'>Login speichern</button></div>";
   html += "</form></section>";
 
   html += "<section class='card'><div class='panelTitle'><h2>Setup-WLAN-Passwort</h2><span class='badge ";
@@ -4005,27 +3992,6 @@ async function startGhUpdate() {
     msg.innerText = 'Verbindung unterbrochen - das ist beim Neustart normal.';
   }
 }
-(function(){
-  var p1 = document.getElementById('adminPassInput');
-  var p2 = document.getElementById('adminPassRepeatInput');
-  var hint = document.getElementById('pwMatchHint');
-  function check(){
-    if (!p1 || !p2 || !hint) return;
-    if (p2.value.length === 0) { hint.textContent = ''; return; }
-    if (p1.value.length > 0 && p1.value.length < 8) {
-      hint.textContent = 'Mindestens 8 Zeichen';
-      hint.style.color = 'var(--danger)';
-    } else if (p1.value === p2.value) {
-      hint.textContent = 'Passwoerter stimmen ueberein';
-      hint.style.color = 'var(--ok)';
-    } else {
-      hint.textContent = 'Passwoerter stimmen nicht ueberein';
-      hint.style.color = 'var(--danger)';
-    }
-  }
-  if (p1) p1.addEventListener('input', check);
-  if (p2) p2.addEventListener('input', check);
-})();
 </script>
 )JS";
 
@@ -4040,32 +4006,7 @@ void handleSaveAccount() {
   String formType = server.hasArg("formType") ? server.arg("formType") : "";
   bool saveOk = true;
 
-  if (formType == "account") {
-    String newUser = server.hasArg("adminUser") ? server.arg("adminUser") : webAdminUser;
-    newUser.trim();
-    if (newUser.length() == 0) newUser = webAdminUser;
-    if (newUser.length() > 32) newUser = newUser.substring(0, 32);
-
-    String newPass = server.hasArg("adminPass") ? server.arg("adminPass") : "";
-    String newPassRepeat = server.hasArg("adminPassRepeat") ? server.arg("adminPassRepeat") : "";
-
-    webAdminUser = newUser;
-    prefs.putString("adminUser", webAdminUser);
-
-    if (newPass.length() > 0) {
-      if (newPass.length() < 8) {
-        lastError = "Admin-Passwort zu kurz (min. 8 Zeichen)";
-        saveOk = false;
-      } else if (newPass != newPassRepeat) {
-        lastError = "Admin-Passwoerter stimmen nicht ueberein";
-        saveOk = false;
-      } else {
-        webAdminPassword = newPass;
-        prefs.putString("adminPass", webAdminPassword);
-        lastError = "";
-      }
-    }
-  } else if (formType == "appass") {
+  if (formType == "appass") {
     String newApPass = server.hasArg("apPass") ? server.arg("apPass") : "";
 
     if (newApPass.length() > 0) {
@@ -4663,6 +4604,7 @@ void handleKioskPage() {
   html += ".kiosk-date{font-size:clamp(10px,1.8vh,16px);color:var(--muted);margin-top:2px;text-transform:capitalize}";
   html += ".kiosk-gauge{max-width:min(420px,50vh,90vw);margin:0 auto}";
   html += ".kiosk-gauge svg{width:100%;max-width:100%;height:auto;background:transparent;border:0;margin:0}";
+  html += ".kiosk-live-power{font-size:clamp(12px,2vh,16px);font-weight:700;color:var(--muted);margin-top:clamp(2px,0.8vh,6px)}";
   html += ".kiosk-status{display:inline-block;font-size:clamp(14px,3vh,26px);font-weight:800;margin:clamp(2px,1vh,6px) 0 clamp(4px,1.4vh,14px);padding:clamp(4px,0.9vh,8px) clamp(10px,3vw,22px);border-radius:999px;background:var(--overlay-faint)}";
   html += ".kiosk-chart{margin-top:clamp(6px,1.8vh,18px);max-width:min(100%,64vh);margin-left:auto;margin-right:auto;position:relative;touch-action:none;cursor:crosshair}";
   html += ".kiosk-chart svg{width:100%;height:auto;display:block}";
@@ -4684,6 +4626,7 @@ void handleKioskPage() {
   html += ".kiosk-time{font-size:clamp(16px,4.2vh,32px)}";
   html += ".kiosk-date{font-size:clamp(9px,1.5vh,12px)}";
   html += ".kiosk-gauge{max-width:min(100%,40vh)}";
+  html += ".kiosk-live-power{font-size:clamp(11px,1.6vh,14px)}";
   html += ".kiosk-status{margin:clamp(4px,1vh,8px) 0 0;font-size:clamp(13px,2.6vh,26px)}";
   html += ".kiosk-chart{margin-top:0;max-width:min(100%,150vh)}";
   html += ".kiosk-meta{justify-content:flex-start;margin-top:clamp(4px,1vh,10px);font-size:clamp(10px,1.5vh,13px)}";
@@ -4703,6 +4646,11 @@ void handleKioskPage() {
   html += "<div class='kiosk-gauge' id='kioskGaugeWrap'>";
   html += buildPriceGaugeSvg();
   html += "</div>";
+  String livePowerText = "";
+  if (livePowerW >= 0 && millis() - livePowerUpdatedAtMs < 60000) {
+    livePowerText = "&#9889; " + String((int)livePowerW) + " W";
+  }
+  html += "<div class='kiosk-live-power' id='kioskLivePower'>" + livePowerText + "</div>";
   html += "<div class='kiosk-status' id='kioskStatus' style='color:" + statusColor + "'>" + statusText + "</div>";
   html += "</div>";
 
@@ -4835,6 +4783,9 @@ function refreshKioskData(){
     var statusEl = document.getElementById('kioskStatus');
     if (statusEl) { statusEl.innerText = data.statusText; statusEl.style.color = data.statusColor; }
 
+    var livePowerEl = document.getElementById('kioskLivePower');
+    if (livePowerEl) livePowerEl.innerHTML = data.livePowerText || '';
+
     if (kioskGaugeWrapEl) kioskGaugeWrapEl.innerHTML = data.gaugeSvg;
 
     if (kioskChartWrapEl) {
@@ -4902,6 +4853,11 @@ void handleKioskData() {
 
   String standText = getCurrentIsoPrefix().substring(11) + " Uhr";
 
+  String livePowerText = "";
+  if (livePowerW >= 0 && millis() - livePowerUpdatedAtMs < 60000) {
+    livePowerText = "⚡ " + String((int)livePowerW) + " W";
+  }
+
   String json;
   json.reserve(6000);
   json += "{";
@@ -4912,7 +4868,8 @@ void handleKioskData() {
   json += "\"chartPoints\":" + buildChartPointsJson() + ",";
   json += "\"lowText\":\"" + jsonEscapeValue(lowText) + "\",";
   json += "\"avgText\":\"" + jsonEscapeValue(avgText) + "\",";
-  json += "\"standText\":\"" + jsonEscapeValue(standText) + "\"";
+  json += "\"standText\":\"" + jsonEscapeValue(standText) + "\",";
+  json += "\"livePowerText\":\"" + jsonEscapeValue(livePowerText) + "\"";
   json += "}";
 
   server.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
@@ -7109,6 +7066,7 @@ td,th{border-bottom:1px solid var(--line);padding:9px 10px;text-align:left}tr:la
 svg{background:#0b1224;border:1px solid var(--line);border-radius:18px;margin-top:8px;width:100%;height:320px}
 .gaugeWrap{display:flex;justify-content:center;margin:6px 0 4px}
 .gaugeWrap svg{width:240px;max-width:100%;height:auto;background:transparent;border:0;margin:0}
+.live-power{display:flex;justify-content:center;align-items:center;gap:6px;font-size:15px;font-weight:700;color:var(--text);background:var(--overlay-faint);border-radius:999px;padding:6px 16px;margin:0 auto 10px;width:fit-content}
 a{color:var(--accent);text-decoration:none}
 code{background:#0b1224;color:#e2e8f0;border:1px solid var(--line);border-radius:8px;padding:2px 6px;font-size:12px}
 details summary{cursor:pointer;color:var(--text);list-style:none}details summary::-webkit-details-marker{display:none}details summary h2{display:inline-block!important}details summary::before{content:'▸ ';color:var(--accent);font-size:14px}details[open] summary::before{content:'▾ '}
