@@ -71,7 +71,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "1.5.11"
+#define FIRMWARE_VERSION "1.5.12"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -4659,40 +4659,41 @@ void handleKioskPage() {
   html += "<link rel='stylesheet' href='/style.css?v=" ASSET_VERSION "'>";
   html += "<link rel='icon' type='image/svg+xml' href='/favicon.svg'>";
   html += "<style>";
-  html += "body{padding:0!important;display:flex;align-items:center;justify-content:center;min-height:100vh;overflow-x:hidden}";
-  html += ".kiosk-wrap{width:min(820px,94vw);padding:20px;text-align:center}";
-  html += ".kiosk-clock{margin-bottom:16px}";
-  html += ".kiosk-time{font-size:48px;font-weight:800;line-height:1.1;letter-spacing:1px}";
-  html += ".kiosk-date{font-size:16px;color:var(--muted);margin-top:2px;text-transform:capitalize}";
-  html += ".kiosk-gauge{max-width:420px;margin:0 auto}";
+  html += "html,body{height:100%;overflow:hidden}";
+  html += "body{padding:0!important;display:flex;align-items:center;justify-content:center}";
+  html += ".kiosk-wrap{width:min(820px,94vw);max-height:100vh;padding:clamp(8px,2.2vh,20px);box-sizing:border-box;text-align:center;overflow:hidden}";
+  html += ".kiosk-clock{margin-bottom:clamp(4px,1.6vh,16px)}";
+  html += ".kiosk-time{font-size:clamp(20px,5.5vh,48px);font-weight:800;line-height:1.1;letter-spacing:1px}";
+  html += ".kiosk-date{font-size:clamp(10px,1.8vh,16px);color:var(--muted);margin-top:2px;text-transform:capitalize}";
+  html += ".kiosk-gauge{max-width:min(420px,50vh,90vw);margin:0 auto}";
   html += ".kiosk-gauge svg{width:100%;max-width:100%;height:auto;background:transparent;border:0;margin:0}";
-  html += ".kiosk-status{display:inline-block;font-size:26px;font-weight:800;margin:6px 0 14px;padding:8px 22px;border-radius:999px;background:var(--overlay-faint)}";
-  html += ".kiosk-chart{margin-top:18px;position:relative;touch-action:none;cursor:crosshair}";
+  html += ".kiosk-status{display:inline-block;font-size:clamp(14px,3vh,26px);font-weight:800;margin:clamp(2px,1vh,6px) 0 clamp(4px,1.4vh,14px);padding:clamp(4px,0.9vh,8px) clamp(10px,3vw,22px);border-radius:999px;background:var(--overlay-faint)}";
+  html += ".kiosk-chart{margin-top:clamp(6px,1.8vh,18px);max-width:min(100%,64vh);margin-left:auto;margin-right:auto;position:relative;touch-action:none;cursor:crosshair}";
   html += ".kiosk-chart svg{width:100%;height:auto;display:block}";
   html += ".kiosk-crosshair-line{stroke:var(--text);stroke-width:1.5;stroke-dasharray:4,4;opacity:0;pointer-events:none}";
   html += ".kiosk-crosshair-dot{fill:var(--text);stroke:#0b1224;stroke-width:2;opacity:0;pointer-events:none}";
   html += ".kiosk-tooltip{position:absolute;transform:translate(-50%,-115%);background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:6px 10px;font-size:13px;font-weight:700;white-space:nowrap;pointer-events:none;opacity:0;box-shadow:0 8px 20px var(--shadow-soft)}";
-  html += ".kiosk-meta{color:var(--muted);font-size:15px;margin-top:16px;display:flex;flex-wrap:wrap;gap:6px 18px;justify-content:center}";
+  html += ".kiosk-meta{color:var(--muted);font-size:clamp(10px,1.7vh,15px);margin-top:clamp(4px,1.6vh,16px);display:flex;flex-wrap:wrap;gap:clamp(3px,0.8vh,6px) clamp(8px,2vw,18px);justify-content:center}";
   html += ".kiosk-exit{position:fixed;top:14px;right:14px;opacity:.3;transition:opacity .2s var(--ease)}";
   html += ".kiosk-exit:hover{opacity:1}";
-  html += ".kiosk-hint{font-size:12px;color:var(--muted);margin-top:22px;max-width:520px;margin-left:auto;margin-right:auto}";
+  html += ".kiosk-hint{font-size:clamp(9px,1.3vh,12px);color:var(--muted);margin-top:clamp(4px,1vh,22px);max-width:520px;margin-left:auto;margin-right:auto}";
   html += ".kiosk-chart-hint{color:var(--muted);margin-top:6px}";
+  html += ".actions{margin-top:clamp(6px,2vh,20px)!important;justify-content:center!important}";
   html += "@media (orientation:landscape) and (max-height:820px){";
-  html += "body{padding:0!important;align-items:center}";
-  html += ".kiosk-wrap{width:min(1120px,97vw);padding:14px 22px}";
-  html += ".kiosk-columns{display:flex;align-items:center;gap:28px;text-align:left}";
-  html += ".kiosk-col-left{flex:0 0 clamp(200px,26vw,300px);text-align:center}";
+  html += ".kiosk-wrap{width:min(1120px,97vw);padding:clamp(6px,2vh,14px) clamp(10px,3vw,22px)}";
+  html += ".kiosk-columns{display:flex;align-items:center;gap:clamp(10px,3vw,28px);text-align:left}";
+  html += ".kiosk-col-left{flex:0 0 clamp(160px,24vw,300px);text-align:center}";
   html += ".kiosk-col-right{flex:1;min-width:0}";
-  html += ".kiosk-clock{margin-bottom:10px}";
-  html += ".kiosk-time{font-size:clamp(22px,3.4vw,32px)}";
-  html += ".kiosk-date{font-size:12px}";
-  html += ".kiosk-gauge{max-width:100%;margin:0}";
-  html += ".kiosk-status{margin:8px 0 0;font-size:clamp(18px,2.6vw,26px)}";
-  html += ".kiosk-chart{margin-top:0}";
-  html += ".kiosk-meta{justify-content:flex-start;margin-top:10px;font-size:13px}";
+  html += ".kiosk-clock{margin-bottom:clamp(2px,1vh,10px)}";
+  html += ".kiosk-time{font-size:clamp(16px,4.2vh,32px)}";
+  html += ".kiosk-date{font-size:clamp(9px,1.5vh,12px)}";
+  html += ".kiosk-gauge{max-width:min(100%,40vh)}";
+  html += ".kiosk-status{margin:clamp(4px,1vh,8px) 0 0;font-size:clamp(13px,2.6vh,26px)}";
+  html += ".kiosk-chart{margin-top:0;max-width:min(100%,150vh)}";
+  html += ".kiosk-meta{justify-content:flex-start;margin-top:clamp(4px,1vh,10px);font-size:clamp(10px,1.5vh,13px)}";
   html += ".kiosk-chart-hint{text-align:left}";
-  html += ".actions{justify-content:flex-start!important;margin-top:12px!important}";
-  html += ".kiosk-hint{margin-top:8px;max-width:100%;margin-left:0;margin-right:0}";
+  html += ".actions{justify-content:flex-start!important;margin-top:clamp(4px,1.2vh,12px)!important}";
+  html += ".kiosk-hint{margin-top:clamp(2px,0.8vh,8px);max-width:100%;margin-left:0;margin-right:0}";
   html += "}";
   html += "</style>";
   html += "</head><body>";
@@ -4735,7 +4736,7 @@ void handleKioskPage() {
 
   html += "</div>";
 
-  html += "<div class='actions' style='margin-top:20px;justify-content:center'><button type='button' onclick='enterKioskFullscreen()'>Vollbild</button></div>";
+  html += "<div class='actions'><button type='button' onclick='enterKioskFullscreen()'>Vollbild</button></div>";
   html += "<p class='kiosk-hint' id='kioskWakeHint'></p>";
 
   html += "</div>";

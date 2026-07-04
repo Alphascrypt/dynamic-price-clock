@@ -5,40 +5,41 @@
 <script>(function(){try{var qp=new URLSearchParams(location.search).get('theme');if(qp==='dark'||(!qp&&localStorage.getItem('theme')==='dark')){document.documentElement.setAttribute('data-theme','dark');}}catch(e){}})();</script>
 <link rel='stylesheet' href='style.css'>
 <style>
-body{padding:0!important;display:flex;align-items:center;justify-content:center;min-height:100vh;overflow-x:hidden}
-.kiosk-wrap{width:min(820px,94vw);padding:20px;text-align:center}
-.kiosk-clock{margin-bottom:16px}
-.kiosk-time{font-size:48px;font-weight:800;line-height:1.1;letter-spacing:1px}
-.kiosk-date{font-size:16px;color:var(--muted);margin-top:2px;text-transform:capitalize}
-.kiosk-gauge{max-width:420px;margin:0 auto}
+html,body{height:100%;overflow:hidden}
+body{padding:0!important;display:flex;align-items:center;justify-content:center}
+.kiosk-wrap{width:min(820px,94vw);max-height:100vh;padding:clamp(8px,2.2vh,20px);box-sizing:border-box;text-align:center;overflow:hidden}
+.kiosk-clock{margin-bottom:clamp(4px,1.6vh,16px)}
+.kiosk-time{font-size:clamp(20px,5.5vh,48px);font-weight:800;line-height:1.1;letter-spacing:1px}
+.kiosk-date{font-size:clamp(10px,1.8vh,16px);color:var(--muted);margin-top:2px;text-transform:capitalize}
+.kiosk-gauge{max-width:min(420px,50vh,90vw);margin:0 auto}
 .kiosk-gauge svg{width:100%;max-width:100%;height:auto;background:transparent;border:0;margin:0}
-.kiosk-status{display:inline-block;font-size:26px;font-weight:800;margin:6px 0 14px;padding:8px 22px;border-radius:999px;background:var(--overlay-faint)}
-.kiosk-chart{margin-top:18px;position:relative;touch-action:none;cursor:crosshair}
+.kiosk-status{display:inline-block;font-size:clamp(14px,3vh,26px);font-weight:800;margin:clamp(2px,1vh,6px) 0 clamp(4px,1.4vh,14px);padding:clamp(4px,0.9vh,8px) clamp(10px,3vw,22px);border-radius:999px;background:var(--overlay-faint)}
+.kiosk-chart{margin-top:clamp(6px,1.8vh,18px);max-width:min(100%,64vh);margin-left:auto;margin-right:auto;position:relative;touch-action:none;cursor:crosshair}
 .kiosk-chart svg{width:100%;height:auto;display:block}
 .kiosk-crosshair-line{stroke:var(--text);stroke-width:1.5;stroke-dasharray:4,4;opacity:0;pointer-events:none}
 .kiosk-crosshair-dot{fill:var(--text);stroke:#0b1224;stroke-width:2;opacity:0;pointer-events:none}
 .kiosk-tooltip{position:absolute;transform:translate(-50%,-115%);background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:6px 10px;font-size:13px;font-weight:700;white-space:nowrap;pointer-events:none;opacity:0;box-shadow:0 8px 20px var(--shadow-soft)}
-.kiosk-meta{color:var(--muted);font-size:15px;margin-top:16px;display:flex;flex-wrap:wrap;gap:6px 18px;justify-content:center}
+.kiosk-meta{color:var(--muted);font-size:clamp(10px,1.7vh,15px);margin-top:clamp(4px,1.6vh,16px);display:flex;flex-wrap:wrap;gap:clamp(3px,0.8vh,6px) clamp(8px,2vw,18px);justify-content:center}
 .kiosk-exit{position:fixed;top:14px;right:14px;opacity:.3;transition:opacity .2s var(--ease)}
 .kiosk-exit:hover{opacity:1}
-.kiosk-hint{font-size:12px;color:var(--muted);margin-top:22px;max-width:520px;margin-left:auto;margin-right:auto}
+.kiosk-hint{font-size:clamp(9px,1.3vh,12px);color:var(--muted);margin-top:clamp(4px,1vh,22px);max-width:520px;margin-left:auto;margin-right:auto}
 .kiosk-chart-hint{color:var(--muted);margin-top:6px}
+.actions{margin-top:clamp(6px,2vh,20px)!important;justify-content:center!important}
 @media (orientation:landscape) and (max-height:820px){
-body{padding:0!important;align-items:center}
-.kiosk-wrap{width:min(1120px,97vw);padding:14px 22px}
-.kiosk-columns{display:flex;align-items:center;gap:28px;text-align:left}
-.kiosk-col-left{flex:0 0 clamp(200px,26vw,300px);text-align:center}
+.kiosk-wrap{width:min(1120px,97vw);padding:clamp(6px,2vh,14px) clamp(10px,3vw,22px)}
+.kiosk-columns{display:flex;align-items:center;gap:clamp(10px,3vw,28px);text-align:left}
+.kiosk-col-left{flex:0 0 clamp(160px,24vw,300px);text-align:center}
 .kiosk-col-right{flex:1;min-width:0}
-.kiosk-clock{margin-bottom:10px}
-.kiosk-time{font-size:clamp(22px,3.4vw,32px)}
-.kiosk-date{font-size:12px}
-.kiosk-gauge{max-width:100%;margin:0}
-.kiosk-status{margin:8px 0 0;font-size:clamp(18px,2.6vw,26px)}
-.kiosk-chart{margin-top:0}
-.kiosk-meta{justify-content:flex-start;margin-top:10px;font-size:13px}
+.kiosk-clock{margin-bottom:clamp(2px,1vh,10px)}
+.kiosk-time{font-size:clamp(16px,4.2vh,32px)}
+.kiosk-date{font-size:clamp(9px,1.5vh,12px)}
+.kiosk-gauge{max-width:min(100%,40vh)}
+.kiosk-status{margin:clamp(4px,1vh,8px) 0 0;font-size:clamp(13px,2.6vh,26px)}
+.kiosk-chart{margin-top:0;max-width:min(100%,150vh)}
+.kiosk-meta{justify-content:flex-start;margin-top:clamp(4px,1vh,10px);font-size:clamp(10px,1.5vh,13px)}
 .kiosk-chart-hint{text-align:left}
-.actions{justify-content:flex-start!important;margin-top:12px!important}
-.kiosk-hint{margin-top:8px;max-width:100%;margin-left:0;margin-right:0}
+.actions{justify-content:flex-start!important;margin-top:clamp(4px,1.2vh,12px)!important}
+.kiosk-hint{margin-top:clamp(2px,0.8vh,8px);max-width:100%;margin-left:0;margin-right:0}
 }
 </style>
 </head><body>
@@ -87,7 +88,7 @@ body{padding:0!important;align-items:center}
 
 </div>
 
-<div class='actions' style='margin-top:20px;justify-content:center'><button type='button'>Vollbild</button></div>
+<div class='actions'><button type='button'>Vollbild</button></div>
 <p class='kiosk-hint'>Bildschirm bleibt dauerhaft an (Wake Lock aktiv).</p>
 
 </div>
