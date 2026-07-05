@@ -73,7 +73,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "2.0.0"
+#define FIRMWARE_VERSION "2.0.1"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -290,16 +290,6 @@ float priceVatPercent = 0.0;
 
 String lastError = "Noch kein Update";
 String webInterfaceName = "Dynamic Price Clock";
-String uiTemplate = "classic"; // "classic" oder "modern"
-// Bitmaske fuer Modern-Layout: bit0 Zonen-Legende, bit1 Zahlen-Animation,
-// bit2 60-Min-Schnitt, bit3 Tagesdurchschnitt, bit4 Tief 15 Min,
-// bit5 Tief 60 Min, bit6 Kosten bisher, bit7 Prognose Monatsende,
-// bit8 Live-Verbrauch im Hero, bit9 Detail-Sektion sichtbar.
-uint16_t modernFlags = 0x03FF; // alles an
-static inline bool modernShow(int bit) { return (modernFlags >> bit) & 1; }
-// Reihenfolge der Modern-Sections. Erlaubte IDs: "hero","chart","details".
-// "einrichtung" wird immer ganz oben angezeigt, wenn noetig.
-String modernOrder = "hero,chart,details";
 
 // -----------------------------------------------------------------------------
 // Zeiten
@@ -1273,11 +1263,6 @@ void setup() {
   wifiPassword = prefs.getString("wifiPass", DEFAULT_WIFI_PASSWORD);
   webInterfaceName = prefs.getString("webName", "Dynamic Price Clock");
   if (webInterfaceName.length() == 0) webInterfaceName = "Dynamic Price Clock";
-  uiTemplate = prefs.getString("uiTpl", "classic");
-  if (uiTemplate != "modern") uiTemplate = "classic";
-  modernFlags = (uint16_t)prefs.getUInt("mFlags", 0x03FF);
-  modernOrder = prefs.getString("mOrder", "hero,chart,details");
-  if (modernOrder.length() == 0) modernOrder = "hero,chart,details";
   livePowerMaxKw = prefs.getFloat("lpMax", 10.0f);
   livePowerGreenKw = prefs.getFloat("lpGreen", 2.0f);
   livePowerYellowKw = prefs.getFloat("lpYellow", 5.0f);
@@ -3906,11 +3891,8 @@ void updatePriceMatrix() {
 // Hauptseite
 // -----------------------------------------------------------------------------
 
-void handleRootModern();
-
 void handleRoot() {
   if (!checkAuth()) return;
-  if (uiTemplate == "modern") { handleRootModern(); return; }
 
   String html;
   html.reserve(24500);
@@ -4098,179 +4080,6 @@ void handleRoot() {
   server.send(200, "text/html", html);
 }
 
-void handleRootModern() {
-  String html;
-  html.reserve(22000);
-
-  html += htmlHeader("Übersicht");
-  html += navTabs("/");
-
-  html += "<style>";
-  html += ".mHero{padding:clamp(18px,3vw,32px)}";
-  html += ".mHeroGrid{display:grid;grid-template-columns:1.1fr .9fr;gap:clamp(16px,3vw,32px);align-items:start}";
-  html += "@media(max-width:700px){.mHeroGrid{grid-template-columns:1fr}}";
-  html += ".mHeroLabel{color:var(--muted);font-size:13px;letter-spacing:.5px;text-transform:uppercase;font-weight:700;margin-bottom:10px}";
-  html += ".mHeroStatus{display:inline-block;padding:10px 22px;border-radius:999px;font-weight:800;font-size:22px}";
-  html += ".mHeroFact{margin-top:12px;color:var(--muted);font-size:15px}";
-  html += ".mHeroFact b{color:var(--text)}";
-  html += ".mHeroGauge{max-width:420px;margin:0 auto}";
-  html += ".mHeroGauge svg{width:100%;height:auto}";
-  html += ".mHeroLivePill{margin:16px auto 0;max-width:640px;padding:14px 22px;border-radius:20px;background:var(--overlay-faint);border:1px solid var(--surface-border);display:flex;flex-wrap:wrap;align-items:center;gap:12px 24px}";
-  html += ".mHeroLivePillLeft{display:flex;flex-direction:column;flex:0 0 auto;min-width:140px}";
-  html += ".mHeroLivePillLabel{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;font-weight:700}";
-  html += ".mHeroLivePillValue{font-size:26px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1.1;margin-top:2px}";
-  html += ".mHeroLiveBar{flex:1 1 220px;min-width:200px}";
-  html += ".mHeroLiveTrack{position:relative;height:14px;border-radius:999px;background:var(--overlay-hover);overflow:hidden;box-shadow:inset 0 1px 2px rgba(0,0,0,.15)}";
-  html += ".mHeroLiveFill{position:absolute;top:0;left:0;bottom:0;border-radius:999px;transition:width .3s var(--ease),background .3s var(--ease)}";
-  html += ".mHeroLiveFill.zc{background:linear-gradient(90deg,#22c55e,#4ade80)}";
-  html += ".mHeroLiveFill.zm{background:linear-gradient(90deg,#facc15,#fb923c)}";
-  html += ".mHeroLiveFill.ze{background:linear-gradient(90deg,#fb923c,#fb7185)}";
-  html += ".mHeroLiveScale{display:flex;justify-content:space-between;margin-top:6px;font-size:10px;color:var(--muted);font-weight:600}";
-  html += ".mZones{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px}";
-  html += ".mZone{padding:10px 12px;border-radius:12px;text-align:center;font-weight:700;font-size:12px;border:1px solid var(--surface-border);position:relative}";
-  html += ".mZone .mZoneVal{font-size:16px;display:block;margin-top:2px}";
-  html += ".mZone.zc{background:rgba(74,222,128,.12);color:#16a34a}";
-  html += ".mZone.zm{background:rgba(250,204,21,.12);color:#ca8a04}";
-  html += ".mZone.ze{background:rgba(251,113,133,.12);color:#e11d48}";
-  html += ".mZone.active{outline:2px solid currentColor;outline-offset:-2px;box-shadow:0 4px 14px rgba(0,0,0,.12)}";
-  html += ".mMetrics{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-top:14px}";
-  html += ".mMetric{padding:12px 14px;border-radius:12px;background:var(--overlay-faint);border:1px solid var(--surface-border)}";
-  html += ".mMetric .lbl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;font-weight:700}";
-  html += ".mMetric .val{font-size:20px;font-weight:800;margin-top:2px;font-variant-numeric:tabular-nums}";
-  html += ".mMetric .sb{font-size:11px;color:var(--muted);margin-top:2px}";
-  html += "</style>";
-
-  {
-    bool needsWifi = apMode;
-    bool needsToken = (tibberToken.length() == 0) && (priceProvider == "tibber");
-    int openSteps = (needsWifi ? 1 : 0) + (needsToken ? 1 : 0);
-    if (openSteps > 0) {
-      html += "<section class='card' style='border-color:rgba(250,204,21,.35)'>";
-      html += "<div class='panelTitle'><h2>Einrichtung</h2><span class='badge warnb'>" + String(openSteps) + " offen</span></div>";
-      html += "<div style='display:grid;gap:10px'>";
-      if (needsWifi) html += "<div class='formSection' style='display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap'><span>Setup-Modus aktiv - WLAN noch nicht eingerichtet</span><a href='/wifi'><button type='button' class='secondary'>WLAN einrichten</button></a></div>";
-      if (needsToken) html += "<div class='formSection' style='display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap'><span>Kein Tibber-Token hinterlegt</span><a href='/anbieter'><button type='button' class='secondary'>Jetzt eintragen</button></a></div>";
-      html += "</div></section>";
-    }
-  }
-
-  // Hero card: big current price + gauge
-  int nowCent = metricCurrent15 >= 0 ? euroToCentRounded(metricCurrent15) : -1;
-  String statusText = "Keine Daten";
-  String statusBg = "background:var(--overlay-faint);color:var(--muted)";
-  String activeZone = "";
-  if (nowCent >= 0) {
-    if (nowCent >= ledRedCent) { statusText = "Jetzt teuer"; statusBg = "background:rgba(251,113,133,.18);color:#e11d48"; activeZone = "e"; }
-    else if (nowCent >= ledYellowCent) { statusText = "Jetzt mittel"; statusBg = "background:rgba(250,204,21,.18);color:#ca8a04"; activeZone = "m"; }
-    else { statusText = "Jetzt guenstig"; statusBg = "background:rgba(74,222,128,.18);color:#16a34a"; activeZone = "c"; }
-  }
-
-  // Build each section as string
-  String secHero;
-  secHero += "<section class='card mHero'>";
-  secHero += "<div class='mHeroGrid'>";
-  secHero += "<div>";
-  secHero += "<div class='mHeroLabel'>Aktueller Preis</div>";
-  secHero += "<div class='mHeroStatus' style='" + statusBg + "'>" + statusText + "</div>";
-  if (modernShow(1)) {
-    if (metricLow15Day >= 0) {
-      secHero += "<div class='mHeroFact'>Tief heute: <b>" + priceToCentText(metricLow15Day) + " ct</b> um " + formatTimeOnly(metricLow15DayTime) + "</div>";
-    }
-    if (metricDayAvg >= 0) {
-      secHero += "<div class='mHeroFact'>Tagesdurchschnitt: <b>" + priceToCentText(metricDayAvg) + " ct</b></div>";
-    }
-  }
-  secHero += "</div>";
-  secHero += "<div class='mHeroGauge'>";
-  secHero += buildPriceGaugeSvg();
-  secHero += "</div>"; // mHeroGauge
-  secHero += "</div>"; // mHeroGrid
-
-  // Live-power pill horizontally centered below the grid, spanning full width
-  if (modernShow(8) && livePowerW >= 0 && millis() - livePowerUpdatedAtMs < 60000) {
-    float kw = livePowerW / 1000.0f;
-    float pct = kw / livePowerMaxKw * 100.0f;
-    if (pct < 0) pct = 0;
-    if (pct > 100) pct = 100;
-    secHero += "<div class='mHeroLivePill' id='livePowerBadge'>";
-    secHero += "<div class='mHeroLivePillLeft'>";
-    secHero += "<div class='mHeroLivePillLabel'>&#9889; Aktueller Verbrauch</div>";
-    secHero += "<div class='mHeroLivePillValue'>" + formatLivePowerValue() + "</div>";
-    secHero += "</div>";
-    String fillZone = "zc";
-    if (kw >= livePowerYellowKw) fillZone = "ze";
-    else if (kw >= livePowerGreenKw) fillZone = "zm";
-    secHero += "<div class='mHeroLiveBar'>";
-    secHero += "<div class='mHeroLiveTrack'>";
-    secHero += "<div class='mHeroLiveFill " + fillZone + "' style='width:" + String(pct, 1) + "%'></div>";
-    secHero += "</div>";
-    secHero += "<div class='mHeroLiveScale'>";
-    for (int i = 0; i <= 4; i++) {
-      float v = livePowerMaxKw * i / 4.0f;
-      String s = (v == (int)v) ? String((int)v) : String(v, 1);
-      s.replace(".", ",");
-      secHero += "<span>" + s + (i == 4 ? " kW" : "") + "</span>";
-    }
-    secHero += "</div>";
-    secHero += "</div>";
-    secHero += "</div>";
-  }
-  secHero += "</section>";
-
-  String secChart;
-  secChart += "<section class='card'><div class='panelTitle'><h2>Preisverlauf</h2><span class='badge okb'>" + String(quarterCount) + " Slots</span></div>";
-  if (modernShow(0)) {
-    secChart += "<div class='mZones'>";
-    secChart += "<div class='mZone zc" + String(activeZone == "c" ? " active" : "") + "'>Guenstig<span class='mZoneVal'>&lt; " + String(ledYellowCent) + " ct</span></div>";
-    secChart += "<div class='mZone zm" + String(activeZone == "m" ? " active" : "") + "'>Mittel<span class='mZoneVal'>" + String(ledYellowCent) + "-" + String(ledRedCent) + " ct</span></div>";
-    secChart += "<div class='mZone ze" + String(activeZone == "e" ? " active" : "") + "'>Teuer<span class='mZoneVal'>&ge; " + String(ledRedCent) + " ct</span></div>";
-    secChart += "</div>";
-  }
-  secChart += buildSvgChart();
-  secChart += "</section>";
-
-  String secDetails;
-  if (modernShow(9)) {
-    bool anyMetric = modernShow(2) || modernShow(3) || modernShow(4) || modernShow(5) || (tibberMonthCost >= 0 && (modernShow(6) || modernShow(7)));
-    secDetails += "<section class='card'><div class='panelTitle'><h2>Details</h2></div>";
-    if (anyMetric) {
-      secDetails += "<div class='mMetrics'>";
-      if (modernShow(2)) secDetails += "<div class='mMetric'><div class='lbl'>60-Min-Schnitt</div><div class='val'>" + priceToCentText(metricCurrent60) + "</div></div>";
-      if (modernShow(3)) secDetails += "<div class='mMetric'><div class='lbl'>Tagesdurchschnitt</div><div class='val'>" + priceToCentText(metricDayAvg) + "</div></div>";
-      if (modernShow(4)) secDetails += "<div class='mMetric'><div class='lbl'>Tief 15 Min</div><div class='val'>" + priceToCentText(metricLow15Day) + "</div><div class='sb'>" + formatTimeOnly(metricLow15DayTime) + " Uhr</div></div>";
-      if (modernShow(5)) secDetails += "<div class='mMetric'><div class='lbl'>Tief 60-Min</div><div class='val'>" + priceToCentText(metricLow60Day) + "</div><div class='sb'>" + formatTimeOnly(metricLow60DayTime) + "-" + addMinutesToIsoTime(metricLow60DayTime, 60) + "</div></div>";
-      if (tibberMonthCost >= 0 && modernShow(6)) secDetails += "<div class='mMetric'><div class='lbl'>Kosten bisher</div><div class='val'>" + euroCostText(tibberMonthCost) + " " + htmlEscape(tibberMonthCurrency) + "</div><div class='sb'>" + String(tibberMonthConsumptionKwh, 1) + " kWh</div></div>";
-      if (tibberMonthCost >= 0 && modernShow(7)) {
-        float projected = estimateFullMonthCost();
-        if (projected >= 0) secDetails += "<div class='mMetric'><div class='lbl'>Prognose Monatsende</div><div class='val'>" + euroCostText(projected) + " " + htmlEscape(tibberMonthCurrency) + "</div><div class='sb'>hochgerechnet</div></div>";
-      }
-      secDetails += "</div>";
-    }
-    secDetails += "</section>";
-  }
-
-  // Output sections in configured order
-  int startIdx = 0;
-  while (startIdx <= (int)modernOrder.length()) {
-    int commaIdx = modernOrder.indexOf(',', startIdx);
-    String id = (commaIdx < 0) ? modernOrder.substring(startIdx) : modernOrder.substring(startIdx, commaIdx);
-    id.trim();
-    if (id == "hero") html += secHero;
-    else if (id == "chart") html += secChart;
-    else if (id == "details") html += secDetails;
-    if (commaIdx < 0) break;
-    startIdx = commaIdx + 1;
-  }
-
-  html += "<div class='actions' style='margin-top:14px'><a href='/refresh'><button>Jetzt aktualisieren</button></a><a href='/kiosk'><button type='button' class='secondary'>Tablet-Modus</button></a></div>";
-
-  html += "<p class='small'><a href='/json'>JSON-API</a></p>";
-
-  html += htmlFooter();
-  server.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
-  server.send(200, "text/html", html);
-}
-
 // -----------------------------------------------------------------------------
 // Konto / Sicherheit
 // -----------------------------------------------------------------------------
@@ -4294,58 +4103,6 @@ void handleAccountPage() {
   html += "<div class='field'><label>Name des Webinterfaces</label><input name='webName' maxlength='32' value='";
   html += htmlEscape(webInterfaceName);
   html += "'></div>";
-  html += "<div class='field'><label>Startseite-Design</label><select name='uiTpl'>";
-  html += "<option value='classic'";
-  if (uiTemplate == "classic") html += " selected";
-  html += ">Klassisch (gleichrangige Metrik-Kacheln)</option>";
-  html += "<option value='modern'";
-  if (uiTemplate == "modern") html += " selected";
-  html += ">Modern (Hero-Preis, Preiszonen, Animation)</option>";
-  html += "</select></div>";
-  html += "<div class='field' style='grid-column:1/-1'><label>Modern-Bausteine (nur wirksam wenn Modern aktiv)</label>";
-  html += "<div style='display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:6px;margin-top:6px'>";
-  const char* modernLabels[10] = {
-    "Preiszonen-Legende","Hero-Fakten (Tief + Schnitt)","60-Min-Schnitt","Tagesdurchschnitt",
-    "Tief 15 Min","Tief 60 Min","Kosten bisher","Prognose Monatsende",
-    "Live-Verbrauch (Hero)","Detail-Sektion"
-  };
-  for (int i = 0; i < 10; i++) {
-    html += "<label style='display:flex;gap:8px;align-items:center;font-weight:400'><input type='checkbox' name='mf" + String(i) + "' value='1'";
-    if (modernShow(i)) html += " checked";
-    html += ">" + String(modernLabels[i]) + "</label>";
-  }
-  html += "</div></div>";
-  html += "<div class='field' style='grid-column:1/-1'><label>Modern-Reihenfolge (Ziehen zum Sortieren)</label>";
-  html += "<ul id='mOrderList' style='list-style:none;padding:0;margin:8px 0 0;display:grid;gap:6px'>";
-  const char* orderLabels[3] = { "Hero (Preis + Gauge)", "Diagramm", "Details" };
-  const char* orderIds[3] = { "hero", "chart", "details" };
-  for (int pos = 0; pos < 5; pos++) {
-    int scan = 0, foundIdx = -1;
-    for (int i = 0; i < (int)modernOrder.length(); i++) {
-      if (i == 0 || modernOrder[i-1] == ',') {
-        if (scan == pos) {
-          String id;
-          int c = modernOrder.indexOf(',', i);
-          id = (c < 0) ? modernOrder.substring(i) : modernOrder.substring(i, c);
-          id.trim();
-          for (int k = 0; k < 3; k++) if (id == orderIds[k]) { foundIdx = k; break; }
-          break;
-        }
-        scan++;
-      }
-    }
-    if (foundIdx < 0) break;
-    html += "<li draggable='true' data-id='";
-    html += orderIds[foundIdx];
-    html += "' style='padding:10px 14px;border:1px solid var(--surface-border);border-radius:10px;background:var(--overlay-faint);cursor:grab;display:flex;align-items:center;gap:10px;font-weight:600'>";
-    html += "<span style='color:var(--muted);font-size:16px;line-height:1'>&#x2630;</span>";
-    html += orderLabels[foundIdx];
-    html += "</li>";
-  }
-  html += "</ul>";
-  html += "<input type='hidden' name='mOrder' id='mOrderInput' value='" + htmlEscape(modernOrder) + "'>";
-  html += "<script>(function(){var list=document.getElementById('mOrderList');if(!list)return;var input=document.getElementById('mOrderInput');var dragEl=null;function sync(){var ids=[];list.querySelectorAll('li').forEach(function(li){ids.push(li.dataset.id);});input.value=ids.join(',');}list.querySelectorAll('li').forEach(function(li){li.addEventListener('dragstart',function(e){dragEl=li;li.style.opacity='.4';e.dataTransfer.effectAllowed='move';});li.addEventListener('dragend',function(){li.style.opacity='';dragEl=null;sync();});li.addEventListener('dragover',function(e){e.preventDefault();if(!dragEl||dragEl===li)return;var rect=li.getBoundingClientRect();var after=(e.clientY-rect.top)>rect.height/2;list.insertBefore(dragEl,after?li.nextSibling:li);});});})();</script>";
-  html += "</div>";
   html += "<div class='field'><label>API-Update alle Minuten</label><input name='apiMinutes' type='number' min='1' max='60' value='";
   html += String(apiUpdateMinutes);
   html += "'></div>";
@@ -5694,7 +5451,7 @@ void handleKioskLayoutPage() {
 .kl-canvas{position:relative;width:min(360px,90vw);aspect-ratio:9/16;display:grid;grid-template-columns:repeat(6,1fr);grid-template-rows:repeat(12,1fr);gap:2px;padding:6px;background:var(--overlay-faint);border:1px solid var(--line);border-radius:12px;overflow:hidden;touch-action:none;box-sizing:border-box}
 .kl-canvas.landscape{width:min(560px,90vw);aspect-ratio:16/9;grid-template-columns:repeat(12,1fr);grid-template-rows:repeat(8,1fr)}
 .kl-cell{background:rgba(96,165,250,.06);border-radius:2px;pointer-events:none}
-.kl-item{border:2px dashed var(--accent2);background:rgba(96,165,250,.14);border-radius:6px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:4px;cursor:move;box-sizing:border-box;user-select:none;overflow:hidden;text-align:center;min-width:0;min-height:0}
+.kl-item{position:relative;border:2px dashed var(--accent2);background:rgba(96,165,250,.14);border-radius:6px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:4px;cursor:move;box-sizing:border-box;user-select:none;overflow:visible;text-align:center;min-width:0;min-height:0;z-index:2}
 .kl-item.selected{border-style:solid;background:rgba(96,165,250,.24)}
 .kl-item.kl-hidden{opacity:.32;border-style:dotted}
 .kl-item-caption{font-size:9px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;pointer-events:none;line-height:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
@@ -7795,28 +7552,6 @@ void handleSave() {
     prefs.putString("webName", webInterfaceName);
   }
 
-  if (server.hasArg("uiTpl")) {
-    String tpl = server.arg("uiTpl");
-    if (tpl != "modern") tpl = "classic";
-    uiTemplate = tpl;
-    prefs.putString("uiTpl", uiTemplate);
-
-    // Bausteine nur uebernehmen wenn das Formular sichtbar war (Modern-UI). Bei
-    // POST fehlen nicht angehakte Checkboxes ganz, wir bauen die Maske also nur
-    // wenn mindestens ein "mf*" Feld dabei ist oder das Template modern ist.
-    uint16_t f = 0;
-    bool anyFlag = false;
-    for (int i = 0; i < 10; i++) {
-      String name = "mf" + String(i);
-      if (server.hasArg(name)) { f |= (1u << i); anyFlag = true; }
-    }
-    // Wenn irgendein Checkbox ankommt ODER das Formular sichtbar war, speichern
-    if (anyFlag || uiTemplate == "modern") {
-      modernFlags = f;
-      prefs.putUInt("mFlags", modernFlags);
-    }
-  }
-
   if (server.hasArg("klpStyle")) {
     String s = server.arg("klpStyle");
     if (s != "bar") s = "text";
@@ -7840,42 +7575,6 @@ void handleSave() {
     prefs.putFloat("lpMax", livePowerMaxKw);
     prefs.putFloat("lpGreen", livePowerGreenKw);
     prefs.putFloat("lpYellow", livePowerYellowKw);
-  }
-
-  if (server.hasArg("mOrder")) {
-    String raw = server.arg("mOrder");
-    raw.trim();
-    // sanity: only allow known ids, kommagetrennt, keine Duplikate
-    String cleaned = "";
-    bool seen[3] = { false, false, false };
-    const char* validIds[3] = { "hero", "chart", "details" };
-    int start = 0;
-    while (start <= (int)raw.length()) {
-      int c = raw.indexOf(',', start);
-      String id = (c < 0) ? raw.substring(start) : raw.substring(start, c);
-      id.trim();
-      for (int k = 0; k < 3; k++) {
-        if (id == validIds[k] && !seen[k]) {
-          if (cleaned.length() > 0) cleaned += ",";
-          cleaned += validIds[k];
-          seen[k] = true;
-          break;
-        }
-      }
-      if (c < 0) break;
-      start = c + 1;
-    }
-    // fehlende IDs am Ende anhaengen
-    for (int k = 0; k < 3; k++) {
-      if (!seen[k]) {
-        if (cleaned.length() > 0) cleaned += ",";
-        cleaned += validIds[k];
-      }
-    }
-    if (cleaned.length() > 0) {
-      modernOrder = cleaned;
-      prefs.putString("mOrder", modernOrder);
-    }
   }
 
   if (server.hasArg("token")) {
