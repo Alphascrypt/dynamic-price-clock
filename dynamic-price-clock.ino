@@ -73,7 +73,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "1.7.4"
+#define FIRMWARE_VERSION "1.7.5"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -5270,11 +5270,19 @@ void handleSaveKioskLayoutAjax() {
 void handleResetKioskLayout() {
   if (!checkAuth()) return;
 
+  String orientation = server.hasArg("orientation") ? server.arg("orientation") : "";
+  bool doPortrait = (orientation == "portrait" || orientation.length() == 0);
+  bool doLandscape = (orientation == "landscape" || orientation.length() == 0);
+
   for (int i = 0; i < KIOSK_WIDGET_COUNT; i++) {
-    kioskPortrait[i] = KIOSK_PORTRAIT_DEFAULTS[i];
-    kioskLandscape[i] = KIOSK_LANDSCAPE_DEFAULTS[i];
-    saveKioskWidget(false, i, kioskPortrait[i]);
-    saveKioskWidget(true, i, kioskLandscape[i]);
+    if (doPortrait) {
+      kioskPortrait[i] = KIOSK_PORTRAIT_DEFAULTS[i];
+      saveKioskWidget(false, i, kioskPortrait[i]);
+    }
+    if (doLandscape) {
+      kioskLandscape[i] = KIOSK_LANDSCAPE_DEFAULTS[i];
+      saveKioskWidget(true, i, kioskLandscape[i]);
+    }
   }
 
   server.send(200, "application/json", "{\"ok\":true}");
@@ -5299,7 +5307,7 @@ void handleKioskLayoutPage() {
   html += R"CSS(<style>
 .kl-shell{display:flex;gap:16px;flex-wrap:wrap;margin-top:14px}
 .kl-canvas-wrap{flex:1;min-width:280px;display:flex;justify-content:center}
-.kl-canvas{position:relative;width:min(360px,90vw);aspect-ratio:9/16;background:repeating-linear-gradient(0deg,var(--overlay-faint),var(--overlay-faint) 1px,transparent 1px,transparent 10%),repeating-linear-gradient(90deg,var(--overlay-faint),var(--overlay-faint) 1px,transparent 1px,transparent 10%);border:1px solid var(--line);border-radius:12px;overflow:hidden;touch-action:none}
+.kl-canvas{position:relative;width:min(360px,90vw);aspect-ratio:9/16;background:repeating-linear-gradient(0deg,var(--overlay-faint),var(--overlay-faint) 1px,transparent 1px,transparent 5%),repeating-linear-gradient(90deg,var(--overlay-faint),var(--overlay-faint) 1px,transparent 1px,transparent 5%);border:1px solid var(--line);border-radius:12px;overflow:hidden;touch-action:none}
 .kl-canvas.landscape{width:min(560px,90vw);aspect-ratio:16/9}
 .kl-item{position:absolute;border:2px dashed var(--accent2);background:rgba(96,165,250,.14);border-radius:6px;display:flex;align-items:center;justify-content:center;cursor:move;box-sizing:border-box;user-select:none}
 .kl-item.selected{border-style:solid;background:rgba(96,165,250,.24)}
@@ -5326,7 +5334,7 @@ void handleKioskLayoutPage() {
   html += "<div class='kl-layers' id='klLayers'></div>";
   html += "</div>";
 
-  html += "<div class='actions'><button type='button' class='secondary' onclick='klReset()'>Beide Ausrichtungen zuruecksetzen</button><a href='/kiosk' target='_blank'><button type='button' class='secondary'>Tablet-Modus oeffnen</button></a><span id='klSaveState' class='badge warnb'>Bereit</span></div>";
+  html += "<div class='actions'><button type='button' class='secondary' onclick='klReset()'>Diese Ausrichtung zuruecksetzen</button><a href='/kiosk' target='_blank'><button type='button' class='secondary'>Tablet-Modus oeffnen</button></a><span id='klSaveState' class='badge warnb'>Bereit</span></div>";
   html += "</section>";
 
   html += "<script>var klData = {portrait:" + kioskLayoutJson(kioskPortrait) + ",landscape:" + kioskLayoutJson(kioskLandscape) + "};</script>";
@@ -5396,10 +5404,10 @@ function klStartDrag(e, i){
     var p = klPoint(ev);
     var dxPct = (p.x - startP.x) / rect.width * 100;
     var dyPct = (p.y - startP.y) / rect.height * 100;
-    var nx = Math.max(0, Math.min(98, startX + dxPct));
-    var ny = Math.max(0, Math.min(98, startY + dyPct));
-    item.x = Math.round(nx * 10) / 10;
-    item.y = Math.round(ny * 10) / 10;
+    var nx = Math.max(0, Math.min(100 - item.w, startX + dxPct));
+    var ny = Math.max(0, Math.min(100 - item.h, startY + dyPct));
+    item.x = klSnap(nx);
+    item.y = klSnap(ny);
     klRenderCanvas();
   }
   function onUp(){
@@ -5424,10 +5432,10 @@ function klStartResize(e, i){
     var p = klPoint(ev);
     var dwPct = (p.x - startP.x) / rect.width * 100;
     var dhPct = (p.y - startP.y) / rect.height * 100;
-    var nw = Math.max(4, Math.min(100 - item.x, startW + dwPct));
-    var nh = Math.max(4, Math.min(100 - item.y, startH + dhPct));
-    item.w = Math.round(nw * 10) / 10;
-    item.h = Math.round(nh * 10) / 10;
+    var nw = Math.max(klGridStep, Math.min(100 - item.x, startW + dwPct));
+    var nh = Math.max(klGridStep, Math.min(100 - item.y, startH + dhPct));
+    item.w = klSnap(nw);
+    item.h = klSnap(nh);
     klRenderCanvas();
   }
   function onUp(){
@@ -5468,9 +5476,16 @@ function klSwitchOrientation(o){
 }
 
 function klReset(){
-  if (!confirm('Beide Ausrichtungen auf Standard zuruecksetzen?')) return;
-  fetch('/resetkiosklayout', { method: 'POST' }).then(function(){ location.reload(); });
+  var name = klOrientation === 'landscape' ? 'Querformat' : 'Hochformat';
+  if (!confirm(name + ' auf Standard zuruecksetzen?')) return;
+  var body = new URLSearchParams();
+  body.set('orientation', klOrientation);
+  fetch('/resetkiosklayout', { method: 'POST', headers: {'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'}, body: body.toString() })
+    .then(function(){ location.reload(); });
 }
+
+var klGridStep = 5;
+function klSnap(v){ return Math.round(v / klGridStep) * klGridStep; }
 
 klRenderCanvas();
 </script>)JS";
