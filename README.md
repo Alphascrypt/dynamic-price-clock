@@ -62,7 +62,7 @@ Das Standardschema ("Default 4MB with spiffs") reicht nicht aus – der Sketch b
 - Adafruit BusIO
 - Adafruit GC9A01A
 - Adafruit NeoPixel
-- WebSockets (von Markus Sattler / Links2004) - fuer den Tibber-Pulse-Live-Verbrauch
+- [WebSockets von Markus Sattler / Links2004](https://github.com/Links2004/arduinoWebSockets) – für den Tibber-Pulse-Live-Verbrauch
 
 Nach dem Flashen läuft das Gerät beim ersten Start als WLAN-Access-Point ("Dynamic-Price-Clock-Setup", im Web-Dashboard unter **WLAN → Setup-Access-Point** änderbar) zur Erstkonfiguration.
 
