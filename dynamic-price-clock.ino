@@ -73,7 +73,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "1.8.0"
+#define FIRMWARE_VERSION "1.8.1"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -286,6 +286,12 @@ float priceVatPercent = 0.0;
 String lastError = "Noch kein Update";
 String webInterfaceName = "Dynamic Price Clock";
 String uiTemplate = "classic"; // "classic" oder "modern"
+// Bitmaske fuer Modern-Layout: bit0 Zonen-Legende, bit1 Zahlen-Animation,
+// bit2 60-Min-Schnitt, bit3 Tagesdurchschnitt, bit4 Tief 15 Min,
+// bit5 Tief 60 Min, bit6 Kosten bisher, bit7 Prognose Monatsende,
+// bit8 Live-Verbrauch im Hero, bit9 Detail-Sektion sichtbar.
+uint16_t modernFlags = 0x03FF; // alles an
+static inline bool modernShow(int bit) { return (modernFlags >> bit) & 1; }
 
 // -----------------------------------------------------------------------------
 // Zeiten
@@ -1249,6 +1255,7 @@ void setup() {
   if (webInterfaceName.length() == 0) webInterfaceName = "Dynamic Price Clock";
   uiTemplate = prefs.getString("uiTpl", "classic");
   if (uiTemplate != "modern") uiTemplate = "classic";
+  modernFlags = (uint16_t)prefs.getUInt("mFlags", 0x03FF);
   if (webInterfaceName.length() > 32) webInterfaceName = webInterfaceName.substring(0, 32);
 
   setupApSsid = prefs.getString("setupSsid", DEFAULT_WIFI_SETUP_AP_SSID);
@@ -4104,7 +4111,7 @@ void handleRootModern() {
   html += "<div class='mHeroUnit'>ct/kWh &middot; 15-Minuten-Slot</div>";
   html += "<div class='mHeroStatus' style='" + statusBg + "'>" + statusText + "</div>";
   String liveHomeText = "";
-  if (livePowerW >= 0 && millis() - livePowerUpdatedAtMs < 60000) {
+  if (modernShow(8) && livePowerW >= 0 && millis() - livePowerUpdatedAtMs < 60000) {
     liveHomeText = "&#9889; Verbrauch: <b>" + formatLivePowerValue() + "</b>";
   }
   html += "<div class='mHeroLive' id='livePowerBadge'>" + liveHomeText + "</div>";
@@ -4113,38 +4120,47 @@ void handleRootModern() {
   html += "</div>";
   html += "</section>";
 
-  // Chart with price zones legend
+  // Chart with optional price zones legend
   html += "<section class='card'><div class='panelTitle'><h2>Preisverlauf</h2><span class='badge okb'>" + String(quarterCount) + " Slots</span></div>";
-  html += "<div class='mZones'>";
-  html += "<div class='mZone zc" + String(activeZone == "c" ? " active" : "") + "'>Guenstig<span class='mZoneVal'>&lt; " + String(ledYellowCent) + " ct</span></div>";
-  html += "<div class='mZone zm" + String(activeZone == "m" ? " active" : "") + "'>Mittel<span class='mZoneVal'>" + String(ledYellowCent) + "-" + String(ledRedCent) + " ct</span></div>";
-  html += "<div class='mZone ze" + String(activeZone == "e" ? " active" : "") + "'>Teuer<span class='mZoneVal'>&ge; " + String(ledRedCent) + " ct</span></div>";
-  html += "</div>";
+  if (modernShow(0)) {
+    html += "<div class='mZones'>";
+    html += "<div class='mZone zc" + String(activeZone == "c" ? " active" : "") + "'>Guenstig<span class='mZoneVal'>&lt; " + String(ledYellowCent) + " ct</span></div>";
+    html += "<div class='mZone zm" + String(activeZone == "m" ? " active" : "") + "'>Mittel<span class='mZoneVal'>" + String(ledYellowCent) + "-" + String(ledRedCent) + " ct</span></div>";
+    html += "<div class='mZone ze" + String(activeZone == "e" ? " active" : "") + "'>Teuer<span class='mZoneVal'>&ge; " + String(ledRedCent) + " ct</span></div>";
+    html += "</div>";
+  }
   html += buildSvgChart();
   html += "</section>";
 
-  // Compact metric row
-  html += "<section class='card'><div class='panelTitle'><h2>Details</h2></div>";
-  html += "<div class='mMetrics'>";
-  html += "<div class='mMetric'><div class='lbl'>60-Min-Schnitt</div><div class='val'>" + priceToCentText(metricCurrent60) + "</div></div>";
-  html += "<div class='mMetric'><div class='lbl'>Tagesdurchschnitt</div><div class='val'>" + priceToCentText(metricDayAvg) + "</div></div>";
-  html += "<div class='mMetric'><div class='lbl'>Tief 15 Min</div><div class='val'>" + priceToCentText(metricLow15Day) + "</div><div class='sb'>" + formatTimeOnly(metricLow15DayTime) + " Uhr</div></div>";
-  html += "<div class='mMetric'><div class='lbl'>Tief 60-Min</div><div class='val'>" + priceToCentText(metricLow60Day) + "</div><div class='sb'>" + formatTimeOnly(metricLow60DayTime) + "-" + addMinutesToIsoTime(metricLow60DayTime, 60) + "</div></div>";
-  if (tibberMonthCost >= 0) {
-    html += "<div class='mMetric'><div class='lbl'>Kosten bisher</div><div class='val'>" + euroCostText(tibberMonthCost) + " " + htmlEscape(tibberMonthCurrency) + "</div><div class='sb'>" + String(tibberMonthConsumptionKwh, 1) + " kWh</div></div>";
-    float projected = estimateFullMonthCost();
-    if (projected >= 0) {
-      html += "<div class='mMetric'><div class='lbl'>Prognose Monatsende</div><div class='val'>" + euroCostText(projected) + " " + htmlEscape(tibberMonthCurrency) + "</div><div class='sb'>hochgerechnet</div></div>";
+  // Compact metric row (only if any detail visible)
+  if (modernShow(9)) {
+    bool anyMetric = modernShow(2) || modernShow(3) || modernShow(4) || modernShow(5) || (tibberMonthCost >= 0 && (modernShow(6) || modernShow(7)));
+    html += "<section class='card'><div class='panelTitle'><h2>Details</h2></div>";
+    if (anyMetric) {
+      html += "<div class='mMetrics'>";
+      if (modernShow(2)) html += "<div class='mMetric'><div class='lbl'>60-Min-Schnitt</div><div class='val'>" + priceToCentText(metricCurrent60) + "</div></div>";
+      if (modernShow(3)) html += "<div class='mMetric'><div class='lbl'>Tagesdurchschnitt</div><div class='val'>" + priceToCentText(metricDayAvg) + "</div></div>";
+      if (modernShow(4)) html += "<div class='mMetric'><div class='lbl'>Tief 15 Min</div><div class='val'>" + priceToCentText(metricLow15Day) + "</div><div class='sb'>" + formatTimeOnly(metricLow15DayTime) + " Uhr</div></div>";
+      if (modernShow(5)) html += "<div class='mMetric'><div class='lbl'>Tief 60-Min</div><div class='val'>" + priceToCentText(metricLow60Day) + "</div><div class='sb'>" + formatTimeOnly(metricLow60DayTime) + "-" + addMinutesToIsoTime(metricLow60DayTime, 60) + "</div></div>";
+      if (tibberMonthCost >= 0 && modernShow(6)) html += "<div class='mMetric'><div class='lbl'>Kosten bisher</div><div class='val'>" + euroCostText(tibberMonthCost) + " " + htmlEscape(tibberMonthCurrency) + "</div><div class='sb'>" + String(tibberMonthConsumptionKwh, 1) + " kWh</div></div>";
+      if (tibberMonthCost >= 0 && modernShow(7)) {
+        float projected = estimateFullMonthCost();
+        if (projected >= 0) html += "<div class='mMetric'><div class='lbl'>Prognose Monatsende</div><div class='val'>" + euroCostText(projected) + " " + htmlEscape(tibberMonthCurrency) + "</div><div class='sb'>hochgerechnet</div></div>";
+      }
+      html += "</div>";
     }
+    html += "<div class='actions' style='margin-top:14px'><a href='/refresh'><button>Jetzt aktualisieren</button></a><a href='/kiosk'><button type='button' class='secondary'>Tablet-Modus</button></a></div>";
+    html += "</section>";
+  } else {
+    html += "<div class='actions' style='margin-top:14px'><a href='/refresh'><button>Jetzt aktualisieren</button></a><a href='/kiosk'><button type='button' class='secondary'>Tablet-Modus</button></a></div>";
   }
-  html += "</div>";
-  html += "<div class='actions' style='margin-top:14px'><a href='/refresh'><button>Jetzt aktualisieren</button></a><a href='/kiosk'><button type='button' class='secondary'>Tablet-Modus</button></a></div>";
-  html += "</section>";
 
   html += "<p class='small'><a href='/json'>JSON-API</a></p>";
 
-  // Number-count animation for the hero value
-  html += "<script>(function(){var el=document.getElementById('mNow');if(!el)return;var target=parseInt(el.dataset.target||'-1');if(isNaN(target)||target<0)return;var start=Math.max(0,target-8);el.textContent=start;var t0=performance.now();function step(t){var p=Math.min(1,(t-t0)/500);var v=Math.round(start+(target-start)*p);el.textContent=v;if(p<1)requestAnimationFrame(step);}requestAnimationFrame(step);})();</script>";
+  // Optional number-count animation for the hero value
+  if (modernShow(1)) {
+    html += "<script>(function(){var el=document.getElementById('mNow');if(!el)return;var target=parseInt(el.dataset.target||'-1');if(isNaN(target)||target<0)return;var start=Math.max(0,target-8);el.textContent=start;var t0=performance.now();function step(t){var p=Math.min(1,(t-t0)/500);var v=Math.round(start+(target-start)*p);el.textContent=v;if(p<1)requestAnimationFrame(step);}requestAnimationFrame(step);})();</script>";
+  }
 
   html += htmlFooter();
   server.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
@@ -4182,6 +4198,19 @@ void handleAccountPage() {
   if (uiTemplate == "modern") html += " selected";
   html += ">Modern (Hero-Preis, Preiszonen, Animation)</option>";
   html += "</select></div>";
+  html += "<div class='field' style='grid-column:1/-1'><label>Modern-Bausteine (nur wirksam wenn Modern aktiv)</label>";
+  html += "<div style='display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:6px;margin-top:6px'>";
+  const char* modernLabels[10] = {
+    "Preiszonen-Legende","Zahlen-Animation","60-Min-Schnitt","Tagesdurchschnitt",
+    "Tief 15 Min","Tief 60 Min","Kosten bisher","Prognose Monatsende",
+    "Live-Verbrauch (Hero)","Detail-Sektion"
+  };
+  for (int i = 0; i < 10; i++) {
+    html += "<label style='display:flex;gap:8px;align-items:center;font-weight:400'><input type='checkbox' name='mf" + String(i) + "' value='1'";
+    if (modernShow(i)) html += " checked";
+    html += ">" + String(modernLabels[i]) + "</label>";
+  }
+  html += "</div></div>";
   html += "<div class='field'><label>API-Update alle Minuten</label><input name='apiMinutes' type='number' min='1' max='60' value='";
   html += String(apiUpdateMinutes);
   html += "'></div>";
@@ -7491,6 +7520,21 @@ void handleSave() {
     if (tpl != "modern") tpl = "classic";
     uiTemplate = tpl;
     prefs.putString("uiTpl", uiTemplate);
+
+    // Bausteine nur uebernehmen wenn das Formular sichtbar war (Modern-UI). Bei
+    // POST fehlen nicht angehakte Checkboxes ganz, wir bauen die Maske also nur
+    // wenn mindestens ein "mf*" Feld dabei ist oder das Template modern ist.
+    uint16_t f = 0;
+    bool anyFlag = false;
+    for (int i = 0; i < 10; i++) {
+      String name = "mf" + String(i);
+      if (server.hasArg(name)) { f |= (1u << i); anyFlag = true; }
+    }
+    // Wenn irgendein Checkbox ankommt ODER das Formular sichtbar war, speichern
+    if (anyFlag || uiTemplate == "modern") {
+      modernFlags = f;
+      prefs.putUInt("mFlags", modernFlags);
+    }
   }
 
   if (server.hasArg("token")) {
