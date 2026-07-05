@@ -73,7 +73,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "1.8.2"
+#define FIRMWARE_VERSION "1.8.3"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -4062,11 +4062,11 @@ void handleRootModern() {
   html += ".mHero{padding:clamp(18px,3vw,32px)}";
   html += ".mHeroGrid{display:grid;grid-template-columns:1.1fr .9fr;gap:clamp(16px,3vw,32px);align-items:center}";
   html += "@media(max-width:700px){.mHeroGrid{grid-template-columns:1fr}}";
-  html += ".mHeroLabel{color:var(--muted);font-size:13px;letter-spacing:.5px;text-transform:uppercase;font-weight:700}";
-  html += ".mHeroValue{font-size:clamp(56px,10vw,120px);font-weight:900;line-height:1;letter-spacing:-2px;margin:6px 0;font-variant-numeric:tabular-nums}";
-  html += ".mHeroUnit{color:var(--muted);font-size:14px;margin-bottom:12px}";
-  html += ".mHeroStatus{display:inline-block;padding:8px 18px;border-radius:999px;font-weight:800;font-size:15px}";
-  html += ".mHeroGauge{max-width:340px;margin:0 auto}";
+  html += ".mHeroLabel{color:var(--muted);font-size:13px;letter-spacing:.5px;text-transform:uppercase;font-weight:700;margin-bottom:10px}";
+  html += ".mHeroStatus{display:inline-block;padding:10px 22px;border-radius:999px;font-weight:800;font-size:22px}";
+  html += ".mHeroFact{margin-top:12px;color:var(--muted);font-size:15px}";
+  html += ".mHeroFact b{color:var(--text)}";
+  html += ".mHeroGauge{max-width:420px;margin:0 auto}";
   html += ".mHeroGauge svg{width:100%;height:auto}";
   html += ".mHeroLive{margin-top:16px;font-size:16px;color:var(--muted);font-weight:700}";
   html += ".mZones{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px}";
@@ -4114,9 +4114,15 @@ void handleRootModern() {
   secHero += "<div class='mHeroGrid'>";
   secHero += "<div>";
   secHero += "<div class='mHeroLabel'>Aktueller Preis</div>";
-  secHero += "<div class='mHeroValue' id='mNow' data-target='" + String(nowCent) + "'>" + (nowCent >= 0 ? String(nowCent) : "--") + "</div>";
-  secHero += "<div class='mHeroUnit'>ct/kWh &middot; 15-Minuten-Slot</div>";
   secHero += "<div class='mHeroStatus' style='" + statusBg + "'>" + statusText + "</div>";
+  if (modernShow(1)) {
+    if (metricLow15Day >= 0) {
+      secHero += "<div class='mHeroFact'>Tief heute: <b>" + priceToCentText(metricLow15Day) + " ct</b> um " + formatTimeOnly(metricLow15DayTime) + "</div>";
+    }
+    if (metricDayAvg >= 0) {
+      secHero += "<div class='mHeroFact'>Tagesdurchschnitt: <b>" + priceToCentText(metricDayAvg) + " ct</b></div>";
+    }
+  }
   String liveHomeText = "";
   if (modernShow(8) && livePowerW >= 0 && millis() - livePowerUpdatedAtMs < 60000) {
     liveHomeText = "&#9889; Verbrauch: <b>" + formatLivePowerValue() + "</b>";
@@ -4176,11 +4182,6 @@ void handleRootModern() {
 
   html += "<p class='small'><a href='/json'>JSON-API</a></p>";
 
-  // Optional number-count animation for the hero value
-  if (modernShow(1)) {
-    html += "<script>(function(){var el=document.getElementById('mNow');if(!el)return;var target=parseInt(el.dataset.target||'-1');if(isNaN(target)||target<0)return;var start=Math.max(0,target-8);el.textContent=start;var t0=performance.now();function step(t){var p=Math.min(1,(t-t0)/500);var v=Math.round(start+(target-start)*p);el.textContent=v;if(p<1)requestAnimationFrame(step);}requestAnimationFrame(step);})();</script>";
-  }
-
   html += htmlFooter();
   server.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
   server.send(200, "text/html", html);
@@ -4220,7 +4221,7 @@ void handleAccountPage() {
   html += "<div class='field' style='grid-column:1/-1'><label>Modern-Bausteine (nur wirksam wenn Modern aktiv)</label>";
   html += "<div style='display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:6px;margin-top:6px'>";
   const char* modernLabels[10] = {
-    "Preiszonen-Legende","Zahlen-Animation","60-Min-Schnitt","Tagesdurchschnitt",
+    "Preiszonen-Legende","Hero-Fakten (Tief + Schnitt)","60-Min-Schnitt","Tagesdurchschnitt",
     "Tief 15 Min","Tief 60 Min","Kosten bisher","Prognose Monatsende",
     "Live-Verbrauch (Hero)","Detail-Sektion"
   };
