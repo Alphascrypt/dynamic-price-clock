@@ -12,3 +12,7 @@ build/
 # Betriebssystem-Muell
 .DS_Store
 Thumbs.db
+
+# Mockup-Screenshot-Prozess (Edge-Profile + generierte Shots)
+docs/mockup-src/edge-profile*/
+docs/mockup-src/shots/
