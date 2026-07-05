@@ -73,7 +73,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "1.7.7"
+#define FIRMWARE_VERSION "1.8.0"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -285,6 +285,7 @@ float priceVatPercent = 0.0;
 
 String lastError = "Noch kein Update";
 String webInterfaceName = "Dynamic Price Clock";
+String uiTemplate = "classic"; // "classic" oder "modern"
 
 // -----------------------------------------------------------------------------
 // Zeiten
@@ -1246,6 +1247,8 @@ void setup() {
   wifiPassword = prefs.getString("wifiPass", DEFAULT_WIFI_PASSWORD);
   webInterfaceName = prefs.getString("webName", "Dynamic Price Clock");
   if (webInterfaceName.length() == 0) webInterfaceName = "Dynamic Price Clock";
+  uiTemplate = prefs.getString("uiTpl", "classic");
+  if (uiTemplate != "modern") uiTemplate = "classic";
   if (webInterfaceName.length() > 32) webInterfaceName = webInterfaceName.substring(0, 32);
 
   setupApSsid = prefs.getString("setupSsid", DEFAULT_WIFI_SETUP_AP_SSID);
@@ -3844,8 +3847,11 @@ void updatePriceMatrix() {
 // Hauptseite
 // -----------------------------------------------------------------------------
 
+void handleRootModern();
+
 void handleRoot() {
   if (!checkAuth()) return;
+  if (uiTemplate == "modern") { handleRootModern(); return; }
 
   String html;
   html.reserve(24500);
@@ -4033,6 +4039,118 @@ void handleRoot() {
   server.send(200, "text/html", html);
 }
 
+void handleRootModern() {
+  String html;
+  html.reserve(22000);
+
+  html += htmlHeader("Übersicht");
+  html += navTabs("/");
+
+  html += "<style>";
+  html += ".mHero{padding:clamp(18px,3vw,32px)}";
+  html += ".mHeroGrid{display:grid;grid-template-columns:1.1fr .9fr;gap:clamp(16px,3vw,32px);align-items:center}";
+  html += "@media(max-width:700px){.mHeroGrid{grid-template-columns:1fr}}";
+  html += ".mHeroLabel{color:var(--muted);font-size:13px;letter-spacing:.5px;text-transform:uppercase;font-weight:700}";
+  html += ".mHeroValue{font-size:clamp(56px,10vw,120px);font-weight:900;line-height:1;letter-spacing:-2px;margin:6px 0;font-variant-numeric:tabular-nums}";
+  html += ".mHeroUnit{color:var(--muted);font-size:14px;margin-bottom:12px}";
+  html += ".mHeroStatus{display:inline-block;padding:8px 18px;border-radius:999px;font-weight:800;font-size:15px}";
+  html += ".mHeroGauge{max-width:340px;margin:0 auto}";
+  html += ".mHeroGauge svg{width:100%;height:auto}";
+  html += ".mHeroLive{margin-top:16px;font-size:16px;color:var(--muted);font-weight:700}";
+  html += ".mZones{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px}";
+  html += ".mZone{padding:10px 12px;border-radius:12px;text-align:center;font-weight:700;font-size:12px;border:1px solid var(--surface-border);position:relative}";
+  html += ".mZone .mZoneVal{font-size:16px;display:block;margin-top:2px}";
+  html += ".mZone.zc{background:rgba(74,222,128,.12);color:#16a34a}";
+  html += ".mZone.zm{background:rgba(250,204,21,.12);color:#ca8a04}";
+  html += ".mZone.ze{background:rgba(251,113,133,.12);color:#e11d48}";
+  html += ".mZone.active{outline:2px solid currentColor;outline-offset:-2px;box-shadow:0 4px 14px rgba(0,0,0,.12)}";
+  html += ".mMetrics{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-top:14px}";
+  html += ".mMetric{padding:12px 14px;border-radius:12px;background:var(--overlay-faint);border:1px solid var(--surface-border)}";
+  html += ".mMetric .lbl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;font-weight:700}";
+  html += ".mMetric .val{font-size:20px;font-weight:800;margin-top:2px;font-variant-numeric:tabular-nums}";
+  html += ".mMetric .sb{font-size:11px;color:var(--muted);margin-top:2px}";
+  html += "</style>";
+
+  {
+    bool needsWifi = apMode;
+    bool needsToken = (tibberToken.length() == 0) && (priceProvider == "tibber");
+    int openSteps = (needsWifi ? 1 : 0) + (needsToken ? 1 : 0);
+    if (openSteps > 0) {
+      html += "<section class='card' style='border-color:rgba(250,204,21,.35)'>";
+      html += "<div class='panelTitle'><h2>Einrichtung</h2><span class='badge warnb'>" + String(openSteps) + " offen</span></div>";
+      html += "<div style='display:grid;gap:10px'>";
+      if (needsWifi) html += "<div class='formSection' style='display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap'><span>Setup-Modus aktiv - WLAN noch nicht eingerichtet</span><a href='/wifi'><button type='button' class='secondary'>WLAN einrichten</button></a></div>";
+      if (needsToken) html += "<div class='formSection' style='display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap'><span>Kein Tibber-Token hinterlegt</span><a href='/anbieter'><button type='button' class='secondary'>Jetzt eintragen</button></a></div>";
+      html += "</div></section>";
+    }
+  }
+
+  // Hero card: big current price + gauge
+  int nowCent = metricCurrent15 >= 0 ? euroToCentRounded(metricCurrent15) : -1;
+  String statusText = "Keine Daten";
+  String statusBg = "background:var(--overlay-faint);color:var(--muted)";
+  String activeZone = "";
+  if (nowCent >= 0) {
+    if (nowCent >= ledRedCent) { statusText = "Jetzt teuer"; statusBg = "background:rgba(251,113,133,.18);color:#e11d48"; activeZone = "e"; }
+    else if (nowCent >= ledYellowCent) { statusText = "Jetzt mittel"; statusBg = "background:rgba(250,204,21,.18);color:#ca8a04"; activeZone = "m"; }
+    else { statusText = "Jetzt guenstig"; statusBg = "background:rgba(74,222,128,.18);color:#16a34a"; activeZone = "c"; }
+  }
+
+  html += "<section class='card mHero'>";
+  html += "<div class='mHeroGrid'>";
+  html += "<div>";
+  html += "<div class='mHeroLabel'>Aktueller Preis</div>";
+  html += "<div class='mHeroValue' id='mNow' data-target='" + String(nowCent) + "'>" + (nowCent >= 0 ? String(nowCent) : "--") + "</div>";
+  html += "<div class='mHeroUnit'>ct/kWh &middot; 15-Minuten-Slot</div>";
+  html += "<div class='mHeroStatus' style='" + statusBg + "'>" + statusText + "</div>";
+  String liveHomeText = "";
+  if (livePowerW >= 0 && millis() - livePowerUpdatedAtMs < 60000) {
+    liveHomeText = "&#9889; Verbrauch: <b>" + formatLivePowerValue() + "</b>";
+  }
+  html += "<div class='mHeroLive' id='livePowerBadge'>" + liveHomeText + "</div>";
+  html += "</div>";
+  html += "<div class='mHeroGauge'>" + buildPriceGaugeSvg() + "</div>";
+  html += "</div>";
+  html += "</section>";
+
+  // Chart with price zones legend
+  html += "<section class='card'><div class='panelTitle'><h2>Preisverlauf</h2><span class='badge okb'>" + String(quarterCount) + " Slots</span></div>";
+  html += "<div class='mZones'>";
+  html += "<div class='mZone zc" + String(activeZone == "c" ? " active" : "") + "'>Guenstig<span class='mZoneVal'>&lt; " + String(ledYellowCent) + " ct</span></div>";
+  html += "<div class='mZone zm" + String(activeZone == "m" ? " active" : "") + "'>Mittel<span class='mZoneVal'>" + String(ledYellowCent) + "-" + String(ledRedCent) + " ct</span></div>";
+  html += "<div class='mZone ze" + String(activeZone == "e" ? " active" : "") + "'>Teuer<span class='mZoneVal'>&ge; " + String(ledRedCent) + " ct</span></div>";
+  html += "</div>";
+  html += buildSvgChart();
+  html += "</section>";
+
+  // Compact metric row
+  html += "<section class='card'><div class='panelTitle'><h2>Details</h2></div>";
+  html += "<div class='mMetrics'>";
+  html += "<div class='mMetric'><div class='lbl'>60-Min-Schnitt</div><div class='val'>" + priceToCentText(metricCurrent60) + "</div></div>";
+  html += "<div class='mMetric'><div class='lbl'>Tagesdurchschnitt</div><div class='val'>" + priceToCentText(metricDayAvg) + "</div></div>";
+  html += "<div class='mMetric'><div class='lbl'>Tief 15 Min</div><div class='val'>" + priceToCentText(metricLow15Day) + "</div><div class='sb'>" + formatTimeOnly(metricLow15DayTime) + " Uhr</div></div>";
+  html += "<div class='mMetric'><div class='lbl'>Tief 60-Min</div><div class='val'>" + priceToCentText(metricLow60Day) + "</div><div class='sb'>" + formatTimeOnly(metricLow60DayTime) + "-" + addMinutesToIsoTime(metricLow60DayTime, 60) + "</div></div>";
+  if (tibberMonthCost >= 0) {
+    html += "<div class='mMetric'><div class='lbl'>Kosten bisher</div><div class='val'>" + euroCostText(tibberMonthCost) + " " + htmlEscape(tibberMonthCurrency) + "</div><div class='sb'>" + String(tibberMonthConsumptionKwh, 1) + " kWh</div></div>";
+    float projected = estimateFullMonthCost();
+    if (projected >= 0) {
+      html += "<div class='mMetric'><div class='lbl'>Prognose Monatsende</div><div class='val'>" + euroCostText(projected) + " " + htmlEscape(tibberMonthCurrency) + "</div><div class='sb'>hochgerechnet</div></div>";
+    }
+  }
+  html += "</div>";
+  html += "<div class='actions' style='margin-top:14px'><a href='/refresh'><button>Jetzt aktualisieren</button></a><a href='/kiosk'><button type='button' class='secondary'>Tablet-Modus</button></a></div>";
+  html += "</section>";
+
+  html += "<p class='small'><a href='/json'>JSON-API</a></p>";
+
+  // Number-count animation for the hero value
+  html += "<script>(function(){var el=document.getElementById('mNow');if(!el)return;var target=parseInt(el.dataset.target||'-1');if(isNaN(target)||target<0)return;var start=Math.max(0,target-8);el.textContent=start;var t0=performance.now();function step(t){var p=Math.min(1,(t-t0)/500);var v=Math.round(start+(target-start)*p);el.textContent=v;if(p<1)requestAnimationFrame(step);}requestAnimationFrame(step);})();</script>";
+
+  html += htmlFooter();
+  server.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+  server.send(200, "text/html", html);
+}
+
 // -----------------------------------------------------------------------------
 // Konto / Sicherheit
 // -----------------------------------------------------------------------------
@@ -4056,6 +4174,14 @@ void handleAccountPage() {
   html += "<div class='field'><label>Name des Webinterfaces</label><input name='webName' maxlength='32' value='";
   html += htmlEscape(webInterfaceName);
   html += "'></div>";
+  html += "<div class='field'><label>Startseite-Design</label><select name='uiTpl'>";
+  html += "<option value='classic'";
+  if (uiTemplate == "classic") html += " selected";
+  html += ">Klassisch (gleichrangige Metrik-Kacheln)</option>";
+  html += "<option value='modern'";
+  if (uiTemplate == "modern") html += " selected";
+  html += ">Modern (Hero-Preis, Preiszonen, Animation)</option>";
+  html += "</select></div>";
   html += "<div class='field'><label>API-Update alle Minuten</label><input name='apiMinutes' type='number' min='1' max='60' value='";
   html += String(apiUpdateMinutes);
   html += "'></div>";
@@ -7358,6 +7484,13 @@ void handleSave() {
     if (webInterfaceName.length() == 0) webInterfaceName = "Dynamic Price Clock";
     if (webInterfaceName.length() > 32) webInterfaceName = webInterfaceName.substring(0, 32);
     prefs.putString("webName", webInterfaceName);
+  }
+
+  if (server.hasArg("uiTpl")) {
+    String tpl = server.arg("uiTpl");
+    if (tpl != "modern") tpl = "classic";
+    uiTemplate = tpl;
+    prefs.putString("uiTpl", uiTemplate);
   }
 
   if (server.hasArg("token")) {
