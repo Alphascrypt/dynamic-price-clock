@@ -73,7 +73,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "2.1.1"
+#define FIRMWARE_VERSION "2.1.2"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -5770,10 +5770,16 @@ void handleDisplaysPage() {
   html += "<section class='hero' style='background:linear-gradient(120deg,rgba(167,139,250,.22),rgba(244,114,182,.12))'><h1>Displays</h1><p>Anzeigemodi, feste Overlays und der freie Layout-Editor fuer Display 1 und Display 2 - an einem Ort.</p></section>";
   html += navTabs("/displays");
 
-  html += "<div class='card' style='display:flex;gap:10px;padding:14px;flex-wrap:wrap'>";
-  html += "<button type='button' id='tabBtn-overlays' onclick=\"switchDpTab('overlays')\">Overlays</button>";
-  html += "<button type='button' id='tabBtn-layout' class='secondary' onclick=\"switchDpTab('layout')\">Layout-Editor</button>";
+  html += "<div class='dpTabs'>";
+  html += "<button type='button' id='tabBtn-overlays' class='dpTab active' onclick=\"switchDpTab('overlays')\">Overlays</button>";
+  html += "<button type='button' id='tabBtn-layout' class='dpTab' onclick=\"switchDpTab('layout')\">Layout-Editor</button>";
   html += "</div>";
+  html += "<style>";
+  html += ".dpTabs{display:inline-flex;padding:4px;background:var(--panel2);border-radius:12px;margin:14px 0 16px;gap:2px}";
+  html += ".dpTab{background:transparent!important;color:var(--muted)!important;border:0!important;box-shadow:none!important;padding:8px 20px!important;min-height:36px!important;border-radius:10px!important;font-weight:600!important;font-size:14px!important;transition:background .15s var(--ease),color .15s var(--ease)!important}";
+  html += ".dpTab.active{background:var(--card)!important;color:var(--text)!important;box-shadow:0 1px 2px var(--shadow-soft)!important}";
+  html += ".dpTab:hover:not(.active){color:var(--text)!important}";
+  html += "</style>";
 
   html += "<div id='tabOverlays'>";
 
@@ -6229,8 +6235,8 @@ function switchDpTab(name){
   if(la)la.style.display=isOverlays?'none':'';
   var b1=document.getElementById('tabBtn-overlays');
   var b2=document.getElementById('tabBtn-layout');
-  if(b1)b1.className=isOverlays?'':'secondary';
-  if(b2)b2.className=isOverlays?'secondary':'';
+  if(b1)b1.className='dpTab'+(isOverlays?' active':'');
+  if(b2)b2.className='dpTab'+(isOverlays?'':' active');
   try{localStorage.setItem('dpTab',name);}catch(e){}
 }
 (function(){
