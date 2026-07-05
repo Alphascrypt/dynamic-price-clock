@@ -73,7 +73,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "1.8.3"
+#define FIRMWARE_VERSION "1.8.6"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -264,6 +264,11 @@ int tibberMonthDaysCounted = 0;
 // Monatskosten addiert, damit die Anzeige dem echten Rechnungsbetrag
 // entspricht.
 float tibberBaseFeeEur = 0.0;
+// Anpassbare Skala fuer die Live-Verbrauch-Balken-Anzeige (Modern-Template).
+float livePowerMaxKw = 10.0f;     // Bar-Endwert
+float livePowerGreenKw = 2.0f;    // Grenze gruene Zone
+float livePowerYellowKw = 5.0f;   // Grenze gelbe Zone
+String kioskLivePowerStyle = "text"; // "text" oder "bar"
 
 // Tibber Pulse: Live-Verbrauch per GraphQL-Subscription ueber WebSocket
 // (graphql-transport-ws). Wird automatisch versucht, sobald ein Tibber-Token
@@ -1261,6 +1266,14 @@ void setup() {
   modernFlags = (uint16_t)prefs.getUInt("mFlags", 0x03FF);
   modernOrder = prefs.getString("mOrder", "hero,chart,details");
   if (modernOrder.length() == 0) modernOrder = "hero,chart,details";
+  livePowerMaxKw = prefs.getFloat("lpMax", 10.0f);
+  livePowerGreenKw = prefs.getFloat("lpGreen", 2.0f);
+  livePowerYellowKw = prefs.getFloat("lpYellow", 5.0f);
+  if (livePowerMaxKw < 1.0f) livePowerMaxKw = 10.0f;
+  if (livePowerGreenKw < 0.1f || livePowerGreenKw >= livePowerMaxKw) livePowerGreenKw = livePowerMaxKw * 0.2f;
+  if (livePowerYellowKw <= livePowerGreenKw || livePowerYellowKw >= livePowerMaxKw) livePowerYellowKw = livePowerMaxKw * 0.5f;
+  kioskLivePowerStyle = prefs.getString("klpStyle", "text");
+  if (kioskLivePowerStyle != "bar") kioskLivePowerStyle = "text";
   if (webInterfaceName.length() > 32) webInterfaceName = webInterfaceName.substring(0, 32);
 
   setupApSsid = prefs.getString("setupSsid", DEFAULT_WIFI_SETUP_AP_SSID);
@@ -4068,7 +4081,18 @@ void handleRootModern() {
   html += ".mHeroFact b{color:var(--text)}";
   html += ".mHeroGauge{max-width:420px;margin:0 auto}";
   html += ".mHeroGauge svg{width:100%;height:auto}";
-  html += ".mHeroLive{margin-top:16px;font-size:16px;color:var(--muted);font-weight:700}";
+  html += ".mHeroLivePill{grid-column:1/-1;margin-top:20px;padding:14px 22px;border-radius:20px;background:var(--overlay-faint);border:1px solid var(--surface-border);display:flex;align-items:center;gap:20px;flex-wrap:wrap}";
+  html += ".mHeroLivePillLeft{display:flex;flex-direction:column;min-width:160px}";
+  html += ".mHeroLivePillLabel{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;font-weight:700}";
+  html += ".mHeroLivePillValue{font-size:26px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1.1;margin-top:2px}";
+  html += ".mHeroLiveBar{flex:1;min-width:220px}";
+  {
+    float gpct = (livePowerGreenKw / livePowerMaxKw) * 100.0f;
+    float ypct = (livePowerYellowKw / livePowerMaxKw) * 100.0f;
+    html += ".mHeroLiveTrack{position:relative;height:14px;border-radius:999px;background:linear-gradient(90deg,#4ade80 0%,#4ade80 " + String(gpct, 1) + "%,#facc15 " + String(gpct, 1) + "%,#facc15 " + String(ypct, 1) + "%,#fb7185 " + String(ypct, 1) + "%,#fb7185 100%);overflow:hidden;box-shadow:inset 0 1px 2px rgba(0,0,0,.15)}";
+  }
+  html += ".mHeroLiveMask{position:absolute;top:0;right:0;bottom:0;background:var(--surface-nav);opacity:.85;border-left:2px solid var(--text);box-shadow:-2px 0 4px rgba(0,0,0,.15)}";
+  html += ".mHeroLiveScale{display:flex;justify-content:space-between;margin-top:6px;font-size:10px;color:var(--muted);font-weight:600}";
   html += ".mZones{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px}";
   html += ".mZone{padding:10px 12px;border-radius:12px;text-align:center;font-weight:700;font-size:12px;border:1px solid var(--surface-border);position:relative}";
   html += ".mZone .mZoneVal{font-size:16px;display:block;margin-top:2px}";
@@ -4123,13 +4147,35 @@ void handleRootModern() {
       secHero += "<div class='mHeroFact'>Tagesdurchschnitt: <b>" + priceToCentText(metricDayAvg) + " ct</b></div>";
     }
   }
-  String liveHomeText = "";
-  if (modernShow(8) && livePowerW >= 0 && millis() - livePowerUpdatedAtMs < 60000) {
-    liveHomeText = "&#9889; Verbrauch: <b>" + formatLivePowerValue() + "</b>";
-  }
-  secHero += "<div class='mHeroLive' id='livePowerBadge'>" + liveHomeText + "</div>";
   secHero += "</div>";
   secHero += "<div class='mHeroGauge'>" + buildPriceGaugeSvg() + "</div>";
+
+  // Live-power pill spanning full width, only if flag on and value valid
+  if (modernShow(8) && livePowerW >= 0 && millis() - livePowerUpdatedAtMs < 60000) {
+    float kw = livePowerW / 1000.0f;
+    float pct = kw / livePowerMaxKw * 100.0f;
+    if (pct < 0) pct = 0;
+    if (pct > 100) pct = 100;
+    secHero += "<div class='mHeroLivePill' id='livePowerBadge'>";
+    secHero += "<div class='mHeroLivePillLeft'>";
+    secHero += "<div class='mHeroLivePillLabel'>&#9889; Aktueller Verbrauch</div>";
+    secHero += "<div class='mHeroLivePillValue'>" + formatLivePowerValue() + "</div>";
+    secHero += "</div>";
+    secHero += "<div class='mHeroLiveBar'>";
+    secHero += "<div class='mHeroLiveTrack'>";
+    secHero += "<div class='mHeroLiveMask' style='width:" + String(100.0f - pct, 1) + "%'></div>";
+    secHero += "</div>";
+    secHero += "<div class='mHeroLiveScale'>";
+    for (int i = 0; i <= 4; i++) {
+      float v = livePowerMaxKw * i / 4.0f;
+      String s = (v == (int)v) ? String((int)v) : String(v, 1);
+      s.replace(".", ",");
+      secHero += "<span>" + s + (i == 4 ? " kW" : "") + "</span>";
+    }
+    secHero += "</div>";
+    secHero += "</div>";
+    secHero += "</div>";
+  }
   secHero += "</div>";
   secHero += "</section>";
 
@@ -4262,6 +4308,17 @@ void handleAccountPage() {
   html += "<input type='hidden' name='mOrder' id='mOrderInput' value='" + htmlEscape(modernOrder) + "'>";
   html += "<script>(function(){var list=document.getElementById('mOrderList');if(!list)return;var input=document.getElementById('mOrderInput');var dragEl=null;function sync(){var ids=[];list.querySelectorAll('li').forEach(function(li){ids.push(li.dataset.id);});input.value=ids.join(',');}list.querySelectorAll('li').forEach(function(li){li.addEventListener('dragstart',function(e){dragEl=li;li.style.opacity='.4';e.dataTransfer.effectAllowed='move';});li.addEventListener('dragend',function(){li.style.opacity='';dragEl=null;sync();});li.addEventListener('dragover',function(e){e.preventDefault();if(!dragEl||dragEl===li)return;var rect=li.getBoundingClientRect();var after=(e.clientY-rect.top)>rect.height/2;list.insertBefore(dragEl,after?li.nextSibling:li);});});})();</script>";
   html += "</div>";
+  html += "<div class='field'><label>Kiosk Live-Verbrauch Stil</label><select name='klpStyle'>";
+  html += "<option value='text'";
+  if (kioskLivePowerStyle == "text") html += " selected";
+  html += ">Text (kompakt, z.B. &quot;&#9889; 1.23 kW&quot;)</option>";
+  html += "<option value='bar'";
+  if (kioskLivePowerStyle == "bar") html += " selected";
+  html += ">Bar (Wert + Farbbalken 0-max)</option>";
+  html += "</select></div>";
+  html += "<div class='field'><label>Verbrauchs-Balken Maximum (kW)</label><input name='lpMax' type='number' step='0.5' min='1' max='50' value='" + String(livePowerMaxKw, 1) + "' title='Endwert der Skala und des Farbverlaufs.'></div>";
+  html += "<div class='field'><label>Gruene Zone bis (kW)</label><input name='lpGreen' type='number' step='0.1' min='0.1' max='50' value='" + String(livePowerGreenKw, 1) + "' title='Bis zu diesem Wert wird der Balken gruen (niedriger Verbrauch).'></div>";
+  html += "<div class='field'><label>Gelbe Zone bis (kW)</label><input name='lpYellow' type='number' step='0.1' min='0.1' max='50' value='" + String(livePowerYellowKw, 1) + "' title='Bis zu diesem Wert wird der Balken gelb, darueber rot.'></div>";
   html += "<div class='field'><label>API-Update alle Minuten</label><input name='apiMinutes' type='number' min='1' max='60' value='";
   html += String(apiUpdateMinutes);
   html += "'></div>";
@@ -5105,6 +5162,15 @@ void handleKioskPage() {
   html += ".kw-gauge svg{width:100%;height:100%;background:transparent;border:0;margin:0}";
   html += ".kiosk-live-power{font-size:clamp(20px,4vh,42px);font-weight:800;color:var(--text);letter-spacing:0.5px}";
   html += ".kiosk-live-power:empty{display:none}";
+  html += ".kiosk-live-power.bar{flex-direction:column;justify-content:center;gap:clamp(4px,1vh,8px);width:100%;padding:0 clamp(6px,2vw,16px);box-sizing:border-box}";
+  html += ".kiosk-live-power.bar .klpVal{font-size:clamp(20px,4vh,42px);font-weight:800;line-height:1}";
+  html += ".kiosk-live-power.bar .klpTrack{position:relative;width:100%;height:clamp(6px,1.4vh,12px);border-radius:999px;overflow:hidden}";
+  {
+    float gpct = (livePowerGreenKw / livePowerMaxKw) * 100.0f;
+    float ypct = (livePowerYellowKw / livePowerMaxKw) * 100.0f;
+    html += ".kiosk-live-power.bar .klpTrack{background:linear-gradient(90deg,#4ade80 0%,#4ade80 " + String(gpct, 1) + "%,#facc15 " + String(gpct, 1) + "%,#facc15 " + String(ypct, 1) + "%,#fb7185 " + String(ypct, 1) + "%,#fb7185 100%)}";
+  }
+  html += ".kiosk-live-power.bar .klpMask{position:absolute;top:0;right:0;bottom:0;background:var(--surface-nav);opacity:.85;border-left:2px solid var(--text)}";
   html += ".kiosk-status{font-size:clamp(13px,2.8vh,25px);font-weight:800;padding:clamp(4px,0.9vh,8px) clamp(10px,3vw,22px);border-radius:999px;background:var(--overlay-faint)}";
   html += ".kw-chart{touch-action:none;cursor:crosshair}";
   html += ".kiosk-chart{position:relative;flex:1;min-height:0;width:100%}";
@@ -5148,11 +5214,21 @@ void handleKioskPage() {
 
   html += "<div class='kw kw-status kiosk-status' id='kioskStatus' style='color:" + statusColor + "'>" + statusText + "</div>";
 
-  String livePowerText = "";
-  if (livePowerW >= 0 && millis() - livePowerUpdatedAtMs < 60000) {
-    livePowerText = "&#9889; " + formatLivePowerValue();
+  bool livePowerHave = (livePowerW >= 0 && millis() - livePowerUpdatedAtMs < 60000);
+  if (kioskLivePowerStyle == "bar") {
+    float pct = livePowerHave ? (livePowerW / 1000.0f / livePowerMaxKw * 100.0f) : 0;
+    if (pct < 0) pct = 0;
+    if (pct > 100) pct = 100;
+    html += "<div class='kw kw-livepower kiosk-live-power bar' id='kioskLivePower'>";
+    if (livePowerHave) {
+      html += "<div class='klpVal'>&#9889; " + formatLivePowerValue() + "</div>";
+      html += "<div class='klpTrack'><div class='klpMask' style='width:" + String(100.0f - pct, 1) + "%'></div></div>";
+    }
+    html += "</div>";
+  } else {
+    String livePowerText = livePowerHave ? ("&#9889; " + formatLivePowerValue()) : "";
+    html += "<div class='kw kw-livepower kiosk-live-power' id='kioskLivePower'>" + livePowerText + "</div>";
   }
-  html += "<div class='kw kw-livepower kiosk-live-power' id='kioskLivePower'>" + livePowerText + "</div>";
 
   html += "<div class='kw kw-chart'>";
   html += "<div class='kiosk-chart' id='kioskChartWrap'>";
@@ -5342,7 +5418,13 @@ function refreshLivePower(){
   var el = document.getElementById('kioskLivePower');
   if (!el) return;
   fetch('/livepower').then(function(r){ return r.json(); }).then(function(data){
-    el.innerHTML = data.text || '';
+    if (el.classList.contains('bar')) {
+      if (!data.text) { el.innerHTML = ''; return; }
+      var pct = (typeof data.pct === 'number' && data.pct >= 0) ? data.pct : 0;
+      el.innerHTML = "<div class='klpVal'>" + data.text + "</div><div class='klpTrack'><div class='klpMask' style='width:" + (100 - pct).toFixed(1) + "%'></div></div>";
+    } else {
+      el.innerHTML = data.text || '';
+    }
   }).catch(function(e){ /* naechster Versuch beim naechsten Intervall */ });
 }
 refreshLivePower();
@@ -5433,11 +5515,15 @@ void handleLivePower() {
   if (!checkAuth()) return;
 
   String text = "";
+  float pct = -1;
   if (livePowerW >= 0 && millis() - livePowerUpdatedAtMs < 60000) {
     text = "⚡ " + formatLivePowerValue();
+    pct = livePowerW / 1000.0f / livePowerMaxKw * 100.0f;
+    if (pct < 0) pct = 0;
+    if (pct > 100) pct = 100;
   }
 
-  String json = "{\"text\":\"" + jsonEscapeValue(text) + "\"}";
+  String json = "{\"text\":\"" + jsonEscapeValue(text) + "\",\"pct\":" + String(pct, 1) + "}";
 
   server.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
   server.send(200, "application/json", json);
@@ -7586,6 +7672,31 @@ void handleSave() {
       modernFlags = f;
       prefs.putUInt("mFlags", modernFlags);
     }
+  }
+
+  if (server.hasArg("klpStyle")) {
+    String s = server.arg("klpStyle");
+    if (s != "bar") s = "text";
+    kioskLivePowerStyle = s;
+    prefs.putString("klpStyle", kioskLivePowerStyle);
+  }
+
+  if (server.hasArg("lpMax") || server.hasArg("lpGreen") || server.hasArg("lpYellow")) {
+    float mx = server.hasArg("lpMax") ? server.arg("lpMax").toFloat() : livePowerMaxKw;
+    float gr = server.hasArg("lpGreen") ? server.arg("lpGreen").toFloat() : livePowerGreenKw;
+    float ye = server.hasArg("lpYellow") ? server.arg("lpYellow").toFloat() : livePowerYellowKw;
+    if (mx < 1.0f) mx = 10.0f;
+    if (mx > 50.0f) mx = 50.0f;
+    if (gr < 0.1f) gr = 0.1f;
+    if (gr >= mx) gr = mx * 0.2f;
+    if (ye <= gr) ye = gr + 0.1f;
+    if (ye >= mx) ye = mx * 0.5f;
+    livePowerMaxKw = mx;
+    livePowerGreenKw = gr;
+    livePowerYellowKw = ye;
+    prefs.putFloat("lpMax", livePowerMaxKw);
+    prefs.putFloat("lpGreen", livePowerGreenKw);
+    prefs.putFloat("lpYellow", livePowerYellowKw);
   }
 
   if (server.hasArg("mOrder")) {
