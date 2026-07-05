@@ -73,7 +73,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "1.8.8"
+#define FIRMWARE_VERSION "1.8.9"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -5155,15 +5155,15 @@ void handleKioskPage() {
   html += ".kw-gauge svg{width:100%;height:100%;background:transparent;border:0;margin:0}";
   html += ".kiosk-live-power{font-size:clamp(20px,4vh,42px);font-weight:800;color:var(--text);letter-spacing:0.5px}";
   html += ".kiosk-live-power:empty{display:none}";
-  html += ".kiosk-live-power.bar{flex-direction:column;justify-content:center;gap:clamp(4px,1vh,8px);width:min(480px,92%);margin:0 auto;padding:clamp(8px,1.4vh,14px) clamp(12px,2.4vw,22px);border-radius:20px;background:var(--overlay-faint);border:1px solid var(--surface-border);box-sizing:border-box}";
-  html += ".kiosk-live-power.bar .klpLbl{font-size:clamp(9px,1.3vh,12px);color:var(--muted);text-transform:uppercase;letter-spacing:.4px;font-weight:700;line-height:1}";
-  html += ".kiosk-live-power.bar .klpVal{font-size:clamp(18px,3.4vh,32px);font-weight:800;line-height:1.1;font-variant-numeric:tabular-nums;margin-top:2px}";
-  html += ".kiosk-live-power.bar .klpTrack{position:relative;width:100%;height:clamp(8px,1.4vh,14px);border-radius:999px;overflow:hidden;background:var(--overlay-hover);box-shadow:inset 0 1px 2px rgba(0,0,0,.15)}";
+  html += ".kiosk-live-power.bar{flex-direction:column;justify-content:center;gap:clamp(2px,0.6vh,4px);width:min(480px,96%);margin:0 auto;padding:clamp(4px,0.8vh,10px) clamp(8px,1.6vw,16px);border-radius:16px;background:var(--overlay-faint);border:1px solid var(--surface-border);box-sizing:border-box}";
+  html += ".kiosk-live-power.bar .klpLbl{font-size:clamp(8px,1.1vh,11px);color:var(--muted);text-transform:uppercase;letter-spacing:.3px;font-weight:700;line-height:1}";
+  html += ".kiosk-live-power.bar .klpVal{font-size:clamp(16px,2.8vh,26px);font-weight:800;line-height:1;font-variant-numeric:tabular-nums}";
+  html += ".kiosk-live-power.bar .klpTrack{position:relative;width:100%;height:clamp(6px,1.1vh,10px);border-radius:999px;overflow:hidden;background:var(--overlay-hover);box-shadow:inset 0 1px 2px rgba(0,0,0,.15)}";
   html += ".kiosk-live-power.bar .klpFill{position:absolute;top:0;left:0;bottom:0;border-radius:999px;transition:width .3s var(--ease),background .3s var(--ease)}";
   html += ".kiosk-live-power.bar .klpFill.zc{background:linear-gradient(90deg,#22c55e,#4ade80)}";
   html += ".kiosk-live-power.bar .klpFill.zm{background:linear-gradient(90deg,#facc15,#fb923c)}";
   html += ".kiosk-live-power.bar .klpFill.ze{background:linear-gradient(90deg,#fb923c,#fb7185)}";
-  html += ".kiosk-live-power.bar .klpScale{display:flex;justify-content:space-between;font-size:clamp(8px,1.1vh,10px);color:var(--muted);font-weight:600;margin-top:4px}";
+  html += ".kiosk-live-power.bar .klpScale{display:flex;justify-content:space-between;font-size:clamp(7px,0.9vh,9px);color:var(--muted);font-weight:600}";
   html += ".kiosk-status{font-size:clamp(13px,2.8vh,25px);font-weight:800;padding:clamp(4px,0.9vh,8px) clamp(10px,3vw,22px);border-radius:999px;background:var(--overlay-faint)}";
   html += ".kw-chart{touch-action:none;cursor:crosshair}";
   html += ".kiosk-chart{position:relative;flex:1;min-height:0;width:100%}";
@@ -5660,7 +5660,7 @@ void handleKioskLayoutPage() {
   // Live-Verbrauch-Einstellungen speziell fuer Kiosk und Modern-Balken.
   html += "<section class='card'>";
   html += "<div class='panelTitle'><h2>Live-Verbrauch-Anzeige</h2></div>";
-  html += "<p class='small'>Wie der aktuelle Verbrauch im Tablet-Modus dargestellt wird und wo die Farbschwellen des Balkens liegen. Der Balken wird auch auf der Uebersichts-Seite (Modern-Design) verwendet.</p>";
+  html += "<p class='small'>Wie der aktuelle Verbrauch im Tablet-Modus dargestellt wird und wo die Farbschwellen des Balkens liegen. Der Balken wird auch auf der Uebersichts-Seite (Modern-Design) verwendet. <b>Tipp:</b> Wenn du auf &quot;Bar&quot; umstellst, mache das Live-Verbrauch-Widget im Layout-Editor oben etwas hoeher (min. 12 % Hoehe) &ndash; sonst passen Label, Balken und Skala nicht in die Kachel.</p>";
   html += "<form action='/save' method='post'><input type='hidden' name='redirectTo' value='/kiosklayout'>";
   html += "<div class='formGrid'>";
   html += "<div class='field'><label>Kiosk-Stil</label><select name='klpStyle'>";
