@@ -73,7 +73,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "1.8.1"
+#define FIRMWARE_VERSION "1.8.2"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -292,6 +292,9 @@ String uiTemplate = "classic"; // "classic" oder "modern"
 // bit8 Live-Verbrauch im Hero, bit9 Detail-Sektion sichtbar.
 uint16_t modernFlags = 0x03FF; // alles an
 static inline bool modernShow(int bit) { return (modernFlags >> bit) & 1; }
+// Reihenfolge der Modern-Sections. Erlaubte IDs: "hero","chart","details".
+// "einrichtung" wird immer ganz oben angezeigt, wenn noetig.
+String modernOrder = "hero,chart,details";
 
 // -----------------------------------------------------------------------------
 // Zeiten
@@ -1256,6 +1259,8 @@ void setup() {
   uiTemplate = prefs.getString("uiTpl", "classic");
   if (uiTemplate != "modern") uiTemplate = "classic";
   modernFlags = (uint16_t)prefs.getUInt("mFlags", 0x03FF);
+  modernOrder = prefs.getString("mOrder", "hero,chart,details");
+  if (modernOrder.length() == 0) modernOrder = "hero,chart,details";
   if (webInterfaceName.length() > 32) webInterfaceName = webInterfaceName.substring(0, 32);
 
   setupApSsid = prefs.getString("setupSsid", DEFAULT_WIFI_SETUP_AP_SSID);
@@ -4103,57 +4108,71 @@ void handleRootModern() {
     else { statusText = "Jetzt guenstig"; statusBg = "background:rgba(74,222,128,.18);color:#16a34a"; activeZone = "c"; }
   }
 
-  html += "<section class='card mHero'>";
-  html += "<div class='mHeroGrid'>";
-  html += "<div>";
-  html += "<div class='mHeroLabel'>Aktueller Preis</div>";
-  html += "<div class='mHeroValue' id='mNow' data-target='" + String(nowCent) + "'>" + (nowCent >= 0 ? String(nowCent) : "--") + "</div>";
-  html += "<div class='mHeroUnit'>ct/kWh &middot; 15-Minuten-Slot</div>";
-  html += "<div class='mHeroStatus' style='" + statusBg + "'>" + statusText + "</div>";
+  // Build each section as string
+  String secHero;
+  secHero += "<section class='card mHero'>";
+  secHero += "<div class='mHeroGrid'>";
+  secHero += "<div>";
+  secHero += "<div class='mHeroLabel'>Aktueller Preis</div>";
+  secHero += "<div class='mHeroValue' id='mNow' data-target='" + String(nowCent) + "'>" + (nowCent >= 0 ? String(nowCent) : "--") + "</div>";
+  secHero += "<div class='mHeroUnit'>ct/kWh &middot; 15-Minuten-Slot</div>";
+  secHero += "<div class='mHeroStatus' style='" + statusBg + "'>" + statusText + "</div>";
   String liveHomeText = "";
   if (modernShow(8) && livePowerW >= 0 && millis() - livePowerUpdatedAtMs < 60000) {
     liveHomeText = "&#9889; Verbrauch: <b>" + formatLivePowerValue() + "</b>";
   }
-  html += "<div class='mHeroLive' id='livePowerBadge'>" + liveHomeText + "</div>";
-  html += "</div>";
-  html += "<div class='mHeroGauge'>" + buildPriceGaugeSvg() + "</div>";
-  html += "</div>";
-  html += "</section>";
+  secHero += "<div class='mHeroLive' id='livePowerBadge'>" + liveHomeText + "</div>";
+  secHero += "</div>";
+  secHero += "<div class='mHeroGauge'>" + buildPriceGaugeSvg() + "</div>";
+  secHero += "</div>";
+  secHero += "</section>";
 
-  // Chart with optional price zones legend
-  html += "<section class='card'><div class='panelTitle'><h2>Preisverlauf</h2><span class='badge okb'>" + String(quarterCount) + " Slots</span></div>";
+  String secChart;
+  secChart += "<section class='card'><div class='panelTitle'><h2>Preisverlauf</h2><span class='badge okb'>" + String(quarterCount) + " Slots</span></div>";
   if (modernShow(0)) {
-    html += "<div class='mZones'>";
-    html += "<div class='mZone zc" + String(activeZone == "c" ? " active" : "") + "'>Guenstig<span class='mZoneVal'>&lt; " + String(ledYellowCent) + " ct</span></div>";
-    html += "<div class='mZone zm" + String(activeZone == "m" ? " active" : "") + "'>Mittel<span class='mZoneVal'>" + String(ledYellowCent) + "-" + String(ledRedCent) + " ct</span></div>";
-    html += "<div class='mZone ze" + String(activeZone == "e" ? " active" : "") + "'>Teuer<span class='mZoneVal'>&ge; " + String(ledRedCent) + " ct</span></div>";
-    html += "</div>";
+    secChart += "<div class='mZones'>";
+    secChart += "<div class='mZone zc" + String(activeZone == "c" ? " active" : "") + "'>Guenstig<span class='mZoneVal'>&lt; " + String(ledYellowCent) + " ct</span></div>";
+    secChart += "<div class='mZone zm" + String(activeZone == "m" ? " active" : "") + "'>Mittel<span class='mZoneVal'>" + String(ledYellowCent) + "-" + String(ledRedCent) + " ct</span></div>";
+    secChart += "<div class='mZone ze" + String(activeZone == "e" ? " active" : "") + "'>Teuer<span class='mZoneVal'>&ge; " + String(ledRedCent) + " ct</span></div>";
+    secChart += "</div>";
   }
-  html += buildSvgChart();
-  html += "</section>";
+  secChart += buildSvgChart();
+  secChart += "</section>";
 
-  // Compact metric row (only if any detail visible)
+  String secDetails;
   if (modernShow(9)) {
     bool anyMetric = modernShow(2) || modernShow(3) || modernShow(4) || modernShow(5) || (tibberMonthCost >= 0 && (modernShow(6) || modernShow(7)));
-    html += "<section class='card'><div class='panelTitle'><h2>Details</h2></div>";
+    secDetails += "<section class='card'><div class='panelTitle'><h2>Details</h2></div>";
     if (anyMetric) {
-      html += "<div class='mMetrics'>";
-      if (modernShow(2)) html += "<div class='mMetric'><div class='lbl'>60-Min-Schnitt</div><div class='val'>" + priceToCentText(metricCurrent60) + "</div></div>";
-      if (modernShow(3)) html += "<div class='mMetric'><div class='lbl'>Tagesdurchschnitt</div><div class='val'>" + priceToCentText(metricDayAvg) + "</div></div>";
-      if (modernShow(4)) html += "<div class='mMetric'><div class='lbl'>Tief 15 Min</div><div class='val'>" + priceToCentText(metricLow15Day) + "</div><div class='sb'>" + formatTimeOnly(metricLow15DayTime) + " Uhr</div></div>";
-      if (modernShow(5)) html += "<div class='mMetric'><div class='lbl'>Tief 60-Min</div><div class='val'>" + priceToCentText(metricLow60Day) + "</div><div class='sb'>" + formatTimeOnly(metricLow60DayTime) + "-" + addMinutesToIsoTime(metricLow60DayTime, 60) + "</div></div>";
-      if (tibberMonthCost >= 0 && modernShow(6)) html += "<div class='mMetric'><div class='lbl'>Kosten bisher</div><div class='val'>" + euroCostText(tibberMonthCost) + " " + htmlEscape(tibberMonthCurrency) + "</div><div class='sb'>" + String(tibberMonthConsumptionKwh, 1) + " kWh</div></div>";
+      secDetails += "<div class='mMetrics'>";
+      if (modernShow(2)) secDetails += "<div class='mMetric'><div class='lbl'>60-Min-Schnitt</div><div class='val'>" + priceToCentText(metricCurrent60) + "</div></div>";
+      if (modernShow(3)) secDetails += "<div class='mMetric'><div class='lbl'>Tagesdurchschnitt</div><div class='val'>" + priceToCentText(metricDayAvg) + "</div></div>";
+      if (modernShow(4)) secDetails += "<div class='mMetric'><div class='lbl'>Tief 15 Min</div><div class='val'>" + priceToCentText(metricLow15Day) + "</div><div class='sb'>" + formatTimeOnly(metricLow15DayTime) + " Uhr</div></div>";
+      if (modernShow(5)) secDetails += "<div class='mMetric'><div class='lbl'>Tief 60-Min</div><div class='val'>" + priceToCentText(metricLow60Day) + "</div><div class='sb'>" + formatTimeOnly(metricLow60DayTime) + "-" + addMinutesToIsoTime(metricLow60DayTime, 60) + "</div></div>";
+      if (tibberMonthCost >= 0 && modernShow(6)) secDetails += "<div class='mMetric'><div class='lbl'>Kosten bisher</div><div class='val'>" + euroCostText(tibberMonthCost) + " " + htmlEscape(tibberMonthCurrency) + "</div><div class='sb'>" + String(tibberMonthConsumptionKwh, 1) + " kWh</div></div>";
       if (tibberMonthCost >= 0 && modernShow(7)) {
         float projected = estimateFullMonthCost();
-        if (projected >= 0) html += "<div class='mMetric'><div class='lbl'>Prognose Monatsende</div><div class='val'>" + euroCostText(projected) + " " + htmlEscape(tibberMonthCurrency) + "</div><div class='sb'>hochgerechnet</div></div>";
+        if (projected >= 0) secDetails += "<div class='mMetric'><div class='lbl'>Prognose Monatsende</div><div class='val'>" + euroCostText(projected) + " " + htmlEscape(tibberMonthCurrency) + "</div><div class='sb'>hochgerechnet</div></div>";
       }
-      html += "</div>";
+      secDetails += "</div>";
     }
-    html += "<div class='actions' style='margin-top:14px'><a href='/refresh'><button>Jetzt aktualisieren</button></a><a href='/kiosk'><button type='button' class='secondary'>Tablet-Modus</button></a></div>";
-    html += "</section>";
-  } else {
-    html += "<div class='actions' style='margin-top:14px'><a href='/refresh'><button>Jetzt aktualisieren</button></a><a href='/kiosk'><button type='button' class='secondary'>Tablet-Modus</button></a></div>";
+    secDetails += "</section>";
   }
+
+  // Output sections in configured order
+  int startIdx = 0;
+  while (startIdx <= (int)modernOrder.length()) {
+    int commaIdx = modernOrder.indexOf(',', startIdx);
+    String id = (commaIdx < 0) ? modernOrder.substring(startIdx) : modernOrder.substring(startIdx, commaIdx);
+    id.trim();
+    if (id == "hero") html += secHero;
+    else if (id == "chart") html += secChart;
+    else if (id == "details") html += secDetails;
+    if (commaIdx < 0) break;
+    startIdx = commaIdx + 1;
+  }
+
+  html += "<div class='actions' style='margin-top:14px'><a href='/refresh'><button>Jetzt aktualisieren</button></a><a href='/kiosk'><button type='button' class='secondary'>Tablet-Modus</button></a></div>";
 
   html += "<p class='small'><a href='/json'>JSON-API</a></p>";
 
@@ -4211,6 +4230,37 @@ void handleAccountPage() {
     html += ">" + String(modernLabels[i]) + "</label>";
   }
   html += "</div></div>";
+  html += "<div class='field' style='grid-column:1/-1'><label>Modern-Reihenfolge (Ziehen zum Sortieren)</label>";
+  html += "<ul id='mOrderList' style='list-style:none;padding:0;margin:8px 0 0;display:grid;gap:6px'>";
+  const char* orderLabels[3] = { "Hero (Preis + Gauge)", "Diagramm", "Details" };
+  const char* orderIds[3] = { "hero", "chart", "details" };
+  for (int pos = 0; pos < 5; pos++) {
+    int scan = 0, foundIdx = -1;
+    for (int i = 0; i < (int)modernOrder.length(); i++) {
+      if (i == 0 || modernOrder[i-1] == ',') {
+        if (scan == pos) {
+          String id;
+          int c = modernOrder.indexOf(',', i);
+          id = (c < 0) ? modernOrder.substring(i) : modernOrder.substring(i, c);
+          id.trim();
+          for (int k = 0; k < 3; k++) if (id == orderIds[k]) { foundIdx = k; break; }
+          break;
+        }
+        scan++;
+      }
+    }
+    if (foundIdx < 0) break;
+    html += "<li draggable='true' data-id='";
+    html += orderIds[foundIdx];
+    html += "' style='padding:10px 14px;border:1px solid var(--surface-border);border-radius:10px;background:var(--overlay-faint);cursor:grab;display:flex;align-items:center;gap:10px;font-weight:600'>";
+    html += "<span style='color:var(--muted);font-size:16px;line-height:1'>&#x2630;</span>";
+    html += orderLabels[foundIdx];
+    html += "</li>";
+  }
+  html += "</ul>";
+  html += "<input type='hidden' name='mOrder' id='mOrderInput' value='" + htmlEscape(modernOrder) + "'>";
+  html += "<script>(function(){var list=document.getElementById('mOrderList');if(!list)return;var input=document.getElementById('mOrderInput');var dragEl=null;function sync(){var ids=[];list.querySelectorAll('li').forEach(function(li){ids.push(li.dataset.id);});input.value=ids.join(',');}list.querySelectorAll('li').forEach(function(li){li.addEventListener('dragstart',function(e){dragEl=li;li.style.opacity='.4';e.dataTransfer.effectAllowed='move';});li.addEventListener('dragend',function(){li.style.opacity='';dragEl=null;sync();});li.addEventListener('dragover',function(e){e.preventDefault();if(!dragEl||dragEl===li)return;var rect=li.getBoundingClientRect();var after=(e.clientY-rect.top)>rect.height/2;list.insertBefore(dragEl,after?li.nextSibling:li);});});})();</script>";
+  html += "</div>";
   html += "<div class='field'><label>API-Update alle Minuten</label><input name='apiMinutes' type='number' min='1' max='60' value='";
   html += String(apiUpdateMinutes);
   html += "'></div>";
@@ -7534,6 +7584,42 @@ void handleSave() {
     if (anyFlag || uiTemplate == "modern") {
       modernFlags = f;
       prefs.putUInt("mFlags", modernFlags);
+    }
+  }
+
+  if (server.hasArg("mOrder")) {
+    String raw = server.arg("mOrder");
+    raw.trim();
+    // sanity: only allow known ids, kommagetrennt, keine Duplikate
+    String cleaned = "";
+    bool seen[3] = { false, false, false };
+    const char* validIds[3] = { "hero", "chart", "details" };
+    int start = 0;
+    while (start <= (int)raw.length()) {
+      int c = raw.indexOf(',', start);
+      String id = (c < 0) ? raw.substring(start) : raw.substring(start, c);
+      id.trim();
+      for (int k = 0; k < 3; k++) {
+        if (id == validIds[k] && !seen[k]) {
+          if (cleaned.length() > 0) cleaned += ",";
+          cleaned += validIds[k];
+          seen[k] = true;
+          break;
+        }
+      }
+      if (c < 0) break;
+      start = c + 1;
+    }
+    // fehlende IDs am Ende anhaengen
+    for (int k = 0; k < 3; k++) {
+      if (!seen[k]) {
+        if (cleaned.length() > 0) cleaned += ",";
+        cleaned += validIds[k];
+      }
+    }
+    if (cleaned.length() > 0) {
+      modernOrder = cleaned;
+      prefs.putString("mOrder", modernOrder);
     }
   }
 
