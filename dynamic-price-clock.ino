@@ -73,7 +73,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "1.7.3"
+#define FIRMWARE_VERSION "1.7.4"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -144,8 +144,8 @@ String wifiSsid = "";
 String wifiPassword = "";
 bool apMode = false;
 
-const char* DEFAULT_WIFI_SETUP_AP_SSID = "Tibber Strompreis";
-String setupApSsid = "Tibber Strompreis";
+const char* DEFAULT_WIFI_SETUP_AP_SSID = "Dynamic-Price-Clock-Setup";
+String setupApSsid = "Dynamic-Price-Clock-Setup";
 const unsigned long WIFI_SETUP_AP_TIMEOUT = 300000UL;
 bool setupApActive = false;
 bool setupApPermanent = false;

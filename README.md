@@ -64,7 +64,7 @@ Das Standardschema ("Default 4MB with spiffs") reicht nicht aus – der Sketch b
 - Adafruit NeoPixel
 - WebSockets (von Markus Sattler / Links2004) - fuer den Tibber-Pulse-Live-Verbrauch
 
-Nach dem Flashen läuft das Gerät beim ersten Start als WLAN-Access-Point ("Tibber Strompreis", im Web-Dashboard unter **WLAN → Setup-Access-Point** änderbar) zur Erstkonfiguration.
+Nach dem Flashen läuft das Gerät beim ersten Start als WLAN-Access-Point ("Dynamic-Price-Clock-Setup", im Web-Dashboard unter **WLAN → Setup-Access-Point** änderbar) zur Erstkonfiguration.
 
 ### WLAN-Zugangsdaten und Tibber-Token bleiben beim Update erhalten
 
