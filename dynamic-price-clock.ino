@@ -73,7 +73,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "1.7.6"
+#define FIRMWARE_VERSION "1.7.7"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -501,6 +501,7 @@ void handleResetKioskLayout();
 
 bool checkAuth();
 String generateRandomToken(int length);
+String generateNumericPassword(int length);
 void bootstrapApPassword();
 void randomizeWifiStaMac();
 String getStaMacText();
@@ -639,6 +640,15 @@ String generateRandomToken(int length) {
   return out;
 }
 
+String generateNumericPassword(int length) {
+  String out = "";
+  out.reserve(length);
+  for (int i = 0; i < length; i++) {
+    out += (char)('0' + (esp_random() % 10));
+  }
+  return out;
+}
+
 // Gleiches Prinzip fuer das Setup-WLAN-Passwort: kein fester Wert im Code,
 // stattdessen einmalig zufaellig erzeugt und dauerhaft gespeichert.
 void bootstrapApPassword() {
@@ -647,7 +657,7 @@ void bootstrapApPassword() {
     return;
   }
 
-  apPassword = generateRandomToken(10);
+  apPassword = generateNumericPassword(10);
   prefs.putString("apPass", apPassword);
 
   Serial.println();
@@ -7735,9 +7745,9 @@ h1,h2,h3{line-height:1.15}
 .themeToggle .iconSun{display:none}
 :root[data-theme="dark"] .themeToggle .iconSun{display:inline-flex}
 :root[data-theme="dark"] .themeToggle .iconMoon{display:none}
-.navFooter{margin-top:auto;padding-top:12px;display:flex;flex-direction:column;gap:4px;color:var(--muted);font-size:11px;line-height:1.4;text-align:center;opacity:.75}
-.navFooter a{color:inherit;text-decoration:none;transition:color .15s var(--ease)}
-.navFooter a:hover{color:var(--text)}
+.navFooter{margin-top:auto;padding-top:10px;display:flex;flex-direction:column;align-items:center;gap:2px;color:#9ca3af;font-size:9px;line-height:1.3;text-align:center;opacity:.5;font-weight:400;letter-spacing:.2px}
+.navFooter a{color:inherit;text-decoration:none;transition:opacity .15s var(--ease)}
+.navFooter a:hover{opacity:1;text-decoration:underline}
 button,.btn{appearance:none;border:1px solid rgba(255,255,255,.25);background:linear-gradient(135deg,var(--accent2),var(--pink));color:#fff;padding:11px 16px;min-height:44px;border-radius:14px;font-weight:700;font-size:14px;cursor:pointer;box-shadow:0 8px 22px rgba(219,39,119,.22);transition:transform .15s var(--ease),box-shadow .15s var(--ease),opacity .15s var(--ease),filter .15s var(--ease),background .15s var(--ease),border-color .15s var(--ease);white-space:nowrap}
 button:hover{filter:brightness(1.08)}
 button:active{transform:scale(.97)}
