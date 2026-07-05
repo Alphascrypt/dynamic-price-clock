@@ -73,7 +73,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "1.9.3"
+#define FIRMWARE_VERSION "2.0.0"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -428,33 +428,45 @@ LayoutItem d2Layout[LAYOUT_ITEMS];
 // jeder Aufloesung (Handy bis grosses Tablet) proportional gleich aussieht.
 #define KIOSK_WIDGET_COUNT 6
 
+// Grid-basiertes Layout ab v2.0.0: statt Absolut-Position auf einem Canvas
+// belegt jedes Widget Zellen in einem CSS-Grid. Portrait = 6 Spalten x 12
+// Reihen, Landscape = 12 Spalten x 8 Reihen. Widgets sind ueber grid-column
+// und grid-row platziert; das Grid selbst passt sich responsiv der verfuegbaren
+// Flaeche an (auch auf TV-Browsern die aspect-ratio nicht koennen).
+#define KIOSK_GRID_COLS_PORTRAIT 6
+#define KIOSK_GRID_ROWS_PORTRAIT 12
+#define KIOSK_GRID_COLS_LANDSCAPE 12
+#define KIOSK_GRID_ROWS_LANDSCAPE 8
+
 struct KioskWidgetLayout {
-  float x;
-  float y;
-  float w;
-  float h;
+  uint8_t colStart;  // 1-basiert, 1..gridCols
+  uint8_t colSpan;   // 1..gridCols
+  uint8_t rowStart;  // 1-basiert, 1..gridRows
+  uint8_t rowSpan;   // 1..gridRows
   bool visible;
 };
 
 const char* KIOSK_WIDGET_KEYS[KIOSK_WIDGET_COUNT] = { "clock", "gauge", "status", "livepower", "chart", "meta" };
 const char* KIOSK_WIDGET_LABELS[KIOSK_WIDGET_COUNT] = { "Uhrzeit", "Preis-Gauge", "Status-Badge", "Live-Verbrauch", "Diagramm", "Infozeile" };
 
+// Portrait: 6 Spalten x 12 Reihen
 const KioskWidgetLayout KIOSK_PORTRAIT_DEFAULTS[KIOSK_WIDGET_COUNT] = {
-  { 10, 2, 80, 9, true },
-  { 10, 13, 80, 32, true },
-  { 20, 47, 60, 7, true },
-  { 20, 55, 60, 5, true },
-  { 3, 62, 94, 28, true },
-  { 3, 92, 94, 7, true },
+  { 1, 6, 1,  1, true }, // clock:     ganze Breite, oberste Reihe
+  { 1, 6, 2,  4, true }, // gauge:     ganze Breite, 4 Reihen hoch
+  { 2, 4, 6,  1, true }, // status:    mittig, schmal
+  { 2, 4, 7,  1, true }, // livepower: mittig, schmal
+  { 1, 6, 8,  4, true }, // chart:     ganze Breite, 4 Reihen hoch
+  { 1, 6, 12, 1, true }, // meta:      ganze Breite, untere Reihe
 };
 
+// Landscape: 12 Spalten x 8 Reihen
 const KioskWidgetLayout KIOSK_LANDSCAPE_DEFAULTS[KIOSK_WIDGET_COUNT] = {
-  { 20, 2, 60, 10, true },
-  { 3, 14, 34, 55, true },
-  { 3, 71, 34, 10, true },
-  { 3, 82, 34, 8, true },
-  { 40, 14, 57, 65, true },
-  { 40, 81, 57, 15, true },
+  { 5, 4,  1, 1, true }, // clock:     mittig oben
+  { 1, 6,  2, 5, true }, // gauge:     linke Haelfte gross
+  { 1, 6,  7, 1, true }, // status:    linke Haelfte unten
+  { 1, 6,  8, 1, true }, // livepower: linke Haelfte ganz unten
+  { 7, 6,  2, 5, true }, // chart:     rechte Haelfte gross
+  { 7, 6,  7, 2, true }, // meta:      rechte Haelfte unten
 };
 
 KioskWidgetLayout kioskPortrait[KIOSK_WIDGET_COUNT];
@@ -3012,30 +3024,32 @@ void saveLayoutItem(int d, int i, LayoutItem item) {
 }
 
 void loadKioskLayoutFromPrefs() {
+  // Neue Grid-Preferences: kgP<i>{c,s,r,p,v} = col,colSpan,row,rowSpan,visible.
+  // Alte x/y/w/h-Werte (v1.x) werden ignoriert -> auf Grid-Defaults zurueckgesetzt.
   for (int i = 0; i < KIOSK_WIDGET_COUNT; i++) {
-    String pPrefix = "kwP" + String(i);
-    kioskPortrait[i].x = prefs.getFloat((pPrefix + "x").c_str(), KIOSK_PORTRAIT_DEFAULTS[i].x);
-    kioskPortrait[i].y = prefs.getFloat((pPrefix + "y").c_str(), KIOSK_PORTRAIT_DEFAULTS[i].y);
-    kioskPortrait[i].w = prefs.getFloat((pPrefix + "w").c_str(), KIOSK_PORTRAIT_DEFAULTS[i].w);
-    kioskPortrait[i].h = prefs.getFloat((pPrefix + "h").c_str(), KIOSK_PORTRAIT_DEFAULTS[i].h);
-    kioskPortrait[i].visible = prefs.getBool((pPrefix + "v").c_str(), KIOSK_PORTRAIT_DEFAULTS[i].visible);
+    String pPrefix = "kgP" + String(i);
+    kioskPortrait[i].colStart = prefs.getUChar((pPrefix + "c").c_str(), KIOSK_PORTRAIT_DEFAULTS[i].colStart);
+    kioskPortrait[i].colSpan  = prefs.getUChar((pPrefix + "s").c_str(), KIOSK_PORTRAIT_DEFAULTS[i].colSpan);
+    kioskPortrait[i].rowStart = prefs.getUChar((pPrefix + "r").c_str(), KIOSK_PORTRAIT_DEFAULTS[i].rowStart);
+    kioskPortrait[i].rowSpan  = prefs.getUChar((pPrefix + "p").c_str(), KIOSK_PORTRAIT_DEFAULTS[i].rowSpan);
+    kioskPortrait[i].visible  = prefs.getBool((pPrefix + "v").c_str(), KIOSK_PORTRAIT_DEFAULTS[i].visible);
 
-    String lPrefix = "kwL" + String(i);
-    kioskLandscape[i].x = prefs.getFloat((lPrefix + "x").c_str(), KIOSK_LANDSCAPE_DEFAULTS[i].x);
-    kioskLandscape[i].y = prefs.getFloat((lPrefix + "y").c_str(), KIOSK_LANDSCAPE_DEFAULTS[i].y);
-    kioskLandscape[i].w = prefs.getFloat((lPrefix + "w").c_str(), KIOSK_LANDSCAPE_DEFAULTS[i].w);
-    kioskLandscape[i].h = prefs.getFloat((lPrefix + "h").c_str(), KIOSK_LANDSCAPE_DEFAULTS[i].h);
-    kioskLandscape[i].visible = prefs.getBool((lPrefix + "v").c_str(), KIOSK_LANDSCAPE_DEFAULTS[i].visible);
+    String lPrefix = "kgL" + String(i);
+    kioskLandscape[i].colStart = prefs.getUChar((lPrefix + "c").c_str(), KIOSK_LANDSCAPE_DEFAULTS[i].colStart);
+    kioskLandscape[i].colSpan  = prefs.getUChar((lPrefix + "s").c_str(), KIOSK_LANDSCAPE_DEFAULTS[i].colSpan);
+    kioskLandscape[i].rowStart = prefs.getUChar((lPrefix + "r").c_str(), KIOSK_LANDSCAPE_DEFAULTS[i].rowStart);
+    kioskLandscape[i].rowSpan  = prefs.getUChar((lPrefix + "p").c_str(), KIOSK_LANDSCAPE_DEFAULTS[i].rowSpan);
+    kioskLandscape[i].visible  = prefs.getBool((lPrefix + "v").c_str(), KIOSK_LANDSCAPE_DEFAULTS[i].visible);
   }
 }
 
 void saveKioskWidget(bool landscape, int i, KioskWidgetLayout item) {
-  String prefix = (landscape ? "kwL" : "kwP") + String(i);
+  String prefix = (landscape ? "kgL" : "kgP") + String(i);
 
-  prefs.putFloat((prefix + "x").c_str(), item.x);
-  prefs.putFloat((prefix + "y").c_str(), item.y);
-  prefs.putFloat((prefix + "w").c_str(), item.w);
-  prefs.putFloat((prefix + "h").c_str(), item.h);
+  prefs.putUChar((prefix + "c").c_str(), item.colStart);
+  prefs.putUChar((prefix + "s").c_str(), item.colSpan);
+  prefs.putUChar((prefix + "r").c_str(), item.rowStart);
+  prefs.putUChar((prefix + "p").c_str(), item.rowSpan);
   prefs.putBool((prefix + "v").c_str(), item.visible);
 }
 
@@ -5168,8 +5182,9 @@ void handleKioskPage() {
   html += "html,body{height:100%;overflow:hidden}";
   html += "body{padding:0!important;display:flex;align-items:center;justify-content:center}";
   html += ".kiosk-wrap{display:flex;flex-direction:column;align-items:center;max-height:100vh;padding:clamp(8px,2.2vh,20px);box-sizing:border-box;text-align:center;overflow:hidden}";
-  html += ".kiosk-canvas{position:relative;height:min(92vh,calc(97vw * 16 / 9));width:min(97vw,calc(92vh * 9 / 16));aspect-ratio:9/16;flex:0 0 auto}";
-  html += ".kw{position:absolute;overflow:hidden;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;justify-content:center}";
+  // Portrait: 6-Spalten x 12-Zeilen Grid. Height fluessig, keine aspect-ratio noetig.
+  html += ".kiosk-canvas{display:grid;grid-template-columns:repeat(" + String(KIOSK_GRID_COLS_PORTRAIT) + ",1fr);grid-template-rows:repeat(" + String(KIOSK_GRID_ROWS_PORTRAIT) + ",1fr);gap:clamp(4px,1vh,10px);width:min(97vw,600px);height:min(94vh,1200px);box-sizing:border-box;margin:0 auto}";
+  html += ".kw{overflow:hidden;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;justify-content:center;min-width:0;min-height:0}";
   html += ".kiosk-time{font-size:clamp(18px,5vh,46px);font-weight:800;line-height:1.1;letter-spacing:1px}";
   html += ".kiosk-date{font-size:clamp(9px,1.7vh,15px);color:var(--muted);margin-top:2px;text-transform:capitalize}";
   html += ".kw-gauge svg{width:100%;height:100%;background:transparent;border:0;margin:0}";
@@ -5207,7 +5222,7 @@ void handleKioskPage() {
   html += ".actions{margin-top:clamp(6px,2vh,16px)!important;justify-content:center!important}";
   html += kioskWidgetCss(kioskPortrait);
   html += "@media (orientation:landscape){";
-  html += ".kiosk-canvas{height:min(92vh,calc(97vw * 9 / 16));width:min(97vw,calc(92vh * 16 / 9));aspect-ratio:16/9}";
+  html += ".kiosk-canvas{grid-template-columns:repeat(" + String(KIOSK_GRID_COLS_LANDSCAPE) + ",1fr);grid-template-rows:repeat(" + String(KIOSK_GRID_ROWS_LANDSCAPE) + ",1fr);width:min(97vw,1400px);height:min(94vh,900px)}";
   html += ".kiosk-time{font-size:clamp(14px,4vh,30px)}";
   html += ".kiosk-date{font-size:clamp(8px,1.4vh,12px)}";
   html += ".kiosk-status{font-size:clamp(12px,2.4vh,22px)}";
@@ -5606,21 +5621,25 @@ void handleSaveKioskLayoutAjax() {
     return;
   }
 
-  KioskWidgetLayout item;
-  item.x = server.hasArg("x") ? server.arg("x").toFloat() : 0;
-  item.y = server.hasArg("y") ? server.arg("y").toFloat() : 0;
-  item.w = server.hasArg("w") ? server.arg("w").toFloat() : 10;
-  item.h = server.hasArg("h") ? server.arg("h").toFloat() : 10;
-  item.visible = server.hasArg("visible") ? server.arg("visible") == "1" : true;
+  uint8_t cols = landscape ? KIOSK_GRID_COLS_LANDSCAPE : KIOSK_GRID_COLS_PORTRAIT;
+  uint8_t rows = landscape ? KIOSK_GRID_ROWS_LANDSCAPE : KIOSK_GRID_ROWS_PORTRAIT;
 
-  if (item.x < 0) item.x = 0;
-  if (item.y < 0) item.y = 0;
-  if (item.w < 2) item.w = 2;
-  if (item.h < 2) item.h = 2;
-  if (item.x > 98) item.x = 98;
-  if (item.y > 98) item.y = 98;
-  if (item.x + item.w > 100) item.w = 100 - item.x;
-  if (item.y + item.h > 100) item.h = 100 - item.y;
+  KioskWidgetLayout item;
+  item.colStart = server.hasArg("colStart") ? server.arg("colStart").toInt() : 1;
+  item.colSpan  = server.hasArg("colSpan")  ? server.arg("colSpan").toInt()  : 1;
+  item.rowStart = server.hasArg("rowStart") ? server.arg("rowStart").toInt() : 1;
+  item.rowSpan  = server.hasArg("rowSpan")  ? server.arg("rowSpan").toInt()  : 1;
+  item.visible  = server.hasArg("visible")  ? server.arg("visible") == "1"  : true;
+
+  // Clamp auf Grid-Grenzen
+  if (item.colStart < 1) item.colStart = 1;
+  if (item.rowStart < 1) item.rowStart = 1;
+  if (item.colSpan < 1) item.colSpan = 1;
+  if (item.rowSpan < 1) item.rowSpan = 1;
+  if (item.colStart > cols) item.colStart = cols;
+  if (item.rowStart > rows) item.rowStart = rows;
+  if (item.colStart + item.colSpan - 1 > cols) item.colSpan = cols - item.colStart + 1;
+  if (item.rowStart + item.rowSpan - 1 > rows) item.rowSpan = rows - item.rowStart + 1;
 
   if (landscape) {
     kioskLandscape[index] = item;
@@ -5672,9 +5691,10 @@ void handleKioskLayoutPage() {
   html += R"CSS(<style>
 .kl-shell{display:flex;gap:16px;flex-wrap:wrap;margin-top:14px}
 .kl-canvas-wrap{flex:1;min-width:280px;display:flex;justify-content:center}
-.kl-canvas{position:relative;width:min(360px,90vw);aspect-ratio:9/16;background:repeating-linear-gradient(0deg,var(--overlay-faint),var(--overlay-faint) 1px,transparent 1px,transparent 5%),repeating-linear-gradient(90deg,var(--overlay-faint),var(--overlay-faint) 1px,transparent 1px,transparent 5%);border:1px solid var(--line);border-radius:12px;overflow:hidden;touch-action:none}
-.kl-canvas.landscape{width:min(560px,90vw);aspect-ratio:16/9}
-.kl-item{position:absolute;border:2px dashed var(--accent2);background:rgba(96,165,250,.14);border-radius:6px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:4px;cursor:move;box-sizing:border-box;user-select:none;overflow:hidden;text-align:center}
+.kl-canvas{position:relative;width:min(360px,90vw);aspect-ratio:9/16;display:grid;grid-template-columns:repeat(6,1fr);grid-template-rows:repeat(12,1fr);gap:2px;padding:6px;background:var(--overlay-faint);border:1px solid var(--line);border-radius:12px;overflow:hidden;touch-action:none;box-sizing:border-box}
+.kl-canvas.landscape{width:min(560px,90vw);aspect-ratio:16/9;grid-template-columns:repeat(12,1fr);grid-template-rows:repeat(8,1fr)}
+.kl-cell{background:rgba(96,165,250,.06);border-radius:2px;pointer-events:none}
+.kl-item{border:2px dashed var(--accent2);background:rgba(96,165,250,.14);border-radius:6px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:4px;cursor:move;box-sizing:border-box;user-select:none;overflow:hidden;text-align:center;min-width:0;min-height:0}
 .kl-item.selected{border-style:solid;background:rgba(96,165,250,.24)}
 .kl-item.kl-hidden{opacity:.32;border-style:dotted}
 .kl-item-caption{font-size:9px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;pointer-events:none;line-height:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
@@ -5730,21 +5750,34 @@ void handleKioskLayoutPage() {
   html += R"JS(<script>
 var klOrientation = 'portrait';
 var klSelected = 0;
-
-function klPoint(e){ return { x: e.clientX, y: e.clientY }; }
+var KL_GRID = {
+  portrait:  { cols: 6,  rows: 12 },
+  landscape: { cols: 12, rows: 8  }
+};
+function klGrid(){ return KL_GRID[klOrientation]; }
+function klClamp(v, lo, hi){ return Math.max(lo, Math.min(hi, v)); }
 
 function klRenderCanvas(){
   var canvas = document.getElementById('klCanvas');
   canvas.innerHTML = '';
   canvas.className = 'kl-canvas' + (klOrientation === 'landscape' ? ' landscape' : '');
+  var g = klGrid();
+  // Grid-Zellen als visueller Hintergrund
+  for (var r = 0; r < g.rows; r++) {
+    for (var c = 0; c < g.cols; c++) {
+      var cell = document.createElement('div');
+      cell.className = 'kl-cell';
+      cell.style.gridColumn = (c+1) + '/span 1';
+      cell.style.gridRow = (r+1) + '/span 1';
+      canvas.appendChild(cell);
+    }
+  }
   var items = klData[klOrientation];
   items.forEach(function(item, i){
     var el = document.createElement('div');
     el.className = 'kl-item' + (i === klSelected ? ' selected' : '') + (!item.visible ? ' kl-hidden' : '');
-    el.style.left = item.x + '%';
-    el.style.top = item.y + '%';
-    el.style.width = item.w + '%';
-    el.style.height = item.h + '%';
+    el.style.gridColumn = item.colStart + '/span ' + item.colSpan;
+    el.style.gridRow = item.rowStart + '/span ' + item.rowSpan;
     var caption = document.createElement('span');
     caption.className = 'kl-item-caption';
     caption.textContent = item.label;
@@ -5786,22 +5819,24 @@ function klRenderLayers(){
   });
 }
 
+// Drag: verschiebt das Widget um ganze Zellen. Snap ist automatisch, weil
+// Ziel-Koordinaten immer ganzzahlig sind.
 function klStartDrag(e, i){
   e.preventDefault();
   klSelected = i;
   var canvas = document.getElementById('klCanvas');
   var rect = canvas.getBoundingClientRect();
+  var g = klGrid();
+  var cellW = rect.width / g.cols;
+  var cellH = rect.height / g.rows;
   var item = klData[klOrientation][i];
-  var startP = klPoint(e);
-  var startX = item.x, startY = item.y;
+  var startColStart = item.colStart, startRowStart = item.rowStart;
+  var startX = e.clientX, startY = e.clientY;
   function onMove(ev){
-    var p = klPoint(ev);
-    var dxPct = (p.x - startP.x) / rect.width * 100;
-    var dyPct = (p.y - startP.y) / rect.height * 100;
-    var nx = Math.max(0, Math.min(100 - item.w, startX + dxPct));
-    var ny = Math.max(0, Math.min(100 - item.h, startY + dyPct));
-    item.x = klSnap(nx);
-    item.y = klSnap(ny);
+    var dc = Math.round((ev.clientX - startX) / cellW);
+    var dr = Math.round((ev.clientY - startY) / cellH);
+    item.colStart = klClamp(startColStart + dc, 1, g.cols - item.colSpan + 1);
+    item.rowStart = klClamp(startRowStart + dr, 1, g.rows - item.rowSpan + 1);
     klRenderCanvas();
   }
   function onUp(){
@@ -5819,17 +5854,17 @@ function klStartResize(e, i){
   klSelected = i;
   var canvas = document.getElementById('klCanvas');
   var rect = canvas.getBoundingClientRect();
+  var g = klGrid();
+  var cellW = rect.width / g.cols;
+  var cellH = rect.height / g.rows;
   var item = klData[klOrientation][i];
-  var startP = klPoint(e);
-  var startW = item.w, startH = item.h;
+  var startColSpan = item.colSpan, startRowSpan = item.rowSpan;
+  var startX = e.clientX, startY = e.clientY;
   function onMove(ev){
-    var p = klPoint(ev);
-    var dwPct = (p.x - startP.x) / rect.width * 100;
-    var dhPct = (p.y - startP.y) / rect.height * 100;
-    var nw = Math.max(klGridStep, Math.min(100 - item.x, startW + dwPct));
-    var nh = Math.max(klGridStep, Math.min(100 - item.y, startH + dhPct));
-    item.w = klSnap(nw);
-    item.h = klSnap(nh);
+    var dc = Math.round((ev.clientX - startX) / cellW);
+    var dr = Math.round((ev.clientY - startY) / cellH);
+    item.colSpan = klClamp(startColSpan + dc, 1, g.cols - item.colStart + 1);
+    item.rowSpan = klClamp(startRowSpan + dr, 1, g.rows - item.rowStart + 1);
     klRenderCanvas();
   }
   function onUp(){
@@ -5848,10 +5883,10 @@ function klSave(i){
   var body = new URLSearchParams();
   body.set('orientation', klOrientation);
   body.set('index', i);
-  body.set('x', item.x);
-  body.set('y', item.y);
-  body.set('w', item.w);
-  body.set('h', item.h);
+  body.set('colStart', item.colStart);
+  body.set('colSpan', item.colSpan);
+  body.set('rowStart', item.rowStart);
+  body.set('rowSpan', item.rowSpan);
   body.set('visible', item.visible ? '1' : '0');
   fetch('/savekiosklayoutajax', { method: 'POST', headers: {'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'}, body: body.toString() })
     .then(function(r){ return r.json(); })
@@ -5877,9 +5912,6 @@ function klReset(){
   fetch('/resetkiosklayout', { method: 'POST', headers: {'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'}, body: body.toString() })
     .then(function(){ location.reload(); });
 }
-
-var klGridStep = 5;
-function klSnap(v){ return Math.round(v / klGridStep) * klGridStep; }
 
 klRenderCanvas();
 </script>)JS";
@@ -7512,9 +7544,8 @@ String kioskWidgetCss(KioskWidgetLayout arr[]) {
       css += "display:none}";
       continue;
     }
-    css += "position:absolute;";
-    css += "left:" + String(arr[i].x, 2) + "%;top:" + String(arr[i].y, 2) + "%;";
-    css += "width:" + String(arr[i].w, 2) + "%;height:" + String(arr[i].h, 2) + "%}";
+    css += "grid-column:" + String(arr[i].colStart) + "/span " + String(arr[i].colSpan) + ";";
+    css += "grid-row:" + String(arr[i].rowStart) + "/span " + String(arr[i].rowSpan) + "}";
   }
 
   return css;
@@ -7550,10 +7581,10 @@ String kioskLayoutJson(KioskWidgetLayout arr[]) {
     json += "\"key\":\"" + key + "\",";
     json += "\"label\":\"" + String(KIOSK_WIDGET_LABELS[i]) + "\",";
     json += "\"preview\":\"" + jsonEscapeValue(preview) + "\",";
-    json += "\"x\":" + String(arr[i].x, 2) + ",";
-    json += "\"y\":" + String(arr[i].y, 2) + ",";
-    json += "\"w\":" + String(arr[i].w, 2) + ",";
-    json += "\"h\":" + String(arr[i].h, 2) + ",";
+    json += "\"colStart\":" + String(arr[i].colStart) + ",";
+    json += "\"colSpan\":" + String(arr[i].colSpan) + ",";
+    json += "\"rowStart\":" + String(arr[i].rowStart) + ",";
+    json += "\"rowSpan\":" + String(arr[i].rowSpan) + ",";
     json += "\"visible\":" + String(arr[i].visible ? "true" : "false");
     json += "}";
   }
