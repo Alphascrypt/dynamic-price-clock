@@ -73,7 +73,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "1.7.5"
+#define FIRMWARE_VERSION "1.7.6"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -7735,6 +7735,9 @@ h1,h2,h3{line-height:1.15}
 .themeToggle .iconSun{display:none}
 :root[data-theme="dark"] .themeToggle .iconSun{display:inline-flex}
 :root[data-theme="dark"] .themeToggle .iconMoon{display:none}
+.navFooter{margin-top:auto;padding-top:12px;display:flex;flex-direction:column;gap:4px;color:var(--muted);font-size:11px;line-height:1.4;text-align:center;opacity:.75}
+.navFooter a{color:inherit;text-decoration:none;transition:color .15s var(--ease)}
+.navFooter a:hover{color:var(--text)}
 button,.btn{appearance:none;border:1px solid rgba(255,255,255,.25);background:linear-gradient(135deg,var(--accent2),var(--pink));color:#fff;padding:11px 16px;min-height:44px;border-radius:14px;font-weight:700;font-size:14px;cursor:pointer;box-shadow:0 8px 22px rgba(219,39,119,.22);transition:transform .15s var(--ease),box-shadow .15s var(--ease),opacity .15s var(--ease),filter .15s var(--ease),background .15s var(--ease),border-color .15s var(--ease);white-space:nowrap}
 button:hover{filter:brightness(1.08)}
 button:active{transform:scale(.97)}
@@ -8002,6 +8005,10 @@ String navTabs(String current) {
   html += "<svg class='iconMoon' viewBox='0 0 24 24'><path d='M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5z' fill='currentColor'/></svg>";
   html += "<span>Theme</span>";
   html += "</button>";
+  html += "<div class='navFooter'>";
+  html += "<a href='https://github.com/Alphascrypt/dynamic-price-clock' target='_blank' rel='noopener'>GitHub-Repository</a>";
+  html += "<span>Martin W.</span>";
+  html += "</div>";
   html += "</nav>";
   return html;
 }
