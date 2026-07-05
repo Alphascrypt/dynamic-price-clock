@@ -73,7 +73,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "1.8.7"
+#define FIRMWARE_VERSION "1.8.8"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -4085,13 +4085,12 @@ void handleRootModern() {
   html += ".mHeroLivePillLeft{display:flex;flex-direction:column}";
   html += ".mHeroLivePillLabel{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;font-weight:700}";
   html += ".mHeroLivePillValue{font-size:26px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1.1;margin-top:2px}";
-  html += ".mHeroLiveBar{flex:1;min-width:220px}";
-  {
-    float gpct = (livePowerGreenKw / livePowerMaxKw) * 100.0f;
-    float ypct = (livePowerYellowKw / livePowerMaxKw) * 100.0f;
-    html += ".mHeroLiveTrack{position:relative;height:14px;border-radius:999px;background:linear-gradient(90deg,#4ade80 0%,#4ade80 " + String(gpct, 1) + "%,#facc15 " + String(gpct, 1) + "%,#facc15 " + String(ypct, 1) + "%,#fb7185 " + String(ypct, 1) + "%,#fb7185 100%);overflow:hidden;box-shadow:inset 0 1px 2px rgba(0,0,0,.15)}";
-  }
-  html += ".mHeroLiveMask{position:absolute;top:0;right:0;bottom:0;background:var(--surface-nav);opacity:.85;border-left:2px solid var(--text);box-shadow:-2px 0 4px rgba(0,0,0,.15)}";
+  html += ".mHeroLiveBar{width:100%}";
+  html += ".mHeroLiveTrack{position:relative;height:14px;border-radius:999px;background:var(--overlay-hover);overflow:hidden;box-shadow:inset 0 1px 2px rgba(0,0,0,.15)}";
+  html += ".mHeroLiveFill{position:absolute;top:0;left:0;bottom:0;border-radius:999px;transition:width .3s var(--ease),background .3s var(--ease)}";
+  html += ".mHeroLiveFill.zc{background:linear-gradient(90deg,#22c55e,#4ade80)}";
+  html += ".mHeroLiveFill.zm{background:linear-gradient(90deg,#facc15,#fb923c)}";
+  html += ".mHeroLiveFill.ze{background:linear-gradient(90deg,#fb923c,#fb7185)}";
   html += ".mHeroLiveScale{display:flex;justify-content:space-between;margin-top:6px;font-size:10px;color:var(--muted);font-weight:600}";
   html += ".mZones{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px}";
   html += ".mZone{padding:10px 12px;border-radius:12px;text-align:center;font-weight:700;font-size:12px;border:1px solid var(--surface-border);position:relative}";
@@ -4162,9 +4161,12 @@ void handleRootModern() {
     secHero += "<div class='mHeroLivePillLabel'>&#9889; Aktueller Verbrauch</div>";
     secHero += "<div class='mHeroLivePillValue'>" + formatLivePowerValue() + "</div>";
     secHero += "</div>";
+    String fillZone = "zc";
+    if (kw >= livePowerYellowKw) fillZone = "ze";
+    else if (kw >= livePowerGreenKw) fillZone = "zm";
     secHero += "<div class='mHeroLiveBar'>";
     secHero += "<div class='mHeroLiveTrack'>";
-    secHero += "<div class='mHeroLiveMask' style='width:" + String(100.0f - pct, 1) + "%'></div>";
+    secHero += "<div class='mHeroLiveFill " + fillZone + "' style='width:" + String(pct, 1) + "%'></div>";
     secHero += "</div>";
     secHero += "<div class='mHeroLiveScale'>";
     for (int i = 0; i <= 4; i++) {
@@ -5153,15 +5155,15 @@ void handleKioskPage() {
   html += ".kw-gauge svg{width:100%;height:100%;background:transparent;border:0;margin:0}";
   html += ".kiosk-live-power{font-size:clamp(20px,4vh,42px);font-weight:800;color:var(--text);letter-spacing:0.5px}";
   html += ".kiosk-live-power:empty{display:none}";
-  html += ".kiosk-live-power.bar{flex-direction:column;justify-content:center;gap:clamp(4px,1vh,8px);width:100%;padding:0 clamp(6px,2vw,16px);box-sizing:border-box}";
-  html += ".kiosk-live-power.bar .klpVal{font-size:clamp(20px,4vh,42px);font-weight:800;line-height:1}";
-  html += ".kiosk-live-power.bar .klpTrack{position:relative;width:100%;height:clamp(6px,1.4vh,12px);border-radius:999px;overflow:hidden}";
-  {
-    float gpct = (livePowerGreenKw / livePowerMaxKw) * 100.0f;
-    float ypct = (livePowerYellowKw / livePowerMaxKw) * 100.0f;
-    html += ".kiosk-live-power.bar .klpTrack{background:linear-gradient(90deg,#4ade80 0%,#4ade80 " + String(gpct, 1) + "%,#facc15 " + String(gpct, 1) + "%,#facc15 " + String(ypct, 1) + "%,#fb7185 " + String(ypct, 1) + "%,#fb7185 100%)}";
-  }
-  html += ".kiosk-live-power.bar .klpMask{position:absolute;top:0;right:0;bottom:0;background:var(--surface-nav);opacity:.85;border-left:2px solid var(--text)}";
+  html += ".kiosk-live-power.bar{flex-direction:column;justify-content:center;gap:clamp(4px,1vh,8px);width:min(480px,92%);margin:0 auto;padding:clamp(8px,1.4vh,14px) clamp(12px,2.4vw,22px);border-radius:20px;background:var(--overlay-faint);border:1px solid var(--surface-border);box-sizing:border-box}";
+  html += ".kiosk-live-power.bar .klpLbl{font-size:clamp(9px,1.3vh,12px);color:var(--muted);text-transform:uppercase;letter-spacing:.4px;font-weight:700;line-height:1}";
+  html += ".kiosk-live-power.bar .klpVal{font-size:clamp(18px,3.4vh,32px);font-weight:800;line-height:1.1;font-variant-numeric:tabular-nums;margin-top:2px}";
+  html += ".kiosk-live-power.bar .klpTrack{position:relative;width:100%;height:clamp(8px,1.4vh,14px);border-radius:999px;overflow:hidden;background:var(--overlay-hover);box-shadow:inset 0 1px 2px rgba(0,0,0,.15)}";
+  html += ".kiosk-live-power.bar .klpFill{position:absolute;top:0;left:0;bottom:0;border-radius:999px;transition:width .3s var(--ease),background .3s var(--ease)}";
+  html += ".kiosk-live-power.bar .klpFill.zc{background:linear-gradient(90deg,#22c55e,#4ade80)}";
+  html += ".kiosk-live-power.bar .klpFill.zm{background:linear-gradient(90deg,#facc15,#fb923c)}";
+  html += ".kiosk-live-power.bar .klpFill.ze{background:linear-gradient(90deg,#fb923c,#fb7185)}";
+  html += ".kiosk-live-power.bar .klpScale{display:flex;justify-content:space-between;font-size:clamp(8px,1.1vh,10px);color:var(--muted);font-weight:600;margin-top:4px}";
   html += ".kiosk-status{font-size:clamp(13px,2.8vh,25px);font-weight:800;padding:clamp(4px,0.9vh,8px) clamp(10px,3vw,22px);border-radius:999px;background:var(--overlay-faint)}";
   html += ".kw-chart{touch-action:none;cursor:crosshair}";
   html += ".kiosk-chart{position:relative;flex:1;min-height:0;width:100%}";
@@ -5212,8 +5214,21 @@ void handleKioskPage() {
     if (pct > 100) pct = 100;
     html += "<div class='kw kw-livepower kiosk-live-power bar' id='kioskLivePower'>";
     if (livePowerHave) {
-      html += "<div class='klpVal'>&#9889; " + formatLivePowerValue() + "</div>";
-      html += "<div class='klpTrack'><div class='klpMask' style='width:" + String(100.0f - pct, 1) + "%'></div></div>";
+      float kwv = livePowerW / 1000.0f;
+      String fillZ = "zc";
+      if (kwv >= livePowerYellowKw) fillZ = "ze";
+      else if (kwv >= livePowerGreenKw) fillZ = "zm";
+      html += "<div class='klpLbl'>&#9889; Aktueller Verbrauch</div>";
+      html += "<div class='klpVal'>" + formatLivePowerValue() + "</div>";
+      html += "<div class='klpTrack'><div class='klpFill " + fillZ + "' style='width:" + String(pct, 1) + "%'></div></div>";
+      html += "<div class='klpScale'>";
+      for (int i = 0; i <= 4; i++) {
+        float v = livePowerMaxKw * i / 4.0f;
+        String s = (v == (int)v) ? String((int)v) : String(v, 1);
+        s.replace(".", ",");
+        html += "<span>" + s + (i == 4 ? " kW" : "") + "</span>";
+      }
+      html += "</div>";
     }
     html += "</div>";
   } else {
@@ -5412,7 +5427,15 @@ function refreshLivePower(){
     if (el.classList.contains('bar')) {
       if (!data.text) { el.innerHTML = ''; return; }
       var pct = (typeof data.pct === 'number' && data.pct >= 0) ? data.pct : 0;
-      el.innerHTML = "<div class='klpVal'>" + data.text + "</div><div class='klpTrack'><div class='klpMask' style='width:" + (100 - pct).toFixed(1) + "%'></div></div>";
+      var zone = (typeof data.zone === 'string') ? data.zone : 'zc';
+      var max = (typeof data.max === 'number' && data.max > 0) ? data.max : 10;
+      var fmt = function(n){ var s = (n===Math.floor(n))?n.toString():n.toFixed(1); return s.replace('.', ','); };
+      var scale = '';
+      for (var i = 0; i <= 4; i++) {
+        var v = max * i / 4;
+        scale += '<span>' + fmt(v) + (i === 4 ? ' kW' : '') + '</span>';
+      }
+      el.innerHTML = "<div class='klpLbl'>⚡ Aktueller Verbrauch</div><div class='klpVal'>" + data.text + "</div><div class='klpTrack'><div class='klpFill " + zone + "' style='width:" + pct.toFixed(1) + "%'></div></div><div class='klpScale'>" + scale + "</div>";
     } else {
       el.innerHTML = data.text || '';
     }
@@ -5507,14 +5530,18 @@ void handleLivePower() {
 
   String text = "";
   float pct = -1;
+  String zone = "zc";
   if (livePowerW >= 0 && millis() - livePowerUpdatedAtMs < 60000) {
     text = "⚡ " + formatLivePowerValue();
-    pct = livePowerW / 1000.0f / livePowerMaxKw * 100.0f;
+    float kw = livePowerW / 1000.0f;
+    pct = kw / livePowerMaxKw * 100.0f;
     if (pct < 0) pct = 0;
     if (pct > 100) pct = 100;
+    if (kw >= livePowerYellowKw) zone = "ze";
+    else if (kw >= livePowerGreenKw) zone = "zm";
   }
 
-  String json = "{\"text\":\"" + jsonEscapeValue(text) + "\",\"pct\":" + String(pct, 1) + "}";
+  String json = "{\"text\":\"" + jsonEscapeValue(text) + "\",\"pct\":" + String(pct, 1) + ",\"zone\":\"" + zone + "\",\"max\":" + String(livePowerMaxKw, 1) + "}";
 
   server.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
   server.send(200, "application/json", json);
