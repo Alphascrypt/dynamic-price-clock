@@ -73,7 +73,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "2.1.0"
+#define FIRMWARE_VERSION "2.1.1"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -5457,7 +5457,7 @@ void handleKioskLayoutPage() {
 .kl-item-caption{font-size:9px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;pointer-events:none;line-height:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
 .kl-item-preview{font-size:12px;font-weight:800;color:var(--text);pointer-events:none;line-height:1.1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
 .kl-resize{position:absolute;right:-7px;bottom:-7px;width:16px;height:16px;background:var(--accent2);border:2px solid var(--panel);border-radius:50%;cursor:nwse-resize}
-.kl-layers{width:230px;border:1px solid var(--line);border-radius:12px;padding:8px;background:var(--overlay-faint)}
+.kl-layers{width:230px;border:0;border-radius:14px;padding:12px;background:var(--panel2)}
 .kl-layer-row{display:flex;align-items:center;gap:8px;padding:8px;border-radius:8px;cursor:pointer}
 .kl-layer-row:hover{background:var(--overlay-hover)}
 .kl-layer-row.selected{background:var(--accent-tint-bg)}
@@ -6035,9 +6035,9 @@ document.addEventListener('DOMContentLoaded',()=>{
 <style>
 .layout-js-wrap{display:grid;gap:18px}
 .layout-actions{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
-.layout-box{border:1px solid var(--line);background:var(--overlay-faint);border-radius:18px;padding:14px}
-.layout-box h3{margin:0 0 8px;font-size:16px}.layout-box p{margin:0 0 12px;color:var(--muted);font-size:13px}.layout-box button{width:100%}
-.palette{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:12px 0 16px;max-height:130px;overflow-y:auto;padding:10px;border:1px solid var(--line);border-radius:14px;background:var(--overlay-faint)}
+.layout-box{border:0;background:var(--panel2);border-radius:16px;padding:16px}
+.layout-box h3{margin:0 0 8px;font-size:15px;font-weight:600}.layout-box p{margin:0 0 12px;color:var(--muted);font-size:13px}.layout-box button{width:100%}
+.palette{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:12px 0 16px;max-height:130px;overflow-y:auto;padding:12px;border:0;border-radius:14px;background:var(--panel2)}
 .palette-hint{width:100%;color:var(--muted);font-size:12px;margin-bottom:2px}
 .palette-group{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 .palette-group-label{color:#64748b;font-size:10px;text-transform:uppercase;letter-spacing:.05em;margin-right:1px}
@@ -6045,7 +6045,7 @@ document.addEventListener('DOMContentLoaded',()=>{
 .palette-chip:active{cursor:grabbing}
 .palette-ghost{position:fixed;z-index:999999;pointer-events:none;background:linear-gradient(135deg,var(--accent2),#7c3aed);color:#fff;padding:7px 13px;border-radius:10px;font-size:12px;font-weight:700;box-shadow:0 10px 26px rgba(0,0,0,.45)}
 .editor-shell{display:grid;grid-template-columns:190px 1fr 300px;gap:14px;align-items:start}
-.layer-panel{border:1px solid var(--line);background:var(--overlay-faint);border-radius:16px;padding:10px}
+.layer-panel{border:0;background:var(--panel2);border-radius:16px;padding:12px}
 .panel-label{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px}
 .layer-list{display:grid;gap:4px}
 .layer-row{display:grid;grid-template-columns:16px 18px 1fr 20px;gap:6px;align-items:center;padding:7px 6px;border-radius:10px;cursor:pointer;font-size:12px;border:1px solid transparent;transition:background .15s var(--ease),border-color .15s var(--ease)}
@@ -6069,14 +6069,14 @@ document.addEventListener('DOMContentLoaded',()=>{
 .resize-handle{position:absolute;right:-6px;bottom:-6px;width:13px;height:13px;background:var(--accent);border:2px solid #0b1224;border-radius:50%;cursor:nwse-resize;z-index:40;touch-action:none}
 @keyframes locatePulse{0%{box-shadow:0 0 0 0 rgba(94,234,212,.85)}70%{box-shadow:0 0 0 16px rgba(94,234,212,0)}100%{box-shadow:0 0 0 0 rgba(94,234,212,0)}}
 .layout-item.locate-pulse{animation:locatePulse 1.1s ease-out 2;z-index:30}
-.props-panel{border:1px solid var(--line);background:var(--overlay-faint);border-radius:16px;padding:12px;position:sticky;top:92px;min-height:120px}
+.props-panel{border:0;background:var(--panel2);border-radius:16px;padding:14px;position:sticky;top:92px;min-height:120px}
 .props-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px}
 .props-head strong{font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .card-head-btns{display:flex;gap:4px;align-items:center;flex:none}
 .icon-btn{appearance:none;background:transparent;border:1px solid var(--line);box-shadow:none;width:28px;height:28px;min-height:28px;padding:0;border-radius:8px;color:var(--muted);font-size:13px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;transition:background .15s var(--ease),color .15s var(--ease)}
 .icon-btn:hover{background:var(--overlay-hover);color:var(--text)}
 .layout-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.layout-fields .wide{grid-column:1/3}.layout-fields label:not(.toggle){display:block;color:var(--muted);font-size:12px;margin-bottom:4px}
-.layout-nudge{display:grid;grid-template-columns:repeat(3,42px);gap:6px;justify-content:center;margin-top:10px;padding:10px;border:1px solid var(--line);border-radius:14px;background:var(--overlay-faint)}
+.layout-nudge{display:grid;grid-template-columns:repeat(3,42px);gap:6px;justify-content:center;margin-top:10px;padding:12px;border:0;border-radius:14px;background:var(--card)}
 .layout-nudge button{padding:8px 0;border-radius:10px;box-shadow:none;background:var(--btn-muted);margin:0}.layout-nudge .blank{visibility:hidden}
 .layout-floating{position:fixed;right:18px;bottom:18px;z-index:99999;background:var(--float-bg);border:1px solid var(--float-border);border-radius:18px;padding:10px;box-shadow:0 14px 40px var(--shadow-float);display:flex;gap:8px;align-items:center;backdrop-filter:blur(14px)}
 @media(max-width:1080px){.editor-shell{grid-template-columns:170px 1fr 260px}}
