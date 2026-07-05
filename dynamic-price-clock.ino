@@ -73,7 +73,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "1.9.2"
+#define FIRMWARE_VERSION "1.9.3"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -5175,21 +5175,21 @@ void handleKioskPage() {
   html += ".kw-gauge svg{width:100%;height:100%;background:transparent;border:0;margin:0}";
   html += ".kiosk-live-power{font-size:clamp(20px,4vh,42px);font-weight:800;color:var(--text);letter-spacing:0.5px}";
   html += ".kiosk-live-power:empty{display:none}";
-  // Container-Queries: Label und Skala werden nur eingeblendet wenn der Widget-
-  // Container hoch genug ist. Font-Groessen und Abstaende skalieren mit cqh
-  // (Prozent der Container-Hoehe), damit alles proportional in die vom User
-  // definierte Widget-Groesse passt.
-  html += ".kiosk-live-power.bar{container-type:size;display:flex;flex-direction:column;justify-content:center;align-items:stretch;gap:clamp(3px,4cqh,10px);width:96%;max-width:520px;margin:0 auto;padding:clamp(4px,5cqh,12px) clamp(6px,2vw,18px);box-sizing:border-box}";
-  html += ".kiosk-live-power.bar .klpLbl{display:none;font-size:clamp(8px,10cqh,12px);color:var(--muted);text-transform:uppercase;letter-spacing:.3px;font-weight:700;line-height:1;text-align:center}";
-  html += ".kiosk-live-power.bar .klpVal{font-size:clamp(16px,32cqh,44px);font-weight:800;line-height:1;font-variant-numeric:tabular-nums;text-align:center;color:var(--text);letter-spacing:0.5px}";
-  html += ".kiosk-live-power.bar .klpTrack{position:relative;width:100%;height:clamp(6px,14cqh,18px);border-radius:999px;overflow:hidden;background:rgba(255,255,255,.12);border:1px solid var(--surface-border);box-shadow:inset 0 1px 3px rgba(0,0,0,.25)}";
+  // TV-kompatibel: vh-basiertes Sizing statt Container-Queries. Label und Skala
+  // werden per JavaScript-ResizeObserver (Fallback-Klassen: klp-mini/small/full)
+  // ein-/ausgeblendet, weil aeltere TV-Browser weder @container noch cqh koennen.
+  html += ".kiosk-live-power.bar{display:flex;flex-direction:column;justify-content:center;align-items:stretch;gap:clamp(3px,0.8vh,8px);width:96%;max-width:520px;margin:0 auto;padding:clamp(3px,0.8vh,10px) clamp(6px,1.5vw,16px);box-sizing:border-box}";
+  html += ".kiosk-live-power.bar .klpLbl{font-size:clamp(8px,1.2vh,12px);color:var(--muted);text-transform:uppercase;letter-spacing:.3px;font-weight:700;line-height:1;text-align:center}";
+  html += ".kiosk-live-power.bar .klpVal{font-size:clamp(16px,3vh,36px);font-weight:800;line-height:1;font-variant-numeric:tabular-nums;text-align:center;color:var(--text);letter-spacing:0.5px}";
+  html += ".kiosk-live-power.bar .klpTrack{position:relative;width:100%;height:clamp(6px,1.3vh,14px);border-radius:999px;overflow:hidden;background:rgba(255,255,255,.12);border:1px solid var(--surface-border);box-shadow:inset 0 1px 3px rgba(0,0,0,.25)}";
   html += ".kiosk-live-power.bar .klpFill{position:absolute;top:0;left:0;bottom:0;border-radius:999px;min-width:6px;transition:width .3s var(--ease),background .3s var(--ease)}";
   html += ".kiosk-live-power.bar .klpFill.zc{background:linear-gradient(90deg,#22c55e,#4ade80)}";
   html += ".kiosk-live-power.bar .klpFill.zm{background:linear-gradient(90deg,#facc15,#fb923c)}";
   html += ".kiosk-live-power.bar .klpFill.ze{background:linear-gradient(90deg,#fb923c,#fb7185)}";
-  html += ".kiosk-live-power.bar .klpScale{display:none;justify-content:space-between;font-size:clamp(7px,8cqh,10px);color:var(--muted);font-weight:600;line-height:1;padding:0 4px}";
-  html += "@container (min-height:70px){.kiosk-live-power.bar .klpLbl{display:block}}";
-  html += "@container (min-height:100px){.kiosk-live-power.bar .klpScale{display:flex}}";
+  html += ".kiosk-live-power.bar .klpScale{display:flex;justify-content:space-between;font-size:clamp(7px,1vh,10px);color:var(--muted);font-weight:600;line-height:1;padding:0 4px}";
+  // JS-Fallback fuer Groessen-abhaengiges Ein-/Ausblenden (statt Container-Query)
+  html += ".kiosk-live-power.bar.klp-mini .klpLbl,.kiosk-live-power.bar.klp-mini .klpScale{display:none}";
+  html += ".kiosk-live-power.bar.klp-small .klpScale{display:none}";
   html += ".kiosk-status{font-size:clamp(13px,2.8vh,25px);font-weight:800;padding:clamp(4px,0.9vh,8px) clamp(10px,3vw,22px);border-radius:999px;background:var(--overlay-faint)}";
   html += ".kw-chart{touch-action:none;cursor:crosshair}";
   html += ".kiosk-chart{position:relative;flex:1;min-height:0;width:100%}";
@@ -5462,6 +5462,7 @@ function refreshLivePower(){
         scale += '<span>' + fmt(v) + (i === 4 ? ' kW' : '') + '</span>';
       }
       el.innerHTML = "<div class='klpLbl'>⚡ Aktueller Verbrauch</div><div class='klpVal'>" + data.text + "</div><div class='klpTrack'><div class='klpFill " + zone + "' style='width:" + pct.toFixed(1) + "%'></div></div><div class='klpScale'>" + scale + "</div>";
+      if (typeof klpApplySizeClass === 'function') klpApplySizeClass();
     } else {
       el.innerHTML = data.text || '';
     }
@@ -5469,6 +5470,24 @@ function refreshLivePower(){
 }
 refreshLivePower();
 setInterval(refreshLivePower, 2500);
+
+// Groessen-Fallback: statt CSS-Container-Queries ordnen wir per JS eine Klasse
+// zu, die Label/Skala je nach Widget-Hoehe ein-/ausblendet. Das laeuft auch auf
+// aelteren TV-Browsern die weder @container noch cqh koennen.
+function klpApplySizeClass(){
+  var el = document.getElementById('kioskLivePower');
+  if (!el || !el.classList.contains('bar')) return;
+  var h = el.clientHeight || 0;
+  el.classList.remove('klp-mini','klp-small');
+  if (h < 60) el.classList.add('klp-mini');
+  else if (h < 95) el.classList.add('klp-small');
+}
+klpApplySizeClass();
+window.addEventListener('resize', klpApplySizeClass);
+if (typeof ResizeObserver !== 'undefined') {
+  var _klpEl = document.getElementById('kioskLivePower');
+  if (_klpEl) new ResizeObserver(klpApplySizeClass).observe(_klpEl);
+}
 
 let kioskWakeLock = null;
 async function requestKioskWakeLock(){
