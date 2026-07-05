@@ -73,7 +73,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "1.7.2"
+#define FIRMWARE_VERSION "1.7.3"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -2433,18 +2433,16 @@ float estimateFullMonthCost() {
 }
 
 // Formatiert den aktuellen Verbrauch. Bis 1200 W in Watt, ab 1200 W in Kilowatt
-// mit 3 Nachkommastellen (z.B. "1.234 kW"), damit die Anzeige immer 4 Stellen
-// nutzt und nicht springt. Leerer String, wenn kein Live-Wert vorliegt.
+// mit 2 Nachkommastellen (z.B. "1.23 kW"), Home-Assistant-Konvention. Leerer
+// String, wenn kein Live-Wert vorliegt.
 String formatLivePowerValue() {
   if (livePowerW < 0 || millis() - livePowerUpdatedAtMs > 60000) return "";
   if (livePowerW < 1200.0f) {
     return String((int)livePowerW) + " W";
   }
   char buf[16];
-  snprintf(buf, sizeof(buf), "%.3f kW", livePowerW / 1000.0f);
-  String s = String(buf);
-  s.replace(".", ",");
-  return s;
+  snprintf(buf, sizeof(buf), "%.2f kW", livePowerW / 1000.0f);
+  return String(buf);
 }
 
 String getLayoutValue(String key) {
