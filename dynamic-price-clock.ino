@@ -73,7 +73,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "1.8.6"
+#define FIRMWARE_VERSION "1.8.7"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -4073,7 +4073,7 @@ void handleRootModern() {
 
   html += "<style>";
   html += ".mHero{padding:clamp(18px,3vw,32px)}";
-  html += ".mHeroGrid{display:grid;grid-template-columns:1.1fr .9fr;gap:clamp(16px,3vw,32px);align-items:center}";
+  html += ".mHeroGrid{display:grid;grid-template-columns:1.1fr .9fr;gap:clamp(16px,3vw,32px);align-items:start}";
   html += "@media(max-width:700px){.mHeroGrid{grid-template-columns:1fr}}";
   html += ".mHeroLabel{color:var(--muted);font-size:13px;letter-spacing:.5px;text-transform:uppercase;font-weight:700;margin-bottom:10px}";
   html += ".mHeroStatus{display:inline-block;padding:10px 22px;border-radius:999px;font-weight:800;font-size:22px}";
@@ -4081,8 +4081,8 @@ void handleRootModern() {
   html += ".mHeroFact b{color:var(--text)}";
   html += ".mHeroGauge{max-width:420px;margin:0 auto}";
   html += ".mHeroGauge svg{width:100%;height:auto}";
-  html += ".mHeroLivePill{grid-column:1/-1;margin-top:20px;padding:14px 22px;border-radius:20px;background:var(--overlay-faint);border:1px solid var(--surface-border);display:flex;align-items:center;gap:20px;flex-wrap:wrap}";
-  html += ".mHeroLivePillLeft{display:flex;flex-direction:column;min-width:160px}";
+  html += ".mHeroLivePill{margin:14px auto 0;max-width:420px;padding:12px 18px;border-radius:20px;background:var(--overlay-faint);border:1px solid var(--surface-border);display:flex;flex-direction:column;gap:8px}";
+  html += ".mHeroLivePillLeft{display:flex;flex-direction:column}";
   html += ".mHeroLivePillLabel{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;font-weight:700}";
   html += ".mHeroLivePillValue{font-size:26px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1.1;margin-top:2px}";
   html += ".mHeroLiveBar{flex:1;min-width:220px}";
@@ -4148,9 +4148,10 @@ void handleRootModern() {
     }
   }
   secHero += "</div>";
-  secHero += "<div class='mHeroGauge'>" + buildPriceGaugeSvg() + "</div>";
+  secHero += "<div class='mHeroGauge'>";
+  secHero += buildPriceGaugeSvg();
 
-  // Live-power pill spanning full width, only if flag on and value valid
+  // Live-power pill under the gauge, capped at the gauge width
   if (modernShow(8) && livePowerW >= 0 && millis() - livePowerUpdatedAtMs < 60000) {
     float kw = livePowerW / 1000.0f;
     float pct = kw / livePowerMaxKw * 100.0f;
@@ -4176,7 +4177,8 @@ void handleRootModern() {
     secHero += "</div>";
     secHero += "</div>";
   }
-  secHero += "</div>";
+  secHero += "</div>"; // mHeroGauge
+  secHero += "</div>"; // mHeroGrid
   secHero += "</section>";
 
   String secChart;
@@ -4308,17 +4310,6 @@ void handleAccountPage() {
   html += "<input type='hidden' name='mOrder' id='mOrderInput' value='" + htmlEscape(modernOrder) + "'>";
   html += "<script>(function(){var list=document.getElementById('mOrderList');if(!list)return;var input=document.getElementById('mOrderInput');var dragEl=null;function sync(){var ids=[];list.querySelectorAll('li').forEach(function(li){ids.push(li.dataset.id);});input.value=ids.join(',');}list.querySelectorAll('li').forEach(function(li){li.addEventListener('dragstart',function(e){dragEl=li;li.style.opacity='.4';e.dataTransfer.effectAllowed='move';});li.addEventListener('dragend',function(){li.style.opacity='';dragEl=null;sync();});li.addEventListener('dragover',function(e){e.preventDefault();if(!dragEl||dragEl===li)return;var rect=li.getBoundingClientRect();var after=(e.clientY-rect.top)>rect.height/2;list.insertBefore(dragEl,after?li.nextSibling:li);});});})();</script>";
   html += "</div>";
-  html += "<div class='field'><label>Kiosk Live-Verbrauch Stil</label><select name='klpStyle'>";
-  html += "<option value='text'";
-  if (kioskLivePowerStyle == "text") html += " selected";
-  html += ">Text (kompakt, z.B. &quot;&#9889; 1.23 kW&quot;)</option>";
-  html += "<option value='bar'";
-  if (kioskLivePowerStyle == "bar") html += " selected";
-  html += ">Bar (Wert + Farbbalken 0-max)</option>";
-  html += "</select></div>";
-  html += "<div class='field'><label>Verbrauchs-Balken Maximum (kW)</label><input name='lpMax' type='number' step='0.5' min='1' max='50' value='" + String(livePowerMaxKw, 1) + "' title='Endwert der Skala und des Farbverlaufs.'></div>";
-  html += "<div class='field'><label>Gruene Zone bis (kW)</label><input name='lpGreen' type='number' step='0.1' min='0.1' max='50' value='" + String(livePowerGreenKw, 1) + "' title='Bis zu diesem Wert wird der Balken gruen (niedriger Verbrauch).'></div>";
-  html += "<div class='field'><label>Gelbe Zone bis (kW)</label><input name='lpYellow' type='number' step='0.1' min='0.1' max='50' value='" + String(livePowerYellowKw, 1) + "' title='Bis zu diesem Wert wird der Balken gelb, darueber rot.'></div>";
   html += "<div class='field'><label>API-Update alle Minuten</label><input name='apiMinutes' type='number' min='1' max='60' value='";
   html += String(apiUpdateMinutes);
   html += "'></div>";
@@ -5637,6 +5628,28 @@ void handleKioskLayoutPage() {
   html += "</div>";
 
   html += "<div class='actions'><button type='button' class='secondary' onclick='klReset()'>Diese Ausrichtung zuruecksetzen</button><a href='/kiosk' target='_blank'><button type='button' class='secondary'>Tablet-Modus oeffnen</button></a><span id='klSaveState' class='badge warnb'>Bereit</span></div>";
+  html += "</section>";
+
+  // Live-Verbrauch-Einstellungen speziell fuer Kiosk und Modern-Balken.
+  html += "<section class='card'>";
+  html += "<div class='panelTitle'><h2>Live-Verbrauch-Anzeige</h2></div>";
+  html += "<p class='small'>Wie der aktuelle Verbrauch im Tablet-Modus dargestellt wird und wo die Farbschwellen des Balkens liegen. Der Balken wird auch auf der Uebersichts-Seite (Modern-Design) verwendet.</p>";
+  html += "<form action='/save' method='post'><input type='hidden' name='redirectTo' value='/kiosklayout'>";
+  html += "<div class='formGrid'>";
+  html += "<div class='field'><label>Kiosk-Stil</label><select name='klpStyle'>";
+  html += "<option value='text'";
+  if (kioskLivePowerStyle == "text") html += " selected";
+  html += ">Text (kompakt, z.B. &quot;&#9889; 1.23 kW&quot;)</option>";
+  html += "<option value='bar'";
+  if (kioskLivePowerStyle == "bar") html += " selected";
+  html += ">Bar (Wert + Farbbalken 0-max)</option>";
+  html += "</select></div>";
+  html += "<div class='field'><label>Balken Maximum (kW)</label><input name='lpMax' type='number' step='0.5' min='1' max='50' value='" + String(livePowerMaxKw, 1) + "' title='Endwert der Skala und des Farbverlaufs.'></div>";
+  html += "<div class='field'><label>Gruene Zone bis (kW)</label><input name='lpGreen' type='number' step='0.1' min='0.1' max='50' value='" + String(livePowerGreenKw, 1) + "' title='Bis zu diesem Wert wird der Balken gruen (niedriger Verbrauch).'></div>";
+  html += "<div class='field'><label>Gelbe Zone bis (kW)</label><input name='lpYellow' type='number' step='0.1' min='0.1' max='50' value='" + String(livePowerYellowKw, 1) + "' title='Bis zu diesem Wert wird der Balken gelb, darueber rot.'></div>";
+  html += "</div>";
+  html += "<div class='actions'><button type='submit'>Speichern</button></div>";
+  html += "</form>";
   html += "</section>";
 
   html += "<script>var klData = {portrait:" + kioskLayoutJson(kioskPortrait) + ",landscape:" + kioskLayoutJson(kioskLandscape) + "};</script>";
