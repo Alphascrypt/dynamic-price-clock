@@ -73,7 +73,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "1.9.0"
+#define FIRMWARE_VERSION "1.9.1"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -1765,8 +1765,28 @@ void updateTibber() {
   String payload = http.getString();
   http.end();
 
-  DynamicJsonDocument doc(32768);
-  DeserializationError error = deserializeJson(doc, payload);
+  // Filter: nur die Felder deserialisieren die wir wirklich brauchen. Sonst
+  // sprengt die DAILY-Konsum-Antwort mit 40 Nodes plus QUARTER_HOURLY-Preisen
+  // fuer heute+morgen den Speicher (NoMemory).
+  JsonDocument filter;
+  JsonObject fHome = filter["data"]["viewer"]["homes"][0].to<JsonObject>();
+  fHome["id"] = true;
+  fHome["appNickname"] = true;
+  JsonObject fPrice = fHome["currentSubscription"]["priceInfo"].to<JsonObject>();
+  fPrice["current"]["total"] = true;
+  fPrice["current"]["startsAt"] = true;
+  fPrice["today"][0]["total"] = true;
+  fPrice["today"][0]["startsAt"] = true;
+  fPrice["tomorrow"][0]["total"] = true;
+  fPrice["tomorrow"][0]["startsAt"] = true;
+  JsonObject fCons = fHome["consumption"]["nodes"][0].to<JsonObject>();
+  fCons["from"] = true;
+  fCons["cost"] = true;
+  fCons["consumption"] = true;
+  fCons["currency"] = true;
+
+  JsonDocument doc;
+  DeserializationError error = deserializeJson(doc, payload, DeserializationOption::Filter(filter));
 
   if (error) {
     lastError = "JSON Fehler: " + String(error.c_str());
