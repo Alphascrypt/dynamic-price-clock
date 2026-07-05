@@ -73,7 +73,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "2.1.4"
+#define FIRMWARE_VERSION "2.1.5"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -6238,6 +6238,13 @@ function switchDpTab(name){
   if(b1)b1.className='dpTab'+(isOverlays?' active':'');
   if(b2)b2.className='dpTab'+(isOverlays?'':' active');
   try{localStorage.setItem('dpTab',name);}catch(e){}
+  if(!isOverlays){
+    if(typeof initLayoutApp==='function'){initLayoutApp();}
+    else{
+      var app=document.getElementById('layoutApp');
+      if(app&&!app.dataset.err){app.dataset.err='1';app.innerHTML='<div style="padding:16px;background:var(--errb-bg);color:var(--errb-text);border-radius:12px;font-size:13px"><b>initLayoutApp fehlt!</b> Das Layout-Editor-Script wurde nicht ausgefuehrt - vermutlich Syntax-Fehler oder Browser-Cache. Bitte hart neu laden (Strg+Shift+R).</div>';}
+    }
+  }
 }
 (function(){
   var t='overlays';
