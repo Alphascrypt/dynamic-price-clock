@@ -73,7 +73,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "2.3.5"
+#define FIRMWARE_VERSION "2.3.6"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -240,6 +240,7 @@ String versionCheckLatest = "";
 volatile int otaBytesWritten = 0;
 volatile int otaBytesTotal = 0;
 volatile bool otaTaskRunning = false;
+volatile unsigned long otaHeartbeatMs = 0; // millis() der letzten Task-Aktivitaet
 volatile bool otaTaskDone = false;
 volatile bool otaTaskSuccess = false;
 String otaTaskError = "";
@@ -2307,15 +2308,14 @@ bool performGithubUpdate(String url) {
   client.setInsecure();
 
   httpUpdate.rebootOnUpdate(false);
-  // GitHub-Release-Downloads leiten per HTTP-Redirect auf einen anderen Host
-  // (objects.githubusercontent.com) um. Ohne Redirect-Follow schlaegt der
-  // Download mit "Wrong HTTP Code" fehl, da nur die 302-Antwort ankommt.
   httpUpdate.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
   otaBytesWritten = 0;
   otaBytesTotal = 0;
+  otaHeartbeatMs = millis();
   httpUpdate.onProgress([](int cur, int total) {
     otaBytesWritten = cur;
     otaBytesTotal = total;
+    otaHeartbeatMs = millis();
   });
   t_httpUpdate_return ret = httpUpdate.update(client, url);
 
@@ -2331,10 +2331,12 @@ bool performGithubUpdate(String url) {
 // Hauptloop waehrend des Downloads weiterlaeuft und /otaprogress bedienen
 // kann. otaPendingUrl wird von handleGithubUpdate() vor dem Task-Start gesetzt.
 void otaUpdateTask(void *param) {
+  otaHeartbeatMs = millis();
   bool ok = performGithubUpdate(otaPendingUrl);
 
   otaTaskSuccess = ok;
   otaTaskError = lastError;
+  otaHeartbeatMs = millis();
   otaTaskDone = true;
   otaTaskRunning = false;
 
@@ -4290,8 +4292,11 @@ async function pollGhProgress() {
     const r = await fetch('/otaprogress', { cache: 'no-store' });
     const j = await r.json();
 
+    var hbAge = (typeof j.heartbeatAge === 'number') ? j.heartbeatAge : 0;
     if (j.percent < 0 || j.bytesTotal === 0) {
-      ghSetPhase('&#8987;', 'Verbinde & lade herunter...', 'GitHub leitet den Download um — das dauert 5-15 Sekunden.');
+      var waitSec = Math.round((now - _ghPollStart) / 1000);
+      var hint = hbAge > 45 ? 'Keine Aktivitaet seit ' + hbAge + 's — ESP32 hängt möglicherweise. Bitte Gerät neu starten.' : 'GitHub leitet den Download um — das dauert 5-15 Sekunden.';
+      ghSetPhase('&#8987;', 'Verbinde & lade herunter... (' + waitSec + 's)', hint);
       text.innerText = '';
       if(speed) speed.innerText = '';
     } else if (j.percent < 100) {
@@ -7839,7 +7844,7 @@ void handleGithubUpdate() {
 
   // Eigener Task, damit der Webserver waehrend des Downloads erreichbar
   // bleibt und /otaprogress den Fortschritt live zurueckgeben kann.
-  xTaskCreate(otaUpdateTask, "otaUpdateTask", 8192, NULL, 1, NULL);
+  xTaskCreate(otaUpdateTask, "otaUpdateTask", 16384, NULL, 1, NULL);
 
   server.send(200, "application/json", "{\"ok\":true,\"started\":true}");
 }
@@ -7852,6 +7857,8 @@ void handleOtaProgress() {
     percent = (int)(((long)otaBytesWritten * 100L) / otaBytesTotal);
   }
 
+  unsigned long heartbeatAge = (otaHeartbeatMs > 0) ? (millis() - otaHeartbeatMs) / 1000 : 0;
+
   String json = "{";
   json += "\"running\":" + String(otaTaskRunning ? "true" : "false") + ",";
   json += "\"done\":" + String(otaTaskDone ? "true" : "false") + ",";
@@ -7859,6 +7866,7 @@ void handleOtaProgress() {
   json += "\"bytesWritten\":" + String(otaBytesWritten) + ",";
   json += "\"bytesTotal\":" + String(otaBytesTotal) + ",";
   json += "\"percent\":" + String(percent) + ",";
+  json += "\"heartbeatAge\":" + String(heartbeatAge) + ",";
   json += "\"error\":\"" + jsEscape(otaTaskError) + "\"";
   json += "}";
 
