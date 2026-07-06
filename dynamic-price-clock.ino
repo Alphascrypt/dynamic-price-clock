@@ -73,7 +73,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "2.1.6"
+#define FIRMWARE_VERSION "2.2.0"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -290,6 +290,9 @@ float priceVatPercent = 0.0;
 
 String lastError = "Noch kein Update";
 String webInterfaceName = "Dynamic Price Clock";
+// Akzentfarbe fuer das UI (iOS-Systemfarben). Erlaubt: blue, green, orange, red, pink, purple, teal, indigo.
+String accentColor = "blue";
+String appearanceMode = "solid"; // "solid" oder "glass"
 
 // -----------------------------------------------------------------------------
 // Zeiten
@@ -1264,6 +1267,10 @@ void setup() {
   wifiPassword = prefs.getString("wifiPass", DEFAULT_WIFI_PASSWORD);
   webInterfaceName = prefs.getString("webName", "Dynamic Price Clock");
   if (webInterfaceName.length() == 0) webInterfaceName = "Dynamic Price Clock";
+  accentColor = prefs.getString("accent", "blue");
+  if (accentColor != "blue" && accentColor != "green" && accentColor != "orange" && accentColor != "red" && accentColor != "pink" && accentColor != "purple" && accentColor != "teal" && accentColor != "indigo") accentColor = "blue";
+  appearanceMode = prefs.getString("appear", "solid");
+  if (appearanceMode != "glass") appearanceMode = "solid";
   livePowerMaxKw = prefs.getFloat("lpMax", 10.0f);
   livePowerGreenKw = prefs.getFloat("lpGreen", 2.0f);
   livePowerYellowKw = prefs.getFloat("lpYellow", 5.0f);
@@ -4093,7 +4100,7 @@ void handleAccountPage() {
   html.reserve(17500);
 
   html += htmlHeader("Konto");
-  html += "<section class='hero' style='background:linear-gradient(120deg,rgba(250,204,21,.20),rgba(251,146,60,.14))'><h1>Konto &amp; Sicherheit</h1><p>Admin-Login, Setup-WLAN-Passwort, allgemeine Geraeteeinstellungen und Firmware-Updates.</p></section>";
+  html += "<section class='hero'><h1>Konto &amp; Sicherheit</h1><p>Admin-Login, Setup-WLAN-Passwort, allgemeine Geraeteeinstellungen und Firmware-Updates.</p></section>";
   html += navTabs("/account");
 
   html += "<section class='card'><div class='panelTitle'><h2>Allgemeine Einstellungen</h2><span class='badge warnb'>Update alle ";
@@ -4111,6 +4118,32 @@ void handleAccountPage() {
   html += "<div class='field'><label>Display-Refresh alle Sekunden</label><input name='dispRefresh' type='number' min='1' max='300' value='";
   html += String(displayRefreshSeconds);
   html += "'></div>";
+  // Akzentfarbe (iOS-Systemfarben)
+  html += "<div class='field' style='grid-column:1/-1'><label>Akzentfarbe</label>";
+  html += "<div style='display:flex;gap:10px;flex-wrap:wrap;margin-top:6px'>";
+  const char* accKeys[8] = {"blue","green","orange","red","pink","purple","teal","indigo"};
+  const char* accHexes[8] = {"#007AFF","#34C759","#FF9500","#FF3B30","#FF2D55","#AF52DE","#5AC8FA","#5856D6"};
+  const char* accNames[8] = {"Blau","Gruen","Orange","Rot","Pink","Lila","Tuerkis","Indigo"};
+  for (int i = 0; i < 8; i++) {
+    bool active = (accentColor == accKeys[i]);
+    html += "<label style='display:flex;flex-direction:column;align-items:center;gap:4px;cursor:pointer;font-size:11px;color:var(--muted);font-weight:500'>";
+    html += "<input type='radio' name='accent' value='" + String(accKeys[i]) + "' style='display:none'" + (active ? " checked" : "") + " onchange='this.form.submit()'>";
+    html += "<span style='width:32px;height:32px;border-radius:50%;background:" + String(accHexes[i]) + ";display:inline-block;box-shadow:0 1px 3px rgba(0,0,0,.15);border:3px solid " + (active ? "var(--text)" : "transparent") + ";transition:border-color .15s var(--ease)'></span>";
+    html += String(accNames[i]);
+    html += "</label>";
+  }
+  html += "</div></div>";
+  html += "<div class='field' style='grid-column:1/-1'><label>Erscheinungsbild</label>";
+  html += "<div style='display:flex;gap:10px;margin-top:6px'>";
+  html += "<label style='flex:1;padding:12px 16px;border-radius:12px;border:2px solid " + String(appearanceMode == "solid" ? "var(--accent)" : "var(--line)") + ";cursor:pointer;background:var(--card)'>";
+  html += "<input type='radio' name='appear' value='solid' style='display:none'" + String(appearanceMode == "solid" ? " checked" : "") + " onchange='this.form.submit()'>";
+  html += "<div style='font-weight:600'>Solid</div><div style='font-size:12px;color:var(--muted)'>Klare weisse Karten (Standard)</div>";
+  html += "</label>";
+  html += "<label style='flex:1;padding:12px 16px;border-radius:12px;border:2px solid " + String(appearanceMode == "glass" ? "var(--accent)" : "var(--line)") + ";cursor:pointer;background:linear-gradient(135deg,#e0eafc,#f5e6ff)'>";
+  html += "<input type='radio' name='appear' value='glass' style='display:none'" + String(appearanceMode == "glass" ? " checked" : "") + " onchange='this.form.submit()'>";
+  html += "<div style='font-weight:600'>Glass</div><div style='font-size:12px;color:var(--muted)'>Frosted-Glas mit Farbverlauf</div>";
+  html += "</label>";
+  html += "</div></div>";
   html += "</div>";
   html += "<div class='actions'><button type='submit'>Einstellungen speichern</button></div>";
   html += "</form></section>";
@@ -4438,7 +4471,7 @@ void handleProviderPage() {
   html.reserve(14500);
 
   html += htmlHeader("Anbieter");
-  html += "<section class='hero' style='background:linear-gradient(120deg,rgba(250,204,21,.20),rgba(251,146,60,.14))'><h1>Anbieter</h1><p>Strompreis-Quelle waehlen und Zugangsdaten hinterlegen.</p></section>";
+  html += "<section class='hero'><h1>Anbieter</h1><p>Strompreis-Quelle waehlen und Zugangsdaten hinterlegen.</p></section>";
   html += navTabs("/anbieter");
 
   html += "<section class='card'><div class='panelTitle'><h2>Strompreis-Quelle</h2><div style='display:flex;gap:6px'><span class='badge ";
@@ -4866,7 +4899,7 @@ void handlePinoutPage() {
   html.reserve(28000);
 
   html += htmlHeader("Pinout");
-  html += "<section class='hero' style='background:linear-gradient(120deg,rgba(52,211,153,.20),rgba(94,234,212,.14))'><h1>Pinout / Verdrahtung</h1><p>GPIO-Belegung fuer ESP32-C5, zwei GC9A01 TFTs, MAX7219 Matrix und WS2812B/WS2818 Tagesring.</p></section>";
+  html += "<section class='hero'><h1>Pinout / Verdrahtung</h1><p>GPIO-Belegung fuer ESP32-C5, zwei GC9A01 TFTs, MAX7219 Matrix und WS2812B/WS2818 Tagesring.</p></section>";
   html += navTabs("/pinout");
 
   html += "<section class='card'><div class='panelTitle'><h2>Schaltplan</h2><span class='badge okb'>8 GPIOs belegt</span></div>";
@@ -5444,7 +5477,7 @@ void handleKioskLayoutPage() {
   html.reserve(9500);
 
   html += htmlHeader("Kiosk-Layout");
-  html += "<section class='hero' style='background:linear-gradient(120deg,rgba(96,165,250,.20),rgba(219,39,119,.10))'><h1>Kiosk-Layout</h1><p>Anordnung des Tablet-Modus frei per Ziehen/Skalieren gestalten - getrennt fuer Hoch- und Querformat.</p></section>";
+  html += "<section class='hero'><h1>Kiosk-Layout</h1><p>Anordnung des Tablet-Modus frei per Ziehen/Skalieren gestalten - getrennt fuer Hoch- und Querformat.</p></section>";
   html += navTabs("/kiosklayout");
 
   html += R"CSS(<style>
@@ -5686,7 +5719,7 @@ void handleWifiPage() {
   String html;
   html.reserve(26000);
   html += htmlHeader("WLAN");
-  html += "<section class='hero' style='background:linear-gradient(120deg,rgba(56,189,248,.22),rgba(96,165,250,.12))'><h1>WLAN</h1><p>WLAN-Verwaltung mit Scan, Auswahl und Live-Status.</p></section>";
+  html += "<section class='hero'><h1>WLAN</h1><p>WLAN-Verwaltung mit Scan, Auswahl und Live-Status.</p></section>";
   html += navTabs("/wifi");
 
   html += R"JS(
@@ -5769,7 +5802,7 @@ void handleDisplaysPage() {
   html.reserve(68000);
 
   html += htmlHeader("Displays");
-  html += "<section class='hero' style='background:linear-gradient(120deg,rgba(167,139,250,.22),rgba(244,114,182,.12))'><h1>Displays</h1><p>Anzeigemodi, feste Overlays und der freie Layout-Editor fuer Display 1 und Display 2 - an einem Ort.</p></section>";
+  html += "<section class='hero'><h1>Displays</h1><p>Anzeigemodi, feste Overlays und der freie Layout-Editor fuer Display 1 und Display 2 - an einem Ort.</p></section>";
   html += navTabs("/displays");
 
   html += "<div class='dpTabs'>";
@@ -6460,7 +6493,7 @@ void handleLedRingPage() {
   html.reserve(12000);
 
   html += htmlHeader("WS2812B/WS2818 Tagesring");
-  html += "<section class='hero' style='background:linear-gradient(120deg,rgba(251,146,60,.22),rgba(244,114,182,.14))'><h1>WS2812B/WS2818 Tagesring</h1><p>60 LEDs zeigen den heutigen Strompreisverlauf als Tageskreis.</p></section>";
+  html += "<section class='hero'><h1>WS2812B/WS2818 Tagesring</h1><p>60 LEDs zeigen den heutigen Strompreisverlauf als Tageskreis.</p></section>";
   html += navTabs("/ring");
 
   html += "<section class='card'><h2>Status</h2>";
@@ -6686,7 +6719,7 @@ void handleMatrixPage() {
   html.reserve(16000);
 
   html += htmlHeader("Matrix");
-  html += "<section class='hero' style='background:linear-gradient(120deg,rgba(163,230,53,.20),rgba(52,211,153,.12))'><h1>8x8 Matrix</h1><p>Bis zu 4 MAX7219 LED-Matrixmodule in Daisy-Chain, jedes einzeln konfigurierbar.</p></section>";
+  html += "<section class='hero'><h1>8x8 Matrix</h1><p>Bis zu 4 MAX7219 LED-Matrixmodule in Daisy-Chain, jedes einzeln konfigurierbar.</p></section>";
   html += navTabs("/matrix");
 
   html += "<section class='card'><h2>Status</h2><div class='gridCards'>";
@@ -7476,6 +7509,21 @@ void handleSave() {
     prefs.putString("webName", webInterfaceName);
   }
 
+  if (server.hasArg("accent")) {
+    String a = server.arg("accent");
+    if (a == "blue" || a == "green" || a == "orange" || a == "red" || a == "pink" || a == "purple" || a == "teal" || a == "indigo") {
+      accentColor = a;
+      prefs.putString("accent", accentColor);
+    }
+  }
+
+  if (server.hasArg("appear")) {
+    String m = server.arg("appear");
+    if (m != "glass") m = "solid";
+    appearanceMode = m;
+    prefs.putString("appear", appearanceMode);
+  }
+
   if (server.hasArg("klpStyle")) {
     String s = server.arg("klpStyle");
     if (s != "bar") s = "text";
@@ -8100,6 +8148,25 @@ String htmlHeader(String title) {
   html += "<script>(function(){try{if(localStorage.getItem('theme')==='dark'){document.documentElement.setAttribute('data-theme','dark');}}catch(e){}})();</script>";
   html += "<link rel='stylesheet' href='/style.css?v=" ASSET_VERSION "'>";
   html += "<link rel='icon' type='image/svg+xml' href='/favicon.svg'>";
+  // Dynamische Akzentfarbe (iOS-Systemfarben) + optionaler Glass-Modus
+  html += "<style>";
+  String accHex = "#007AFF", accHexDk = "#0A84FF";
+  if (accentColor == "green") { accHex = "#34C759"; accHexDk = "#30D158"; }
+  else if (accentColor == "orange") { accHex = "#FF9500"; accHexDk = "#FF9F0A"; }
+  else if (accentColor == "red") { accHex = "#FF3B30"; accHexDk = "#FF453A"; }
+  else if (accentColor == "pink") { accHex = "#FF2D55"; accHexDk = "#FF375F"; }
+  else if (accentColor == "purple") { accHex = "#AF52DE"; accHexDk = "#BF5AF2"; }
+  else if (accentColor == "teal") { accHex = "#5AC8FA"; accHexDk = "#64D2FF"; }
+  else if (accentColor == "indigo") { accHex = "#5856D6"; accHexDk = "#5E5CE6"; }
+  html += ":root{--accent:" + accHex + ";--accent2:" + accHex + ";--accent-tint-bg:" + accHex + "1F;--accent-tint-border:" + accHex + "59}";
+  html += ":root[data-theme='dark']{--accent:" + accHexDk + ";--accent2:" + accHexDk + ";--accent-tint-bg:" + accHexDk + "2E;--accent-tint-border:" + accHexDk + "66}";
+  if (appearanceMode == "glass") {
+    html += "body{background:linear-gradient(135deg,#e0eafc,#cfdef3,#f5e6ff)}";
+    html += ":root[data-theme='dark'] body{background:linear-gradient(135deg,#1a1a2e,#16213e,#0f0c29)}";
+    html += ".card,.hero,.nav{background:rgba(255,255,255,.55);backdrop-filter:blur(20px) saturate(180%);-webkit-backdrop-filter:blur(20px) saturate(180%);border:1px solid rgba(255,255,255,.35)}";
+    html += ":root[data-theme='dark'] .card,:root[data-theme='dark'] .hero,:root[data-theme='dark'] .nav{background:rgba(28,28,30,.55);border:1px solid rgba(255,255,255,.1)}";
+  }
+  html += "</style>";
   html += "</head><body><main class='shell'>";
 
   return html;
