@@ -73,7 +73,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "2.3.7"
+#define FIRMWARE_VERSION "2.4.0"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -5048,48 +5048,61 @@ void handleKioskPage() {
   html += "<script>(function(){try{if(localStorage.getItem('theme')==='dark'){document.documentElement.setAttribute('data-theme','dark');}}catch(e){}})();</script>";
   html += "<link rel='stylesheet' href='/style.css?v=" ASSET_VERSION "'>";
   html += "<link rel='icon' type='image/svg+xml' href='/favicon.svg'>";
+  // Zonen-Farben fuer animierten Hintergrund
+  String zoneColor1 = "#003d1a"; String zoneColor2 = "#001a0d"; // günstig: grün
+  if (metricCurrent15 >= 0) {
+    int nc = euroToCentRounded(metricCurrent15);
+    if (nc >= ledRedCent) { zoneColor1 = "#3d0a00"; zoneColor2 = "#1a0400"; }
+    else if (nc >= ledYellowCent) { zoneColor1 = "#3d2200"; zoneColor2 = "#1a0f00"; }
+  }
   html += "<style>";
-  html += "html,body{height:100%;overflow:hidden}";
-  html += "body{padding:0!important;display:flex;align-items:center;justify-content:center}";
-  html += ".kiosk-wrap{display:flex;flex-direction:column;align-items:center;max-height:100vh;padding:clamp(8px,2.2vh,20px);box-sizing:border-box;text-align:center;overflow:hidden}";
-  // Portrait: 6-Spalten x 12-Zeilen Grid. Height fluessig, keine aspect-ratio noetig.
+  // Animierter Hintergrund: langsam rotierendes Gradient + Zone-Ambient-Glow
+  html += "@keyframes bgRotate{0%{background-position:0% 50%}50%{background-position:100% 50%}100%{background-position:0% 50%}}";
+  html += "@keyframes bgPulse{0%,100%{opacity:.7}50%{opacity:1}}";
+  html += "html,body{height:100%;overflow:hidden;margin:0}";
+  html += "body{padding:0!important;display:flex;align-items:center;justify-content:center;background:#000;position:relative}";
+  // Schicht 1: tiefer Hintergrundverlauf
+  html += "body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellipse 80% 60% at 50% 0%," + zoneColor1 + ",transparent 70%),radial-gradient(ellipse 60% 80% at 20% 100%," + zoneColor2 + ",transparent 70%),#000;animation:bgPulse 8s ease-in-out infinite;z-index:0}";
+  // Schicht 2: bewegter Farb-Orb
+  html += "body::after{content:'';position:fixed;width:60vmax;height:60vmax;left:50%;top:50%;transform:translate(-50%,-50%);background:radial-gradient(circle," + zoneColor1 + " 0%,transparent 70%);animation:bgRotate 20s ease infinite,bgPulse 12s ease-in-out infinite 4s;background-size:200% 200%;border-radius:50%;z-index:0;filter:blur(40px);opacity:.5}";
+  html += ".kiosk-wrap{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;max-height:100vh;padding:clamp(8px,2.2vh,20px);box-sizing:border-box;text-align:center;overflow:hidden}";
   html += ".kiosk-canvas{display:grid;grid-template-columns:repeat(" + String(KIOSK_GRID_COLS_PORTRAIT) + ",1fr);grid-template-rows:repeat(" + String(KIOSK_GRID_ROWS_PORTRAIT) + ",1fr);gap:clamp(4px,1vh,10px);width:min(97vw,600px);height:min(94vh,1200px);box-sizing:border-box;margin:0 auto}";
-  html += ".kw{overflow:hidden;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;justify-content:center;min-width:0;min-height:0}";
-  html += ".kiosk-time{font-size:clamp(18px,5vh,46px);font-weight:800;line-height:1.1;letter-spacing:1px}";
-  html += ".kiosk-date{font-size:clamp(9px,1.7vh,15px);color:var(--muted);margin-top:2px;text-transform:capitalize}";
+  // Widget-Grundklasse: Glassmorphism
+  html += ".kw{overflow:hidden;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;justify-content:center;min-width:0;min-height:0;border-radius:clamp(12px,2vh,24px);background:rgba(255,255,255,.07);backdrop-filter:blur(24px) saturate(160%);-webkit-backdrop-filter:blur(24px) saturate(160%);border:1px solid rgba(255,255,255,.12)}";
+  html += ".kiosk-time{font-size:clamp(18px,5vh,56px);font-weight:700;line-height:1;letter-spacing:-1px;color:#fff;font-variant-numeric:tabular-nums}";
+  html += ".kiosk-date{font-size:clamp(9px,1.5vh,15px);color:rgba(255,255,255,.65);margin-top:4px;text-transform:capitalize;font-weight:500}";
   html += ".kw-gauge svg{width:100%;height:100%;background:transparent;border:0;margin:0}";
-  html += ".kw-gauge .priceGauge{max-width:100%;padding:8px}";
-  html += ".kiosk-live-power{font-size:clamp(20px,4vh,42px);font-weight:800;color:var(--text);letter-spacing:0.5px}";
+  html += ".kw-gauge .priceGauge{max-width:100%;padding:clamp(6px,1.2vh,14px)}";
+  html += ".kw-gauge .pg-value{color:#fff}";
+  html += ".kw-gauge .pg-label,.kw-gauge .pg-time,.kw-gauge .pg-unit,.kw-gauge .pg-scale{color:rgba(255,255,255,.6)}";
+  html += ".kw-gauge .pg-track{background:rgba(255,255,255,.15)}";
+  html += ".kiosk-live-power{font-size:clamp(20px,4vh,42px);font-weight:700;color:#fff;letter-spacing:-0.5px}";
   html += ".kiosk-live-power:empty{display:none}";
-  // TV-kompatibel: vh-basiertes Sizing statt Container-Queries. Label und Skala
-  // werden per JavaScript-ResizeObserver (Fallback-Klassen: klp-mini/small/full)
-  // ein-/ausgeblendet, weil aeltere TV-Browser weder @container noch cqh koennen.
   html += ".kiosk-live-power.bar{display:flex;flex-direction:column;justify-content:center;align-items:stretch;gap:clamp(3px,0.8vh,8px);width:96%;max-width:520px;margin:0 auto;padding:clamp(3px,0.8vh,10px) clamp(6px,1.5vw,16px);box-sizing:border-box}";
-  html += ".kiosk-live-power.bar .klpLbl{font-size:clamp(8px,1.2vh,12px);color:var(--muted);text-transform:uppercase;letter-spacing:.3px;font-weight:700;line-height:1;text-align:center}";
-  html += ".kiosk-live-power.bar .klpVal{font-size:clamp(16px,3vh,36px);font-weight:800;line-height:1;font-variant-numeric:tabular-nums;text-align:center;color:var(--text);letter-spacing:0.5px}";
-  html += ".kiosk-live-power.bar .klpTrack{position:relative;width:100%;height:clamp(6px,1.3vh,14px);border-radius:999px;overflow:hidden;background:rgba(255,255,255,.12);border:1px solid var(--surface-border);box-shadow:inset 0 1px 3px rgba(0,0,0,.25)}";
+  html += ".kiosk-live-power.bar .klpLbl{font-size:clamp(8px,1.2vh,12px);color:rgba(255,255,255,.55);text-transform:uppercase;letter-spacing:.4px;font-weight:600;line-height:1;text-align:center}";
+  html += ".kiosk-live-power.bar .klpVal{font-size:clamp(16px,3vh,36px);font-weight:700;line-height:1;font-variant-numeric:tabular-nums;text-align:center;color:#fff;letter-spacing:-0.5px}";
+  html += ".kiosk-live-power.bar .klpTrack{position:relative;width:100%;height:clamp(6px,1.3vh,14px);border-radius:999px;overflow:hidden;background:rgba(255,255,255,.15)}";
   html += ".kiosk-live-power.bar .klpFill{position:absolute;top:0;left:0;bottom:0;border-radius:999px;min-width:6px;transition:width .3s var(--ease),background .3s var(--ease)}";
   html += ".kiosk-live-power.bar .klpFill.zc{background:linear-gradient(90deg,#22c55e,#4ade80)}";
   html += ".kiosk-live-power.bar .klpFill.zm{background:linear-gradient(90deg,#facc15,#fb923c)}";
   html += ".kiosk-live-power.bar .klpFill.ze{background:linear-gradient(90deg,#fb923c,#fb7185)}";
-  html += ".kiosk-live-power.bar .klpScale{display:flex;justify-content:space-between;font-size:clamp(7px,1vh,10px);color:var(--muted);font-weight:600;line-height:1;padding:0 4px}";
-  // JS-Fallback fuer Groessen-abhaengiges Ein-/Ausblenden (statt Container-Query)
+  html += ".kiosk-live-power.bar .klpScale{display:flex;justify-content:space-between;font-size:clamp(7px,1vh,10px);color:rgba(255,255,255,.4);font-weight:600;line-height:1;padding:0 4px}";
   html += ".kiosk-live-power.bar.klp-mini .klpLbl,.kiosk-live-power.bar.klp-mini .klpScale{display:none}";
   html += ".kiosk-live-power.bar.klp-small .klpScale{display:none}";
-  html += ".kiosk-status{font-size:clamp(13px,2.8vh,25px);font-weight:800;padding:clamp(4px,0.9vh,8px) clamp(10px,3vw,22px);border-radius:999px;background:var(--overlay-faint)}";
+  html += ".kiosk-status{font-size:clamp(13px,2.8vh,28px);font-weight:700;padding:clamp(4px,0.9vh,10px) clamp(10px,3vw,26px);border-radius:999px;letter-spacing:-0.3px}";
   html += ".kw-chart{touch-action:none;cursor:crosshair}";
   html += ".kiosk-chart{position:relative;flex:1;min-height:0;width:100%}";
   html += ".kiosk-chart svg{width:100%;height:100%;display:block}";
-  html += ".kiosk-crosshair-line{stroke:var(--text);stroke-width:1.5;stroke-dasharray:4,4;opacity:0;pointer-events:none}";
-  html += ".kiosk-crosshair-dot{fill:var(--text);stroke:#0b1224;stroke-width:2;opacity:0;pointer-events:none}";
-  html += ".kiosk-tooltip{position:absolute;transform:translate(-50%,-115%);background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:6px 10px;font-size:13px;font-weight:700;white-space:nowrap;pointer-events:none;opacity:0;box-shadow:0 8px 20px var(--shadow-soft)}";
-  html += ".kiosk-chart-hint{color:var(--muted);font-size:clamp(9px,1.3vh,12px);margin:clamp(10px,2vh,20px) 0 0;flex:0 0 auto}";
-  html += ".kiosk-meta{color:var(--muted);font-size:clamp(9px,1.6vh,14px);display:flex;flex-wrap:wrap;gap:clamp(4px,1vh,10px);justify-content:center;align-items:center;height:100%}";
-  html += ".kiosk-meta span{padding:clamp(3px,0.7vh,7px) clamp(8px,2vw,16px);border-radius:999px;background:var(--overlay-faint);border:1px solid var(--line)}";
+  html += ".kiosk-crosshair-line{stroke:rgba(255,255,255,.5);stroke-width:1;stroke-dasharray:4,4;opacity:0;pointer-events:none}";
+  html += ".kiosk-crosshair-dot{fill:#fff;stroke:rgba(0,0,0,.4);stroke-width:2;opacity:0;pointer-events:none}";
+  html += ".kiosk-tooltip{position:absolute;transform:translate(-50%,-115%);background:rgba(30,30,40,.9);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,.15);border-radius:12px;padding:6px 12px;font-size:13px;font-weight:600;white-space:nowrap;pointer-events:none;opacity:0;color:#fff;box-shadow:0 8px 24px rgba(0,0,0,.4)}";
+  html += ".kiosk-chart-hint{color:rgba(255,255,255,.4);font-size:clamp(9px,1.3vh,12px);margin:clamp(6px,1.4vh,14px) 0 0;flex:0 0 auto}";
+  html += ".kiosk-meta{color:rgba(255,255,255,.65);font-size:clamp(9px,1.6vh,14px);display:flex;flex-wrap:wrap;gap:clamp(4px,1vh,10px);justify-content:center;align-items:center;height:100%}";
+  html += ".kiosk-meta span{padding:clamp(3px,0.7vh,7px) clamp(8px,2vw,16px);border-radius:999px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.12);color:#fff}";
   html += ".kiosk-meta span:empty{display:none}";
-  html += ".kiosk-topbar{position:fixed;top:14px;right:14px;display:flex;gap:8px;opacity:.3;transition:opacity .2s var(--ease);z-index:10}";
+  html += ".kiosk-topbar{position:fixed;top:14px;right:14px;display:flex;gap:8px;opacity:.25;transition:opacity .2s var(--ease);z-index:10}";
   html += ".kiosk-topbar:hover{opacity:1}";
-  html += ".kiosk-hint{font-size:clamp(9px,1.3vh,12px);color:var(--muted);margin-top:clamp(4px,1vh,14px);max-width:520px}";
+  html += ".kiosk-hint{font-size:clamp(9px,1.3vh,12px);color:rgba(255,255,255,.4);margin-top:clamp(4px,1vh,14px);max-width:520px}";
   html += ".actions{margin-top:clamp(6px,2vh,16px)!important;justify-content:center!important}";
   html += kioskWidgetCss(kioskPortrait);
   html += "@media (orientation:landscape){";
@@ -7515,87 +7528,80 @@ String buildSvgChart() {
   String svg;
   svg.reserve(13000);
 
-  svg += "<svg id='priceChartSvg' viewBox='0 0 760 320' xmlns='http://www.w3.org/2000/svg' style='font-family:Inter,system-ui,sans-serif'>";
-  svg += "<defs><linearGradient id='chartFill' x1='0' y1='0' x2='0' y2='1'>";
-  svg += "<stop offset='0%' stop-color='#60a5fa' stop-opacity='.4'/><stop offset='100%' stop-color='#60a5fa' stop-opacity='0'/>";
-  svg += "</linearGradient></defs>";
-  svg += "<rect x='0' y='0' width='760' height='320' fill='#0b1224' rx='16'/>";
+  // Apple-Weather-Style Chart: transparent, keine Box, dünne Gridlines,
+  // satter Farbverlauf-Fill, glatte dicke Linie, weisse Marker
+  svg += "<svg id='priceChartSvg' viewBox='0 0 760 320' xmlns='http://www.w3.org/2000/svg' style='font-family:-apple-system,Inter,system-ui,sans-serif'>";
+  svg += "<defs>";
+  svg += "<linearGradient id='chartFill' x1='0' y1='0' x2='0' y2='1'>";
+  svg += "<stop offset='0%' stop-color='#ffffff' stop-opacity='.25'/>";
+  svg += "<stop offset='100%' stop-color='#ffffff' stop-opacity='.02'/>";
+  svg += "</linearGradient>";
+  svg += "<filter id='chartGlow'><feGaussianBlur stdDeviation='3' result='b'/><feMerge><feMergeNode in='b'/><feMergeNode in='SourceGraphic'/></feMerge></filter>";
+  svg += "</defs>";
 
+  // Dezente horizontale Gridlinien
   for (int t = 0; t <= 4; t++) {
     float value = minP + ((maxP - minP) * t / 4.0);
     int y = top + chartH - ((chartH * t) / 4);
-
-    svg += "<line x1='" + String(left - 4) + "' y1='" + String(y) + "' x2='" + String(left + chartW) + "' y2='" + String(y) + "' stroke='#1c2740'/>";
-    svg += "<text x='5' y='" + String(y + 4) + "' fill='#9aa8c7' font-size='12'>" + String(euroToCentRounded(value)) + " ct</text>";
+    svg += "<line x1='" + String(left) + "' y1='" + String(y) + "' x2='" + String(left + chartW) + "' y2='" + String(y) + "' stroke='rgba(255,255,255,.08)' stroke-width='1'/>";
+    svg += "<text x='3' y='" + String(y + 4) + "' fill='rgba(255,255,255,.45)' font-size='11' font-weight='500'>" + String(euroToCentRounded(value)) + "</text>";
   }
-
+  // Zeitstempel unten
   for (int i = 0; i < quarterCount; i += 12) {
-    svg += "<line x1='" + String(xs[i]) + "' y1='" + String(top + chartH) + "' x2='" + String(xs[i]) + "' y2='" + String(top + chartH + 5) + "' stroke='#26324f'/>";
-    svg += "<text x='" + String(xs[i] - 14) + "' y='" + String(top + chartH + 22) + "' fill='#9aa8c7' font-size='12'>" + formatTimeOnly(quarterTimes[i]) + "</text>";
+    svg += "<text x='" + String(xs[i]) + "' y='315' fill='rgba(255,255,255,.38)' font-size='10' font-weight='500' text-anchor='middle'>" + formatTimeOnly(quarterTimes[i]) + "</text>";
   }
-
-  svg += "<line x1='" + String(left) + "' y1='" + String(top + chartH) + "' x2='" + String(left + chartW) + "' y2='" + String(top + chartH) + "' stroke='#26324f'/>";
-  svg += "<line x1='" + String(left) + "' y1='" + String(top) + "' x2='" + String(left) + "' y2='" + String(top + chartH) + "' stroke='#26324f'/>";
-
-  svg += "<text x='" + String(left + chartW / 2 - 40) + "' y='310' fill='#9aa8c7' font-size='13'>Uhrzeit</text>";
-  svg += "<text x='8' y='18' fill='#9aa8c7' font-size='13'>ct/kWh</text>";
 
   String linePoints;
-
   for (int i = 0; i < quarterCount; i++) {
     linePoints += String(xs[i]) + "," + String(ys[i]) + " ";
   }
-
   String areaPoints = String(xs[0]) + "," + String(top + chartH) + " " + linePoints + String(xs[quarterCount - 1]) + "," + String(top + chartH);
 
+  // Farbiger Fill
   svg += "<polygon points='" + areaPoints + "' fill='url(#chartFill)' stroke='none'/>";
 
+  // Durchschnittslinie — dezent gestrichelt
   if (metricDayAvg >= 0) {
     float normAvg = (metricDayAvg - minP) / (maxP - minP);
     if (normAvg < 0) normAvg = 0;
     if (normAvg > 1) normAvg = 1;
     int yAvg = top + chartH - int(normAvg * chartH);
-
-    svg += "<line x1='" + String(left) + "' y1='" + String(yAvg) + "' x2='" + String(left + chartW) + "' y2='" + String(yAvg) + "' stroke='#9aa8c7' stroke-width='1.2' stroke-dasharray='5,5'/>";
-    svg += "<text x='" + String(left + chartW - 100) + "' y='" + String(yAvg - 6) + "' fill='#9aa8c7' font-size='11'>Schnitt " + String(euroToCentRounded(metricDayAvg)) + " ct</text>";
+    svg += "<line x1='" + String(left) + "' y1='" + String(yAvg) + "' x2='" + String(left + chartW) + "' y2='" + String(yAvg) + "' stroke='rgba(255,255,255,.22)' stroke-width='1' stroke-dasharray='6,4'/>";
+    svg += "<text x='" + String(left + chartW - 4) + "' y='" + String(yAvg - 5) + "' fill='rgba(255,255,255,.45)' font-size='10' font-weight='600' text-anchor='end'>&#8960; " + String(euroToCentRounded(metricDayAvg)) + " ct</text>";
   }
 
-  svg += "<polyline fill='none' stroke='#60a5fa' stroke-width='3' stroke-linecap='round' stroke-linejoin='round' points='" + linePoints + "'/>";
+  // Hauptlinie — glatt, weiss-translucent
+  svg += "<polyline fill='none' stroke='rgba(255,255,255,.85)' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round' points='" + linePoints + "'/>";
 
+  // Morgen-Trenner
   if (tomorrowIndex > 0) {
-    svg += "<line x1='" + String(xs[tomorrowIndex]) + "' y1='" + String(top) + "' x2='" + String(xs[tomorrowIndex]) + "' y2='" + String(top + chartH) + "' stroke='#3a4a72' stroke-width='1.4' stroke-dasharray='3,4'/>";
-    svg += "<text x='" + String(xs[tomorrowIndex] + 6) + "' y='" + String(top + 14) + "' fill='#7184ad' font-size='11'>Morgen</text>";
+    svg += "<line x1='" + String(xs[tomorrowIndex]) + "' y1='" + String(top) + "' x2='" + String(xs[tomorrowIndex]) + "' y2='" + String(top + chartH) + "' stroke='rgba(255,255,255,.15)' stroke-width='1' stroke-dasharray='3,4'/>";
+    svg += "<text x='" + String(xs[tomorrowIndex] + 5) + "' y='" + String(top + 13) + "' fill='rgba(255,255,255,.35)' font-size='10' font-weight='600'>Morgen</text>";
   }
 
+  // Tiefster 60-Min-Block — goldener Marker
   if (metricLow60Day >= 0) {
     int lowIndex = 0;
-
     for (int i = 0; i < quarterCount; i++) {
-      if (quarterTimes[i] == metricLow60DayTime) {
-        lowIndex = i;
-        break;
-      }
+      if (quarterTimes[i] == metricLow60DayTime) { lowIndex = i; break; }
     }
-
-    svg += "<line x1='" + String(xs[lowIndex]) + "' y1='" + String(top) + "' x2='" + String(xs[lowIndex]) + "' y2='" + String(top + chartH) + "' stroke='#facc15' stroke-width='1.6' stroke-dasharray='2,3'/>";
-    svg += "<circle cx='" + String(xs[lowIndex]) + "' cy='" + String(ys[lowIndex]) + "' r='5' fill='#facc15'/>";
-    svg += "<text x='" + String(xs[lowIndex] + 8) + "' y='" + String(max(top + 14, ys[lowIndex] - 8)) + "' fill='#facc15' font-size='13' font-weight='700'>" + String(euroToCentRounded(metricLow60Day)) + " ct " + formatTimeOnly(metricLow60DayTime) + "</text>";
+    svg += "<circle cx='" + String(xs[lowIndex]) + "' cy='" + String(ys[lowIndex]) + "' r='4' fill='#FFD60A' opacity='.9'/>";
+    int lx = xs[lowIndex] + 8; if (lx > left + chartW - 65) lx = xs[lowIndex] - 70;
+    int ly = ys[lowIndex] - 8; if (ly < top + 12) ly = ys[lowIndex] + 18;
+    svg += "<text x='" + String(lx) + "' y='" + String(ly) + "' fill='#FFD60A' font-size='11' font-weight='600'>" + String(euroToCentRounded(metricLow60Day)) + " ct</text>";
   }
 
+  // Jetzt-Marker — grosse weisse Kugel mit Zone-Farbe
   if (nowIndex >= 0) {
     int nowCent = euroToCentRounded(quarterPrices[nowIndex]);
-    String nowColor = "#4ade80";
-    if (nowCent >= ledRedCent) nowColor = "#fb7185";
-    else if (nowCent >= ledYellowCent) nowColor = "#facc15";
-
-    int labelY = ys[nowIndex] - 14;
-    if (labelY < top + 12) labelY = ys[nowIndex] + 22;
-    int labelX = xs[nowIndex] + 8;
-    if (labelX > left + chartW - 70) labelX = left + chartW - 70;
-
-    svg += "<line x1='" + String(xs[nowIndex]) + "' y1='" + String(top) + "' x2='" + String(xs[nowIndex]) + "' y2='" + String(top + chartH) + "' stroke='#5eead4' stroke-width='1.4' stroke-dasharray='1,3'/>";
-    svg += "<circle cx='" + String(xs[nowIndex]) + "' cy='" + String(ys[nowIndex]) + "' r='6' fill='" + nowColor + "' stroke='#0b1224' stroke-width='2'/>";
-    svg += "<text x='" + String(labelX) + "' y='" + String(labelY) + "' fill='#5eead4' font-size='13' font-weight='700'>Jetzt " + String(nowCent) + " ct</text>";
+    String nowColor = "#34C759";
+    if (nowCent >= ledRedCent) nowColor = "#FF3B30";
+    else if (nowCent >= ledYellowCent) nowColor = "#FF9500";
+    svg += "<circle cx='" + String(xs[nowIndex]) + "' cy='" + String(ys[nowIndex]) + "' r='8' fill='#fff' filter='url(#chartGlow)'/>";
+    svg += "<circle cx='" + String(xs[nowIndex]) + "' cy='" + String(ys[nowIndex]) + "' r='5' fill='" + nowColor + "'/>";
+    int lx = xs[nowIndex] + 12; if (lx > left + chartW - 65) lx = xs[nowIndex] - 72;
+    int ly = ys[nowIndex] - 12; if (ly < top + 16) ly = ys[nowIndex] + 22;
+    svg += "<text x='" + String(lx) + "' y='" + String(ly) + "' fill='" + nowColor + "' font-size='12' font-weight='700'>Jetzt " + String(nowCent) + " ct</text>";
   }
 
   svg += "</svg>";
