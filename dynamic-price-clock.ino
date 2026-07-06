@@ -73,7 +73,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "2.2.0"
+#define FIRMWARE_VERSION "2.3.0"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -4980,6 +4980,7 @@ void handleKioskPage() {
   html += ".kiosk-time{font-size:clamp(18px,5vh,46px);font-weight:800;line-height:1.1;letter-spacing:1px}";
   html += ".kiosk-date{font-size:clamp(9px,1.7vh,15px);color:var(--muted);margin-top:2px;text-transform:capitalize}";
   html += ".kw-gauge svg{width:100%;height:100%;background:transparent;border:0;margin:0}";
+  html += ".kw-gauge .priceGauge{max-width:100%;padding:8px}";
   html += ".kiosk-live-power{font-size:clamp(20px,4vh,42px);font-weight:800;color:var(--text);letter-spacing:0.5px}";
   html += ".kiosk-live-power:empty{display:none}";
   // TV-kompatibel: vh-basiertes Sizing statt Container-Queries. Label und Skala
@@ -7185,44 +7186,36 @@ String buildPriceGaugeSvg() {
   if (f < 0) f = 0;
   if (f > 1) f = 1;
 
-  float angleDeg = 180.0 - (f * 180.0);
-  float angleRad = angleDeg * PI / 180.0;
-  int cx = 120;
-  int cy = 120;
-  int r = 100;
-  int needleLen = r - 18;
-  int tipX = cx + (int)(needleLen * cos(angleRad));
-  int tipY = cy - (int)(needleLen * sin(angleRad));
-
   int nowCent = euroToCentRounded(metricCurrent15);
   int minCent = euroToCentRounded(minP);
   int maxCent = euroToCentRounded(maxP);
 
-  String needleColor = "#4ade80";
-  if (nowCent >= ledRedCent) {
-    needleColor = "#fb7185";
-  } else if (nowCent >= ledYellowCent) {
-    needleColor = "#facc15";
+  String zoneClass = "pg-good";
+  String zoneLabel = "Guenstig";
+  if (nowCent >= ledRedCent) { zoneClass = "pg-bad"; zoneLabel = "Teuer"; }
+  else if (nowCent >= ledYellowCent) { zoneClass = "pg-mid"; zoneLabel = "Mittel"; }
+
+  String timeFrom = formatTimeOnly(currentStartsAt);
+  String timeTo = addMinutesToIsoTime(currentStartsAt, 15);
+  timeTo = formatTimeOnly(timeTo);
+
+  int pctInt = (int)(f * 100.0f);
+  if (pctInt < 0) pctInt = 0;
+  if (pctInt > 100) pctInt = 100;
+
+  String html;
+  html.reserve(1400);
+  html += "<div class='priceGauge " + zoneClass + "'>";
+  html += "<div class='pg-label'>Aktueller Preis</div>";
+  if (timeFrom.length() > 0 && timeTo.length() > 0) {
+    html += "<div class='pg-time'>" + timeFrom + " &ndash; " + timeTo + " Uhr</div>";
   }
-
-  String svg;
-  svg.reserve(2200);
-
-  svg += "<svg viewBox='0 0 240 150' xmlns='http://www.w3.org/2000/svg' style='font-family:Inter,system-ui,sans-serif'>";
-  svg += "<defs><linearGradient id='gaugeGrad' x1='20' y1='0' x2='220' y2='0' gradientUnits='userSpaceOnUse'>";
-  svg += "<stop offset='0%' stop-color='#4ade80'/><stop offset='50%' stop-color='#facc15'/><stop offset='100%' stop-color='#fb7185'/>";
-  svg += "</linearGradient></defs>";
-  svg += "<path d='M 20 120 A 100 100 0 0 1 220 120' fill='none' stroke='#1c2740' stroke-width='16' stroke-linecap='round'/>";
-  svg += "<path d='M 20 120 A 100 100 0 0 1 220 120' fill='none' stroke='url(#gaugeGrad)' stroke-width='16' stroke-linecap='round' opacity='.9'/>";
-  svg += "<line x1='" + String(cx) + "' y1='" + String(cy) + "' x2='" + String(tipX) + "' y2='" + String(tipY) + "' stroke='" + needleColor + "' stroke-width='4' stroke-linecap='round'/>";
-  svg += "<circle cx='" + String(cx) + "' cy='" + String(cy) + "' r='7' fill='" + needleColor + "' stroke='#0b1224' stroke-width='2'/>";
-  svg += "<text x='" + String(cx) + "' y='90' fill='var(--text)' font-size='30' font-weight='900' text-anchor='middle'>" + String(nowCent) + "</text>";
-  svg += "<text x='" + String(cx) + "' y='108' fill='var(--muted)' font-size='12' text-anchor='middle'>ct/kWh jetzt</text>";
-  svg += "<text x='20' y='140' fill='var(--muted)' font-size='11' text-anchor='start'>" + String(minCent) + " ct</text>";
-  svg += "<text x='220' y='140' fill='var(--muted)' font-size='11' text-anchor='end'>" + String(maxCent) + " ct</text>";
-  svg += "</svg>";
-
-  return svg;
+  html += "<div class='pg-value'>" + String(nowCent) + "</div>";
+  html += "<div class='pg-unit'>ct/kWh</div>";
+  html += "<div class='pg-track'><div class='pg-fill' style='width:" + String(pctInt) + "%'></div><div class='pg-marker' style='left:" + String(pctInt) + "%'></div></div>";
+  html += "<div class='pg-scale'><span>" + String(minCent) + " ct</span><span class='pg-zone'>" + zoneLabel + "</span><span>" + String(maxCent) + " ct</span></div>";
+  html += "</div>";
+  return html;
 }
 
 void getKioskPriceStatus(String &statusText, String &statusColor) {
@@ -7985,6 +7978,20 @@ td,th{border-bottom:1px solid var(--line);padding:9px 10px;text-align:left}tr:la
 svg{background:#0b1224;border:1px solid var(--line);border-radius:18px;margin-top:8px;width:100%;height:320px}
 .gaugeWrap{display:flex;justify-content:center;margin:6px 0 4px}
 .gaugeWrap svg{width:240px;max-width:100%;height:auto;background:transparent;border:0;margin:0}
+.priceGauge{width:100%;max-width:420px;margin:0 auto;padding:8px 4px;text-align:center;font-variant-numeric:tabular-nums}
+.priceGauge .pg-label{font-size:clamp(10px,1.4vh,12px);font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;line-height:1}
+.priceGauge .pg-time{font-size:clamp(11px,1.4vh,13px);color:var(--muted);font-weight:500;margin-top:3px;font-variant-numeric:tabular-nums}
+.priceGauge .pg-value{font-size:clamp(64px,14vh,140px);font-weight:800;line-height:1;letter-spacing:-0.05em;color:var(--text);margin:clamp(6px,1.4vh,14px) 0 clamp(2px,0.5vh,6px)}
+.priceGauge .pg-unit{font-size:clamp(11px,1.4vh,14px);color:var(--muted);font-weight:500;margin-bottom:clamp(12px,2vh,20px)}
+.priceGauge .pg-track{position:relative;height:clamp(6px,1vh,12px);border-radius:999px;background:var(--overlay-hover);margin:0 auto;max-width:88%;overflow:visible}
+.priceGauge .pg-fill{position:absolute;left:0;top:0;bottom:0;border-radius:999px;background:linear-gradient(90deg,#34C759,#30D158);transition:width .3s var(--ease),background .3s var(--ease)}
+.priceGauge.pg-mid .pg-fill{background:linear-gradient(90deg,#34C759,#FF9500)}
+.priceGauge.pg-bad .pg-fill{background:linear-gradient(90deg,#FF9500,#FF3B30)}
+.priceGauge .pg-marker{position:absolute;top:50%;width:clamp(14px,1.8vh,20px);height:clamp(14px,1.8vh,20px);border-radius:50%;background:#fff;transform:translate(-50%,-50%);box-shadow:0 0 0 3px var(--card),0 2px 4px rgba(0,0,0,.15);transition:left .3s var(--ease)}
+.priceGauge .pg-scale{display:flex;justify-content:space-between;margin:8px auto 0;max-width:88%;font-size:clamp(10px,1.2vh,12px);font-weight:600;color:var(--muted)}
+.priceGauge .pg-zone{color:#34C759}
+.priceGauge.pg-mid .pg-zone{color:#FF9500}
+.priceGauge.pg-bad .pg-zone{color:#FF3B30}
 .live-power{display:flex;justify-content:center;align-items:center;gap:6px;font-size:15px;font-weight:700;color:var(--text);background:var(--overlay-faint);border-radius:999px;padding:6px 16px;margin:0 auto 10px;width:fit-content}
 .live-power:empty{display:none}
 a{color:var(--accent);text-decoration:none}
