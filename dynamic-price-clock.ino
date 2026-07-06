@@ -73,7 +73,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "2.3.2"
+#define FIRMWARE_VERSION "2.3.3"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -4183,8 +4183,13 @@ void handleAccountPage() {
   html += "<div class='panelTitle'><h4 style='margin:0'>Update pruefen</h4><span id='ghUpdateBadge' class='badge'>Noch nicht geprueft</span></div>";
   html += "<p id='ghUpdateMsg' class='small'>Klicke auf \"Auf Updates pruefen\", um die neueste Version im hinterlegten Repository abzufragen.</p>";
   html += "<div id='ghProgressWrap' style='display:none;margin:10px 0'>";
-  html += "<div style='background:var(--surface-border);border-radius:999px;height:10px;overflow:hidden'><div id='ghProgressBar' style='background:var(--accent);height:100%;width:0%;transition:width .3s'></div></div>";
-  html += "<p id='ghProgressText' class='small' style='margin-top:6px'></p>";
+  html += "<div style='display:flex;gap:8px;align-items:center;margin-bottom:8px'>";
+  html += "<span id='ghPhaseIcon' style='font-size:18px'>&#8987;</span>";
+  html += "<span id='ghPhaseLbl' style='font-size:13px;font-weight:600;color:var(--text)'>Verbinde mit GitHub...</span>";
+  html += "</div>";
+  html += "<div style='background:var(--panel2);border-radius:12px;height:12px;overflow:hidden'><div id='ghProgressBar' style='background:var(--accent);height:100%;width:0%;transition:width .4s;border-radius:12px'></div></div>";
+  html += "<div style='display:flex;justify-content:space-between;margin-top:5px'><p id='ghProgressText' class='small' style='margin:0'></p><p id='ghSpeedText' class='small' style='margin:0;color:var(--muted)'></p></div>";
+  html += "<p id='ghProgressSub' class='small' style='margin-top:4px;color:var(--muted)'></p>";
   html += "</div>";
   html += "<div class='actions'><button type='button' class='secondary' onclick='checkGhUpdate()'>Auf Updates pruefen</button><button type='button' id='ghUpdateBtn' style='display:none' onclick='startGhUpdate()'>Jetzt aktualisieren</button></div>";
   html += "</div>";
@@ -4241,42 +4246,79 @@ function formatBytes(n) {
   if (n < 1024 * 1024) return (n / 1024).toFixed(0) + ' KB';
   return (n / (1024 * 1024)).toFixed(1) + ' MB';
 }
+var _ghPollStart = 0;
+var _ghLastBytes = 0;
+var _ghLastBytesTime = 0;
+var _ghTimeoutMs = 5 * 60 * 1000;
+function ghSetPhase(icon, lbl, sub) {
+  var i=document.getElementById('ghPhaseIcon');
+  var l=document.getElementById('ghPhaseLbl');
+  var s=document.getElementById('ghProgressSub');
+  if(i)i.innerText=icon;
+  if(l)l.innerText=lbl;
+  if(s&&sub!=null)s.innerText=sub;
+}
 async function pollGhProgress() {
   var wrap = document.getElementById('ghProgressWrap');
   var bar = document.getElementById('ghProgressBar');
   var text = document.getElementById('ghProgressText');
+  var speed = document.getElementById('ghSpeedText');
   var msg = document.getElementById('ghUpdateMsg');
+  var now = Date.now();
+
+  if (now - _ghPollStart > _ghTimeoutMs) {
+    ghBadge('errb', 'Timeout');
+    ghSetPhase('&#9888;', 'Timeout', 'Das Update hat zu lange gebraucht. Bitte Verbindung pruefen und erneut versuchen.');
+    bar.style.background = 'var(--danger)';
+    return;
+  }
 
   try {
     const r = await fetch('/otaprogress', { cache: 'no-store' });
     const j = await r.json();
 
-    if (j.percent >= 0) {
+    if (j.percent < 0 || j.bytesTotal === 0) {
+      ghSetPhase('&#8987;', 'Verbinde & lade herunter...', 'GitHub leitet den Download um — das dauert 5-15 Sekunden.');
+      text.innerText = '';
+      if(speed) speed.innerText = '';
+    } else if (j.percent < 100) {
+      ghSetPhase('&#8659;', 'Herunterladen...', '');
       bar.style.width = j.percent + '%';
       text.innerText = j.percent + '% (' + formatBytes(j.bytesWritten) + ' / ' + formatBytes(j.bytesTotal) + ')';
+      if (speed && j.bytesWritten > _ghLastBytes && _ghLastBytesTime > 0) {
+        var dt = (now - _ghLastBytesTime) / 1000;
+        var bps = (j.bytesWritten - _ghLastBytes) / dt;
+        speed.innerText = formatBytes(bps) + '/s';
+      }
+      _ghLastBytes = j.bytesWritten;
+      _ghLastBytesTime = now;
     } else {
-      text.innerText = 'Download startet...';
+      ghSetPhase('&#9889;', 'Flashe Firmware...', 'Bitte Stromversorgung nicht trennen.');
+      bar.style.width = '100%';
+      text.innerText = 'Schreibe Flash...';
     }
 
     if (j.done) {
       if (j.success) {
         bar.style.width = '100%';
         ghBadge('okb', 'Fertig');
-        msg.innerText = 'Update erfolgreich, das Geraet startet jetzt neu...';
+        ghSetPhase('&#10003;', 'Update erfolgreich!', 'Das Geraet startet neu — Seite wird in 8 Sekunden neu geladen.');
+        msg.innerText = '';
+        setTimeout(function(){ location.reload(); }, 8000);
       } else {
         ghBadge('errb', 'Fehler');
-        msg.innerText = j.error || 'Update fehlgeschlagen.';
+        ghSetPhase('&#10008;', 'Update fehlgeschlagen', j.error || 'Unbekannter Fehler.');
         wrap.style.display = 'none';
       }
       return;
     }
 
-    setTimeout(pollGhProgress, 700);
+    setTimeout(pollGhProgress, 300);
   } catch (e) {
-    // Verbindung weg, waehrend ein Update lief -> Geraet startet gerade neu, das ist erwartet.
     bar.style.width = '100%';
     ghBadge('okb', 'Neustart');
-    msg.innerText = 'Verbindung unterbrochen - das Geraet startet gerade neu (normal nach einem Update).';
+    ghSetPhase('&#10003;', 'Neustart laeuft...', 'Verbindung unterbrochen — das Geraet startet neu. Seite wird in 8 Sekunden geladen.');
+    setTimeout(function(){ location.reload(); }, 8000);
   }
 }
 function upBadge(cls, text) {
@@ -4349,9 +4391,13 @@ async function startGhUpdate() {
   var wrap = document.getElementById('ghProgressWrap');
   var bar = document.getElementById('ghProgressBar');
   ghBadge('warnb', 'Aktualisiere...');
-  msg.innerText = 'Bitte warten, das kann 1-2 Minuten dauern. Die Spannungsversorgung nicht trennen.';
+  msg.innerText = '';
   wrap.style.display = '';
   bar.style.width = '0%';
+  _ghPollStart = Date.now();
+  _ghLastBytes = 0;
+  _ghLastBytesTime = 0;
+  ghSetPhase('&#8987;', 'Verbinde mit GitHub...', 'GitHub leitet den Download um — das dauert 5-15 Sekunden.');
   try {
     const body = new URLSearchParams();
     body.set('url', window.ghUpdateUrl);
