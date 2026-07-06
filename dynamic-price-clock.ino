@@ -73,7 +73,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "2.3.6"
+#define FIRMWARE_VERSION "2.3.7"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -313,6 +313,8 @@ int ledRefreshSeconds = 10;
 int ledActiveCount = LED_RING_COUNT;
 int ledYellowCent = 30;
 int ledRedCent = 35;
+int gaugeMinCent = 0;   // Fester linker Rand des Preis-Balkens
+int gaugeMaxCent = 60;  // Fester rechter Rand des Preis-Balkens
 int ledCheapColorId = 0;
 int ledMidColorId = 1;
 int ledHighColorId = 2;
@@ -1424,6 +1426,8 @@ void setup() {
 
   ledYellowCent = prefs.getInt("ledYellow", 30);
   ledRedCent = prefs.getInt("ledRed", 40);
+  gaugeMinCent = prefs.getInt("gaugeMin", 0);
+  gaugeMaxCent = prefs.getInt("gaugeMax", 60);
   if (ledYellowCent < 0) ledYellowCent = 0;
   if (ledRedCent < ledYellowCent) ledRedCent = ledYellowCent + 1;
 
@@ -5618,11 +5622,14 @@ void handleKioskLayoutPage() {
   html += "<p class='small'>Ab welchem Preis gilt der Strom als &quot;Mittel&quot; bzw. &quot;Teuer&quot;? Wirkt sich auf die Farbanzeige in Kiosk, Uebersicht und LED-Ring aus.</p>";
   html += "<form action='/save' method='post'><input type='hidden' name='redirectTo' value='/kiosklayout'>";
   html += "<div class='formGrid'>";
+  html += "<div class='field'><label>Balken-Start (ct/kWh)</label><input name='gaugeMin' type='number' min='0' max='200' value='" + String(gaugeMinCent) + "' title='Linker Rand des Preis-Balkens.'></div>";
+  html += "<div class='field'><label>Balken-Ende (ct/kWh)</label><input name='gaugeMax' type='number' min='1' max='200' value='" + String(gaugeMaxCent) + "' title='Rechter Rand des Preis-Balkens.'></div>";
   html += "<div class='field'><label>Schwelle Mittel (ab ct/kWh)</label><input name='ledYellow' type='number' min='0' max='200' value='" + String(ledYellowCent) + "' title='Unter diesem Wert = Guenstig (gruen). Ab diesem Wert = Mittel (gelb).'></div>";
   html += "<div class='field'><label>Schwelle Teuer (ab ct/kWh)</label><input name='ledRed' type='number' min='0' max='200' value='" + String(ledRedCent) + "' title='Ab diesem Wert = Teuer (rot).'></div>";
   html += "</div>";
   // Visuelles Feedback
   html += "<div style='margin:12px 0;padding:12px 16px;border-radius:14px;background:var(--panel2);font-size:13px;display:flex;gap:16px;flex-wrap:wrap'>";
+  html += "<span style='color:#8e8e93;font-weight:600'>Skala: " + String(gaugeMinCent) + " &ndash; " + String(gaugeMaxCent) + " ct</span>";
   html += "<span style='color:#34C759;font-weight:600'>&#9632; Guenstig: &lt; " + String(ledYellowCent) + " ct</span>";
   html += "<span style='color:#FF9500;font-weight:600'>&#9632; Mittel: " + String(ledYellowCent) + " &ndash; " + String(ledRedCent - 1) + " ct</span>";
   html += "<span style='color:#FF3B30;font-weight:600'>&#9632; Teuer: &ge; " + String(ledRedCent) + " ct</span>";
@@ -7290,23 +7297,14 @@ String buildPriceGaugeSvg() {
     return "<p class='small'>Noch keine Preisdaten fuer die Anzeige geladen.</p>";
   }
 
-  float minP = quarterPrices[0];
-  float maxP = quarterPrices[0];
+  int nowCent = euroToCentRounded(metricCurrent15);
+  int minCent = gaugeMinCent;
+  int maxCent = gaugeMaxCent;
+  if (maxCent <= minCent) maxCent = minCent + 1;
 
-  for (int i = 1; i < quarterCount; i++) {
-    if (quarterPrices[i] < minP) minP = quarterPrices[i];
-    if (quarterPrices[i] > maxP) maxP = quarterPrices[i];
-  }
-
-  if (maxP <= minP) maxP = minP + 0.01;
-
-  float f = (metricCurrent15 - minP) / (maxP - minP);
+  float f = (float)(nowCent - minCent) / (float)(maxCent - minCent);
   if (f < 0) f = 0;
   if (f > 1) f = 1;
-
-  int nowCent = euroToCentRounded(metricCurrent15);
-  int minCent = euroToCentRounded(minP);
-  int maxCent = euroToCentRounded(maxP);
 
   String zoneClass = "pg-good";
   String zoneLabel = "Guenstig";
@@ -7618,6 +7616,14 @@ void handleSave() {
     if (webInterfaceName.length() == 0) webInterfaceName = "Dynamic Price Clock";
     if (webInterfaceName.length() > 32) webInterfaceName = webInterfaceName.substring(0, 32);
     prefs.putString("webName", webInterfaceName);
+  }
+
+  if (server.hasArg("gaugeMin") || server.hasArg("gaugeMax")) {
+    if (server.hasArg("gaugeMin")) { int v=server.arg("gaugeMin").toInt(); gaugeMinCent=(v<0)?0:(v>200?200:v); }
+    if (server.hasArg("gaugeMax")) { int v=server.arg("gaugeMax").toInt(); gaugeMaxCent=(v<1)?1:(v>200?200:v); }
+    if (gaugeMaxCent <= gaugeMinCent) gaugeMaxCent = gaugeMinCent + 1;
+    prefs.putInt("gaugeMin", gaugeMinCent);
+    prefs.putInt("gaugeMax", gaugeMaxCent);
   }
 
   if (server.hasArg("ledYellow") || server.hasArg("ledRed")) {
