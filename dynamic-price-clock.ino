@@ -73,7 +73,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "2.3.0"
+#define FIRMWARE_VERSION "2.3.1"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -3964,9 +3964,19 @@ void handleRoot() {
   html += "</div>";
   String liveHomeText = "";
   if (livePowerW >= 0 && millis() - livePowerUpdatedAtMs < 60000) {
-    liveHomeText = "&#9889; Aktueller Verbrauch: <b>" + formatLivePowerValue() + "</b>";
+    float kw = livePowerW / 1000.0f;
+    float lppct = kw / livePowerMaxKw * 100.0f;
+    if (lppct < 0) lppct = 0;
+    if (lppct > 100) lppct = 100;
+    String zc = "zc";
+    if (kw >= livePowerYellowKw) zc = "ze";
+    else if (kw >= livePowerGreenKw) zc = "zm";
+    liveHomeText = "<div class='pg-label'>&#9889; Aktueller Verbrauch</div>";
+    liveHomeText += "<div class='pg-value'>" + formatLivePowerValue() + "</div>";
+    liveHomeText += "<div class='pg-track'><div class='pg-fill " + zc + "' style='width:" + String((int)lppct) + "%'></div><div class='pg-marker' style='left:" + String((int)lppct) + "%'></div></div>";
+    liveHomeText += "<div class='pg-scale'><span>0</span><span>" + String(livePowerMaxKw, 1) + " kW</span></div>";
   }
-  html += "<div class='live-power' id='livePowerBadge'>" + liveHomeText + "</div>";
+  html += "<div class='live-power priceGauge' id='livePowerBadge'>" + liveHomeText + "</div>";
   html += "<div class='gridCards'>";
 
   html += "<div class='metric'><div class='label'>15-Minuten-Preis</div><div class='value'>";
@@ -7992,8 +8002,12 @@ svg{background:#0b1224;border:1px solid var(--line);border-radius:18px;margin-to
 .priceGauge .pg-zone{color:#34C759}
 .priceGauge.pg-mid .pg-zone{color:#FF9500}
 .priceGauge.pg-bad .pg-zone{color:#FF3B30}
-.live-power{display:flex;justify-content:center;align-items:center;gap:6px;font-size:15px;font-weight:700;color:var(--text);background:var(--overlay-faint);border-radius:999px;padding:6px 16px;margin:0 auto 10px;width:fit-content}
+.live-power{margin:16px auto;padding:16px 22px;background:var(--panel2);border-radius:20px;max-width:420px;text-align:center}
 .live-power:empty{display:none}
+.live-power .pg-value{font-size:clamp(28px,6vh,52px);margin:6px 0}
+.priceGauge .pg-fill.zc{background:linear-gradient(90deg,#34C759,#30D158)}
+.priceGauge .pg-fill.zm{background:linear-gradient(90deg,#FF9500,#FF9F0A)}
+.priceGauge .pg-fill.ze{background:linear-gradient(90deg,#FF9500,#FF3B30)}
 a{color:var(--accent);text-decoration:none}
 code{background:#0b1224;color:#e2e8f0;border:1px solid var(--line);border-radius:8px;padding:2px 6px;font-size:12px}
 details summary{cursor:pointer;color:var(--text);list-style:none}details summary::-webkit-details-marker{display:none}details summary h2{display:inline-block!important}details summary::before{content:'▸ ';color:var(--accent);font-size:14px}details[open] summary::before{content:'▾ '}
