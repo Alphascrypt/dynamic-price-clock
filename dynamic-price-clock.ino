@@ -73,7 +73,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "2.3.3"
+#define FIRMWARE_VERSION "2.3.4"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -7677,7 +7677,8 @@ void handleSave() {
   }
 
   String requestedRedirect = server.hasArg("redirectTo") ? server.arg("redirectTo") : "";
-  String redirectTarget = (requestedRedirect == "/anbieter" || requestedRedirect == "/account") ? requestedRedirect : "/";
+  bool validRedirect = (requestedRedirect == "/anbieter" || requestedRedirect == "/account" || requestedRedirect == "/kiosklayout");
+  String redirectTarget = validRedirect ? requestedRedirect : "/";
   server.sendHeader("Location", redirectTarget + "?saved=1");
   server.send(303);
 }
