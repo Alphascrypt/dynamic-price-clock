@@ -73,7 +73,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "2.3.4"
+#define FIRMWARE_VERSION "2.3.5"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -546,6 +546,7 @@ void handleRoot();
 void handleWifiPage();
 void handleKioskPage();
 void handleKioskData();
+void handleGaugeStatus();
 void handlePinoutPage();
 void handleSavePins();
 void handleRestartDevice();
@@ -1542,6 +1543,7 @@ void setup() {
   server.on("/wifi", handleWifiPage);
   server.on("/kiosk", handleKioskPage);
   server.on("/kioskdata", HTTP_GET, handleKioskData);
+  server.on("/gaugestatus", HTTP_GET, handleGaugeStatus);
   server.on("/kiosklayout", handleKioskLayoutPage);
   server.on("/savekiosklayoutajax", HTTP_POST, handleSaveKioskLayoutAjax);
   server.on("/resetkiosklayout", HTTP_POST, handleResetKioskLayout);
@@ -3949,12 +3951,14 @@ void handleRoot() {
   if (metricCurrent15 >= 0) {
     int nowCent = euroToCentRounded(metricCurrent15);
     if (nowCent >= ledRedCent) {
-      html += "<span class='badge errb'>Jetzt teuer</span>";
+      html += "<span id='priceBadge' class='badge errb'>Jetzt teuer</span>";
     } else if (nowCent >= ledYellowCent) {
-      html += "<span class='badge warnb'>Jetzt mittel</span>";
+      html += "<span id='priceBadge' class='badge warnb'>Jetzt mittel</span>";
     } else {
-      html += "<span class='badge okb'>Jetzt guenstig</span>";
+      html += "<span id='priceBadge' class='badge okb'>Jetzt guenstig</span>";
     }
+  } else {
+    html += "<span id='priceBadge' class='badge'>Keine Daten</span>";
   }
   html += "<span class='badge ";
   html += (lastError.length() == 0) ? "okb'><span class='status-dot pulse ok'></span>Status OK" : "errb'><span class='status-dot pulse'></span>Fehler";
@@ -4093,6 +4097,15 @@ void handleRoot() {
   }
 
   html += "<p class='small'><a href='/json'>JSON-API (fuer Entwickler/Automatisierung)</a></p>";
+  html += R"JS(<script>(function(){
+function updatePriceBadge(){fetch('/gaugestatus',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
+  var b=document.getElementById('priceBadge');
+  if(b){b.className='badge '+d.badgeClass;b.innerText=d.badgeLabel;}
+  var g=document.querySelector('.priceGauge');
+  if(g){g.classList.remove('pg-good','pg-mid','pg-bad');g.classList.add(d.pgClass);var z=g.querySelector('.pg-zone');if(z)z.innerText=d.pgZoneLabel;}
+}).catch(function(){});}
+setInterval(updatePriceBadge,10000);
+})();</script>)JS";
   html += htmlFooter();
 
   server.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
@@ -5431,6 +5444,28 @@ void handleKioskData() {
   server.send(200, "application/json", json);
 }
 
+void handleGaugeStatus() {
+  if (!checkAuth()) return;
+  int nowCent = (metricCurrent15 >= 0) ? euroToCentRounded(metricCurrent15) : -1;
+  String zone = "ok", label = "Guenstig";
+  if (nowCent < 0) { zone = ""; label = "Keine Daten"; }
+  else if (nowCent >= ledRedCent) { zone = "err"; label = "Jetzt teuer"; }
+  else if (nowCent >= ledYellowCent) { zone = "warn"; label = "Jetzt mittel"; }
+  String pgClass = "pg-good", pgLabel = "Guenstig";
+  if (nowCent >= ledRedCent) { pgClass = "pg-bad"; pgLabel = "Teuer"; }
+  else if (nowCent >= ledYellowCent) { pgClass = "pg-mid"; pgLabel = "Mittel"; }
+  String json = "{";
+  json += "\"badgeClass\":\"" + zone + "b\",";
+  json += "\"badgeLabel\":\"" + label + "\",";
+  json += "\"pgClass\":\"" + pgClass + "\",";
+  json += "\"pgZoneLabel\":\"" + pgLabel + "\",";
+  json += "\"yellow\":" + String(ledYellowCent) + ",";
+  json += "\"red\":" + String(ledRedCent);
+  json += "}";
+  server.sendHeader("Cache-Control", "no-store");
+  server.send(200, "application/json", json);
+}
+
 // Leichtgewichtiger Endpunkt nur fuer den aktuellen Tibber-Pulse-Verbrauch,
 // damit Start- und Tablet-Seite ihn alle paar Sekunden abfragen koennen,
 // ohne wie /kioskdata jedes Mal Gauge- und Diagramm-SVG neu zu erzeugen.
@@ -5589,6 +5624,10 @@ void handleKioskLayoutPage() {
   html += "</div>";
   html += "<div class='actions'><button type='submit'>Speichern</button></div>";
   html += "</form></section>";
+  // Nach dem Speichern der Schwellen: Kiosk-Gauge sofort aktualisieren
+  if (server.hasArg("saved")) {
+    html += "<script>if(typeof refreshKioskData==='function'){refreshKioskData();}</script>";
+  }
 
   // Live-Verbrauch-Einstellungen speziell fuer Kiosk und Modern-Balken.
   html += "<section class='card'>";
