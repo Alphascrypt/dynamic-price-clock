@@ -73,7 +73,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "2.3.1"
+#define FIRMWARE_VERSION "2.3.2"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -5526,6 +5526,24 @@ void handleKioskLayoutPage() {
   html += "<div class='actions'><button type='button' class='secondary' onclick='klReset()'>Diese Ausrichtung zuruecksetzen</button><a href='/kiosk' target='_blank'><button type='button' class='secondary'>Tablet-Modus oeffnen</button></a><span id='klSaveState' class='badge warnb'>Bereit</span></div>";
   html += "</section>";
 
+  // Preis-Schwellen fuer Guenstig/Mittel/Teuer
+  html += "<section class='card'>";
+  html += "<div class='panelTitle'><h2>Preis-Schwellen</h2></div>";
+  html += "<p class='small'>Ab welchem Preis gilt der Strom als &quot;Mittel&quot; bzw. &quot;Teuer&quot;? Wirkt sich auf die Farbanzeige in Kiosk, Uebersicht und LED-Ring aus.</p>";
+  html += "<form action='/save' method='post'><input type='hidden' name='redirectTo' value='/kiosklayout'>";
+  html += "<div class='formGrid'>";
+  html += "<div class='field'><label>Schwelle Mittel (ab ct/kWh)</label><input name='ledYellow' type='number' min='0' max='200' value='" + String(ledYellowCent) + "' title='Unter diesem Wert = Guenstig (gruen). Ab diesem Wert = Mittel (gelb).'></div>";
+  html += "<div class='field'><label>Schwelle Teuer (ab ct/kWh)</label><input name='ledRed' type='number' min='0' max='200' value='" + String(ledRedCent) + "' title='Ab diesem Wert = Teuer (rot).'></div>";
+  html += "</div>";
+  // Visuelles Feedback
+  html += "<div style='margin:12px 0;padding:12px 16px;border-radius:14px;background:var(--panel2);font-size:13px;display:flex;gap:16px;flex-wrap:wrap'>";
+  html += "<span style='color:#34C759;font-weight:600'>&#9632; Guenstig: &lt; " + String(ledYellowCent) + " ct</span>";
+  html += "<span style='color:#FF9500;font-weight:600'>&#9632; Mittel: " + String(ledYellowCent) + " &ndash; " + String(ledRedCent - 1) + " ct</span>";
+  html += "<span style='color:#FF3B30;font-weight:600'>&#9632; Teuer: &ge; " + String(ledRedCent) + " ct</span>";
+  html += "</div>";
+  html += "<div class='actions'><button type='submit'>Speichern</button></div>";
+  html += "</form></section>";
+
   // Live-Verbrauch-Einstellungen speziell fuer Kiosk und Modern-Balken.
   html += "<section class='card'>";
   html += "<div class='panelTitle'><h2>Live-Verbrauch-Anzeige</h2></div>";
@@ -7510,6 +7528,23 @@ void handleSave() {
     if (webInterfaceName.length() == 0) webInterfaceName = "Dynamic Price Clock";
     if (webInterfaceName.length() > 32) webInterfaceName = webInterfaceName.substring(0, 32);
     prefs.putString("webName", webInterfaceName);
+  }
+
+  if (server.hasArg("ledYellow") || server.hasArg("ledRed")) {
+    if (server.hasArg("ledYellow")) {
+      ledYellowCent = server.arg("ledYellow").toInt();
+      if (ledYellowCent < 0) ledYellowCent = 0;
+      if (ledYellowCent > 200) ledYellowCent = 200;
+    }
+    if (server.hasArg("ledRed")) {
+      ledRedCent = server.arg("ledRed").toInt();
+      if (ledRedCent < 0) ledRedCent = 0;
+      if (ledRedCent > 200) ledRedCent = 200;
+    }
+    if (ledRedCent <= ledYellowCent) ledRedCent = ledYellowCent + 1;
+    if (ledRedCent > 200) ledRedCent = 200;
+    prefs.putInt("ledYellow", ledYellowCent);
+    prefs.putInt("ledRed", ledRedCent);
   }
 
   if (server.hasArg("accent")) {
