@@ -82,7 +82,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "2.6.4"
+#define FIRMWARE_VERSION "2.6.5"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -1668,6 +1668,18 @@ void loop() {
   #if ENABLE_WIFI_STARTUP
   ensureWifiConnected();
 #endif
+
+  // Sicherheitsnetz: Falls otaTaskRunning aus irgendeinem Grund haengen
+  // bleibt (z.B. Task haengt in einem Netzwerk-Timeout fest, ohne je den
+  // Heartbeat zu aktualisieren), wuerden sonst Preis-/Live-Verbrauchs-/Anker-
+  // Updates dauerhaft blockiert bleiben. Nach 3 Minuten ohne Heartbeat gilt
+  // der OTA-Vorgang als haengen geblieben und wird verworfen.
+  if (otaTaskRunning && otaHeartbeatMs > 0 && millis() - otaHeartbeatMs > 180000UL) {
+    otaTaskRunning = false;
+    otaTaskDone = true;
+    otaTaskSuccess = false;
+    otaTaskError = "OTA-Vorgang haengen geblieben (kein Fortschritt seit 3 Minuten) - abgebrochen";
+  }
 
   // Waehrend eines laufenden OTA-Downloads (manuell oder ueber GitHub) keine
   // weiteren TLS-Verbindungen aufbauen: Auf dem ESP32 konkurrieren mehrere
