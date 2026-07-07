@@ -82,7 +82,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "2.6.0"
+#define FIRMWARE_VERSION "2.6.1"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -2683,27 +2683,41 @@ bool performGithubUpdate(String url) {
     return false;
   }
 
-  WiFiClientSecure client;
-  client.setInsecure();
-
   httpUpdate.rebootOnUpdate(false);
   httpUpdate.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
-  otaBytesWritten = 0;
-  otaBytesTotal = 0;
-  otaHeartbeatMs = millis();
   httpUpdate.onProgress([](int cur, int total) {
     otaBytesWritten = cur;
     otaBytesTotal = total;
     otaHeartbeatMs = millis();
   });
-  t_httpUpdate_return ret = httpUpdate.update(client, url);
 
-  if (ret != HTTP_UPDATE_OK) {
-    lastError = "Update fehlgeschlagen: " + httpUpdate.getLastErrorString();
-    return false;
+  // GitHub-Asset-URLs leiten per 302 auf einen anderen Host um
+  // (objects.githubusercontent.com). Der allererste TLS-Handshake zu diesem
+  // neuen Host schlaegt auf dem ESP32 gelegentlich fehl (DNS/TLS-Session-
+  // Aufbau), ein sofortiger erneuter Versuch klappt praktisch immer -
+  // deshalb hier automatisch bis zu 3x versuchen, statt den Nutzer manuell
+  // erneut klicken zu lassen.
+  const int maxAttempts = 3;
+  for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+    WiFiClientSecure client;
+    client.setInsecure();
+    otaBytesWritten = 0;
+    otaBytesTotal = 0;
+    otaHeartbeatMs = millis();
+
+    t_httpUpdate_return ret = httpUpdate.update(client, url);
+
+    if (ret == HTTP_UPDATE_OK) {
+      return true;
+    }
+
+    lastError = "Update fehlgeschlagen (Versuch " + String(attempt) + "/" + String(maxAttempts) + "): " + httpUpdate.getLastErrorString();
+    if (attempt < maxAttempts) {
+      delay(1500);
+    }
   }
 
-  return true;
+  return false;
 }
 
 // Laeuft in einem eigenen FreeRTOS-Task, damit server.handleClient() im
