@@ -73,7 +73,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "2.4.3"
+#define FIRMWARE_VERSION "2.5.0"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -1272,8 +1272,8 @@ void setup() {
   wifiPassword = prefs.getString("wifiPass", DEFAULT_WIFI_PASSWORD);
   webInterfaceName = prefs.getString("webName", "Dynamic Price Clock");
   if (webInterfaceName.length() == 0) webInterfaceName = "Dynamic Price Clock";
-  accentColor = prefs.getString("accent", "blue");
-  if (accentColor != "blue" && accentColor != "green" && accentColor != "orange" && accentColor != "red" && accentColor != "pink" && accentColor != "purple" && accentColor != "teal" && accentColor != "indigo") accentColor = "blue";
+  accentColor = prefs.getString("accent", "green");
+  if (accentColor != "blue" && accentColor != "green" && accentColor != "orange" && accentColor != "red" && accentColor != "pink" && accentColor != "purple" && accentColor != "teal" && accentColor != "indigo") accentColor = "green";
   appearanceMode = prefs.getString("appear", "solid");
   if (appearanceMode != "glass") appearanceMode = "solid";
   livePowerMaxKw = prefs.getFloat("lpMax", 10.0f);
@@ -4918,7 +4918,9 @@ void handleKioskPage() {
   html += "<div class='kw kw-clock'><div class='kiosk-time' id='kioskTime'>--:--</div><div class='kiosk-date' id='kioskDate'></div></div>";
 
   html += "<div class='kw kw-gauge' id='kioskGaugeWrap'>";
+  // Kiosk-Klasse auf priceRing per JS setzen nach dem Render
   html += buildPriceGaugeSvg();
+  html += "<script>var _r=document.querySelector('#kioskGaugeWrap .priceRing');if(_r)_r.classList.add('kiosk');</script>";
   html += "</div>";
 
   html += "<div class='kw kw-status kiosk-status' id='kioskStatus' style='color:" + statusColor + "'>" + statusText + "</div>";
@@ -7120,30 +7122,41 @@ String buildPriceGaugeSvg() {
   if (f < 0) f = 0;
   if (f > 1) f = 1;
 
-  String zoneClass = "pg-good";
   String zoneLabel = "Guenstig";
-  if (nowCent >= ledRedCent) { zoneClass = "pg-bad"; zoneLabel = "Teuer"; }
-  else if (nowCent >= ledYellowCent) { zoneClass = "pg-mid"; zoneLabel = "Mittel"; }
+  String ringColor = "#34C759";
+  String pgClass = "pg-good";
+  if (nowCent >= ledRedCent) { zoneLabel = "Teuer"; ringColor = "#FF3B30"; pgClass = "pg-bad"; }
+  else if (nowCent >= ledYellowCent) { zoneLabel = "Mittel"; ringColor = "#FF9500"; pgClass = "pg-mid"; }
 
   String timeFrom = formatTimeOnly(currentStartsAt);
-  String timeTo = addMinutesToIsoTime(currentStartsAt, 15);
-  timeTo = formatTimeOnly(timeTo);
+  String timeTo = formatTimeOnly(addMinutesToIsoTime(currentStartsAt, 15));
 
-  int pctInt = (int)(f * 100.0f);
-  if (pctInt < 0) pctInt = 0;
-  if (pctInt > 100) pctInt = 100;
+  // Ring-Parameter: cx=120,cy=120,r=90, circumference≈565.5
+  float circ = 2.0f * 3.14159f * 90.0f;
+  float dashOff = circ * (1.0f - f);
 
   String html;
-  html.reserve(1400);
-  html += "<div class='priceGauge " + zoneClass + "'>";
-  html += "<div class='pg-label'>Aktueller Preis</div>";
+  html.reserve(1600);
+  html += "<div class='priceRing " + pgClass + "'>";
   if (timeFrom.length() > 0 && timeTo.length() > 0) {
-    html += "<div class='pg-time'>" + timeFrom + " &ndash; " + timeTo + " Uhr</div>";
+    html += "<div class='pr-time'>" + timeFrom + " &ndash; " + timeTo + " Uhr</div>";
   }
-  html += "<div class='pg-value'>" + String(nowCent) + "</div>";
-  html += "<div class='pg-unit'>ct/kWh</div>";
-  html += "<div class='pg-track'><div class='pg-fill' style='width:" + String(pctInt) + "%'></div><div class='pg-marker' style='left:" + String(pctInt) + "%'></div></div>";
-  html += "<div class='pg-scale'><span>" + String(minCent) + " ct</span><span class='pg-zone'>" + zoneLabel + "</span><span>" + String(maxCent) + " ct</span></div>";
+  html += "<svg viewBox='0 0 240 240' xmlns='http://www.w3.org/2000/svg'>";
+  // Hintergrundring
+  html += "<circle cx='120' cy='120' r='90' fill='none' stroke='var(--pr-track)' stroke-width='18' stroke-linecap='round'/>";
+  // Fortschrittsring in Zonenfarbe
+  html += "<circle cx='120' cy='120' r='90' fill='none' stroke='" + ringColor + "' stroke-width='18' stroke-linecap='round'";
+  html += " stroke-dasharray='" + String(circ, 1) + "'";
+  html += " stroke-dashoffset='" + String(dashOff, 1) + "'";
+  html += " transform='rotate(-90 120 120)'/>";
+  // Preis in der Mitte
+  html += "<text x='120' y='108' fill='var(--text)' font-size='56' font-weight='700' text-anchor='middle' font-family='-apple-system,system-ui,sans-serif' letter-spacing='-3'>" + String(nowCent) + "</text>";
+  html += "<text x='120' y='130' fill='var(--muted)' font-size='13' font-weight='500' text-anchor='middle'>ct/kWh</text>";
+  html += "<text x='120' y='152' fill='" + ringColor + "' font-size='14' font-weight='600' text-anchor='middle'>" + zoneLabel + "</text>";
+  // Min/Max Beschriftung
+  html += "<text x='22' y='218' fill='var(--muted)' font-size='11' font-weight='500'>" + String(minCent) + " ct</text>";
+  html += "<text x='218' y='218' fill='var(--muted)' font-size='11' font-weight='500' text-anchor='end'>" + String(maxCent) + " ct</text>";
+  html += "</svg>";
   html += "</div>";
   return html;
 }
@@ -7861,7 +7874,11 @@ void handleStyleCss() {
 :root{--bg1:#f2f2f7;--bg2:#f2f2f7;--radial1:transparent;--radial2:transparent;--panel:#ffffff;--panel2:#f2f2f7;--card:#ffffff;--line:rgba(60,60,67,.13);--text:#000000;--muted:#8e8e93;--accent:#007AFF;--accent2:#007AFF;--pink:#FF2D55;--purple:#AF52DE;--orange:#FF9500;--danger:#FF3B30;--ok:#34C759;--warn:#FF9500;--radius:20px;--ease:cubic-bezier(.2,.8,.2,1);--surface:#ffffff;--surface-nav:rgba(255,255,255,.92);--surface-border:rgba(60,60,67,.13);--overlay-hover:rgba(120,120,128,.08);--overlay-hover-strong:rgba(120,120,128,.16);--overlay-faint:rgba(120,120,128,.04);--overlay-row:rgba(120,120,128,.04);--metric-bg1:#ffffff;--metric-bg2:#ffffff;--input-bg:#ffffff;--badge-bg:rgba(120,120,128,.12);--toggle-off:#e5e5ea;--divider:rgba(60,60,67,.13);--shadow-soft:rgba(0,0,0,.05);--shadow-hover:rgba(0,0,0,.08);--shadow-float:rgba(0,0,0,.15);--btn-muted:#8e8e93;--accent-tint-bg:rgba(0,122,255,.12);--accent-tint-border:rgba(0,122,255,.35);--float-bg:rgba(255,255,255,.98);--float-border:rgba(60,60,67,.13);--okb-bg:rgba(52,199,89,.15);--okb-text:#248A3D;--errb-bg:rgba(255,59,48,.14);--errb-text:#D70015;--warnb-bg:rgba(255,149,0,.16);--warnb-text:#B25000;--infob-bg:rgba(0,122,255,.12);--infob-text:#0040DD;--purpleb-bg:rgba(175,82,222,.14);--purpleb-text:#8944AB;--alert-ok-bg:rgba(52,199,89,.10);--alert-ok-border:rgba(52,199,89,.28);--alert-err-bg:rgba(255,59,48,.09);--alert-err-border:rgba(255,59,48,.28);}
 :root[data-theme="dark"]{--bg1:#000000;--bg2:#000000;--radial1:transparent;--radial2:transparent;--panel:#1c1c1e;--panel2:#2c2c2e;--card:#1c1c1e;--line:rgba(84,84,88,.65);--text:#ffffff;--muted:#8e8e93;--accent:#0A84FF;--accent2:#0A84FF;--pink:#FF375F;--purple:#BF5AF2;--orange:#FF9F0A;--danger:#FF453A;--ok:#30D158;--warn:#FF9F0A;--surface:#1c1c1e;--surface-nav:rgba(28,28,30,.94);--surface-border:rgba(84,84,88,.65);--overlay-hover:rgba(120,120,128,.18);--overlay-hover-strong:rgba(120,120,128,.36);--overlay-faint:rgba(120,120,128,.08);--overlay-row:rgba(255,255,255,.03);--metric-bg1:#1c1c1e;--metric-bg2:#1c1c1e;--input-bg:#1c1c1e;--badge-bg:rgba(120,120,128,.24);--toggle-off:#39393d;--divider:rgba(84,84,88,.65);--shadow-soft:rgba(0,0,0,.3);--shadow-hover:rgba(0,0,0,.4);--shadow-float:rgba(0,0,0,.6);--btn-muted:#8e8e93;--accent-tint-bg:rgba(10,132,255,.18);--accent-tint-border:rgba(10,132,255,.4);--float-bg:rgba(44,44,46,.98);--float-border:rgba(84,84,88,.65);--okb-bg:rgba(48,209,88,.18);--okb-text:#7FEB9D;--errb-bg:rgba(255,69,58,.18);--errb-text:#FF6961;--warnb-bg:rgba(255,159,10,.18);--warnb-text:#FFC97A;--infob-bg:rgba(10,132,255,.20);--infob-text:#7FBFFF;--purpleb-bg:rgba(191,90,242,.18);--purpleb-text:#DAA5F5;--alert-ok-bg:rgba(48,209,88,.14);--alert-ok-border:rgba(48,209,88,.32);--alert-err-bg:rgba(255,69,58,.14);--alert-err-border:rgba(255,69,58,.32);}
 *{box-sizing:border-box}
-body{margin:0;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','Inter','Segoe UI',Roboto,sans-serif;background:var(--bg1);color:var(--text);padding:0;-webkit-tap-highlight-color:transparent;transition:background .2s var(--ease),color .2s var(--ease);font-weight:400;letter-spacing:-0.01em}
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','Inter','Segoe UI',Roboto,sans-serif;background:var(--bg1);color:var(--text);padding:0;-webkit-tap-highlight-color:transparent;transition:background .2s var(--ease),color .2s var(--ease);font-weight:400;letter-spacing:-0.01em;position:relative}
+/* SmartFin-Style: dezenter gruener Ambient-Blob oben rechts (wie im Screenshot) */
+body::after{content:'';position:fixed;top:-20%;right:-10%;width:60vmax;height:60vmax;border-radius:50%;background:radial-gradient(circle,rgba(52,199,89,.18) 0%,transparent 65%);pointer-events:none;z-index:0}
+:root[data-theme="dark"] body::after{background:radial-gradient(circle,rgba(48,209,88,.12) 0%,transparent 65%)}
+.shell{position:relative;z-index:1}
 h1,h2,h3{line-height:1.15;letter-spacing:-0.03em;font-weight:600}
 .shell{width:min(1120px,calc(100% - 24px));margin:0 auto;padding:18px 0 96px}
 .hero{background:var(--card);border:0;border-radius:22px;padding:20px 22px;margin:14px 0 16px;box-shadow:0 1px 2px var(--shadow-soft)}
@@ -7933,6 +7950,13 @@ td,th{border-bottom:1px solid var(--line);padding:9px 10px;text-align:left}tr:la
 svg{background:#0b1224;border:1px solid var(--line);border-radius:18px;margin-top:8px;width:100%;height:320px}
 .gaugeWrap{display:flex;justify-content:center;margin:6px 0 4px}
 .gaugeWrap svg{width:240px;max-width:100%;height:auto;background:transparent;border:0;margin:0}
+/* Ring-Gauge (SmartFin-Style) */
+.priceRing{width:100%;max-width:340px;margin:0 auto;text-align:center;--pr-track:rgba(0,0,0,.08)}
+:root[data-theme="dark"] .priceRing{--pr-track:rgba(255,255,255,.12)}
+.priceRing.kiosk{--pr-track:rgba(255,255,255,.15)}
+.pr-time{font-size:clamp(11px,1.2vh,13px);color:var(--muted);font-weight:500;margin-bottom:4px;font-variant-numeric:tabular-nums}
+.priceRing svg{width:100%;height:auto;max-width:280px}
+/* Live-Power Bar bleibt mit pg-* Klassen */
 .priceGauge{width:100%;max-width:420px;margin:0 auto;padding:8px 4px;text-align:center;font-variant-numeric:tabular-nums}
 .priceGauge .pg-label{font-size:clamp(10px,1.4vh,12px);font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;line-height:1}
 .priceGauge .pg-time{font-size:clamp(11px,1.4vh,13px);color:var(--muted);font-weight:500;margin-top:3px;font-variant-numeric:tabular-nums}
