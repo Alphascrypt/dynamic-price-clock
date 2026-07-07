@@ -73,7 +73,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "2.5.0"
+#define FIRMWARE_VERSION "2.5.1"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -7673,7 +7673,8 @@ void handleGithubUpdate() {
 
   // Eigener Task, damit der Webserver waehrend des Downloads erreichbar
   // bleibt und /otaprogress den Fortschritt live zurueckgeben kann.
-  xTaskCreate(otaUpdateTask, "otaUpdateTask", 16384, NULL, 1, NULL);
+  // Prioritaet 5 damit TLS nicht durch andere Tasks unterbrochen wird (max=25)
+  xTaskCreate(otaUpdateTask, "otaUpdateTask", 16384, NULL, 5, NULL);
 
   server.send(200, "application/json", "{\"ok\":true,\"started\":true}");
 }
