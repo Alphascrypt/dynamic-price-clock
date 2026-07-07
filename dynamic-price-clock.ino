@@ -82,7 +82,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "2.6.2"
+#define FIRMWARE_VERSION "2.6.3"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -1668,15 +1668,19 @@ void loop() {
   ensureWifiConnected();
 #endif
 
-  if (!apMode && millis() - lastUpdate >= updateInterval) {
+  // Waehrend eines laufenden OTA-Downloads (manuell oder ueber GitHub) keine
+  // weiteren TLS-Verbindungen aufbauen: Auf dem ESP32 konkurrieren mehrere
+  // gleichzeitige HTTPS-Sitzungen um den knappen Heap, was den OTA-Download
+  // mit "Connection refused/lost" abbrechen kann.
+  if (!apMode && !otaTaskRunning && millis() - lastUpdate >= updateInterval) {
     updatePrices();
   }
 
-  if (!apMode) {
+  if (!apMode && !otaTaskRunning) {
     updateTibberLiveMeasurement();
   }
 
-  if (!apMode && ankerConfigured && millis() - lastAnkerPoll >= ANKER_POLL_INTERVAL_MS) {
+  if (!apMode && !otaTaskRunning && ankerConfigured && millis() - lastAnkerPoll >= ANKER_POLL_INTERVAL_MS) {
     lastAnkerPoll = millis();
     updateAnkerSolarData();
   }
@@ -2722,21 +2726,28 @@ bool performGithubUpdate(String url) {
   // erneut klicken zu lassen.
   const int maxAttempts = 3;
   for (int attempt = 1; attempt <= maxAttempts; attempt++) {
-    WiFiClientSecure client;
-    client.setInsecure();
-    otaBytesWritten = 0;
-    otaBytesTotal = 0;
-    otaHeartbeatMs = millis();
+    {
+      WiFiClientSecure client;
+      client.setInsecure();
+      otaBytesWritten = 0;
+      otaBytesTotal = 0;
+      otaHeartbeatMs = millis();
 
-    t_httpUpdate_return ret = httpUpdate.update(client, url);
+      t_httpUpdate_return ret = httpUpdate.update(client, url);
+      client.stop();
 
-    if (ret == HTTP_UPDATE_OK) {
-      return true;
+      if (ret == HTTP_UPDATE_OK) {
+        return true;
+      }
+
+      lastError = "Update fehlgeschlagen (Versuch " + String(attempt) + "/" + String(maxAttempts) + "): " + httpUpdate.getLastErrorString();
     }
-
-    lastError = "Update fehlgeschlagen (Versuch " + String(attempt) + "/" + String(maxAttempts) + "): " + httpUpdate.getLastErrorString();
+    // client explizit vor der Pause aus dem Scope laufen lassen, damit der
+    // TLS-Speicher (mbedTLS-Puffer, ~40KB je Sitzung) sicher freigegeben ist,
+    // bevor der naechste Versuch startet - sonst kann der naechste
+    // Verbindungsaufbau mangels Heap mit "Connection refused/lost" scheitern.
     if (attempt < maxAttempts) {
-      delay(1500);
+      delay(4000);
     }
   }
 
