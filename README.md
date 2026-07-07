@@ -1,6 +1,6 @@
 # Dynamic Price Clock
 
-ESP32-C5-Firmware für ein Strompreis-Display mit zwei runden GC9A01-Bildschirmen, WS2812B-LED-Tagesring und optionaler MAX7219-Matrix. Web-Dashboard mit Drag-and-Drop-Layout-Editor, Hell/Dunkel-Modus, Tablet-/TV-Kiosk-Ansicht, Live-Verbrauch über Tibber Pulse, Monatskosten-Tracking mit Prognose sowie GitHub-OTA- und manuelle Firmware-Uploads. Strompreise wahlweise über **Tibber** oder **aWATTar** (Deutschland/Österreich, ohne Anmeldung).
+ESP32-C5-Firmware für ein Strompreis-Display mit zwei runden GC9A01-Bildschirmen, WS2812B-LED-Tagesring und optionaler MAX7219-Matrix. Web-Dashboard mit Drag-and-Drop-Layout-Editor, Hell/Dunkel-Modus, zwei Tablet-/TV-Kiosk-Ansichten (Preise + Energiefluss), Live-Verbrauch über Tibber Pulse, optionale Anker-Solarbank-Anbindung (PV-Erzeugung/Batterie/Netzbezug), Monatskosten-Tracking mit Prognose sowie GitHub-OTA- und manuelle Firmware-Uploads. Strompreise wahlweise über **Tibber** oder **aWATTar** (Deutschland/Österreich, ohne Anmeldung).
 
 ## Strompreis-Quelle
 
@@ -39,7 +39,12 @@ Jede Seite gibt es auch im Dunkelmodus (`docs/screenshots/*-dark.png`).
 
 ### Tablet-/Kiosk-Modus
 
-Über `/kiosk` gibt es eine eigene Vollbild-Ansicht für ein dauerhaft angeschlossenes Tablet, Handy, Desktop oder TV: großes Preis-Gauge, interaktives Diagramm (Fahren mit Finger/Maus zeigt Preise per Fadenkreuz), aktueller Live-Verbrauch (per Tibber Pulse, ab 1200 W als kW-Wert), Monatskosten mit Prognose fürs Monatsende und ein Wake Lock, damit der Bildschirm nicht in den Standby geht. Die Ansicht skaliert bis auf 4K-Displays und schaltet im Querformat automatisch auf ein zweispaltiges Layout um. Die Widget-Positionen können pro Ausrichtung im Layout-Editor per Drag-and-Drop angepasst werden.
+Es gibt zwei eigene Vollbild-Ansichten für ein dauerhaft angeschlossenes Tablet, Handy, Desktop oder TV, beide mit Wake Lock (kein Standby), Skalierung bis 4K und automatischem zweispaltigem Layout im Querformat:
+
+- **`/kiosk` – Preise:** großes Preis-Gauge, interaktives Diagramm (Fahren mit Finger/Maus zeigt Preise per Fadenkreuz), aktueller Live-Verbrauch (per Tibber Pulse, ab 1200 W als kW-Wert), Monatskosten mit Prognose fürs Monatsende.
+- **`/kiosk2` – Energiefluss:** dieselbe Preis-Gauge + dasselbe Diagramm, dazu PV-Erzeugung, Batterie (inkl. Restkapazität in %), Hausverbrauch und Netzbezug/-einspeisung (mit animiertem €-Symbol) – basierend auf der optionalen Anker-Solarbank-Anbindung (siehe unten). Ohne hinterlegte Anker-Zugangsdaten bleiben PV/Batterie/Netz leer, Preis-Gauge und Diagramm funktionieren unabhängig davon.
+
+Beide Seiten verlinken sich gegenseitig oben rechts. Die Widget-Positionen lassen sich für **beide** Kiosk-Seiten getrennt nach Hoch-/Querformat im Layout-Editor per Drag-and-Drop anpassen (Seiten-Umschalter "Kiosk 1: Preise" / "Kiosk 2: Energie" oben im Editor).
 
 | Hochformat | Hochformat (Dunkelmodus) |
 |---|---|
@@ -49,12 +54,20 @@ Jede Seite gibt es auch im Dunkelmodus (`docs/screenshots/*-dark.png`).
 |---|
 | ![Tablet-Modus Querformat](docs/screenshots/kiosk-tablet-landscape-dark.png) |
 
+> Screenshots der Energiefluss-Ansicht (`/kiosk2`) und des erweiterten Layout-Editors mit Seiten-Umschalter fehlen hier noch – die obigen Bilder zeigen nur die Preise-Kiosk-Seite.
+
+## Anker Solarbank (optional)
+
+Unter **Konto → Anker Solarbank** lassen sich die Zugangsdaten deines Anker-Kontos hinterlegen, um PV-Erzeugung, Batterieleistung/-ladezustand und Hausverbrauch auf der Energiefluss-Kiosk-Seite (`/kiosk2`) anzuzeigen. Es handelt sich um eine **inoffizielle, reverse-engineerte Cloud-API** (kein offizieller Anker-Support) – Anker kann sie jederzeit ändern, ein Ausfall der Anbindung betrifft nur `/kiosk2`, nicht die übrige Firmware. Login erfolgt verschlüsselt (ECDH/AES-256) direkt gegen die Anker-Cloud, es werden keine Zugangsdaten an Dritte übertragen. Die Konto-Seite zeigt bei Verbindungsproblemen die rohe API-Antwort zur Fehlersuche an (aufklappbar).
+
 ## Einrichtung (Arduino IDE)
 
 **Board:** ESP32C5 Dev Module (Board-Paket `esp32:esp32`, Boards-Manager-URL `https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json`)
 
-**Werkzeuge → Partition Scheme:** **"Minimal SPIFFS (1.9MB APP with OTA/128KB SPIFFS)"**
-Das Standardschema ("Default 4MB with spiffs") reicht nicht aus – der Sketch belegt mit aktiviertem GitHub-OTA-Update ca. 1,5 MB Flash und braucht ein Schema mit größerer, aber weiterhin OTA-fähiger App-Partition. Mit dem Standardschema schlägt der Build mit "Sketch is too large" fehl.
+**Werkzeuge → Partition Scheme:** **"No FS 4MB (2MB APP x2)"**
+Das Standardschema ("Default 4MB with spiffs") reicht nicht aus – der Sketch belegt aktuell ca. 1,75 MB Flash und braucht ein Schema mit größerer, aber weiterhin **echter 2-Slot-OTA-fähiger** App-Partition (~1,94 MB je Slot). Mit dem Standardschema schlägt der Build mit "Sketch is too large" fehl. Das früher empfohlene **"Huge APP (3MB No OTA)"**-Schema unbedingt vermeiden – wie der Name schon sagt, hat es nur einen einzigen App-Slot statt zweier, wodurch OTA-Updates die gerade laufende Partition überschreiben und strukturell unzuverlässig sind (das war lange Zeit die Ursache wiederkehrender Update-Fehler in diesem Projekt).
+
+Falls das Gerät noch mit "Huge APP" oder einem anderen Ein-Slot-Schema geflasht ist: **einmalig** mit "No FS 4MB (2MB APP x2)" **und** aktiviertem "Erase All Flash Before Sketch Upload" per USB neu flashen (siehe Warnhinweis im nächsten Abschnitt), das Schema danach nicht mehr ändern.
 
 **Benötigte Bibliotheken** (über den Bibliotheksverwalter installierbar):
 - ArduinoJson
@@ -66,14 +79,14 @@ Das Standardschema ("Default 4MB with spiffs") reicht nicht aus – der Sketch b
 
 Nach dem Flashen läuft das Gerät beim ersten Start als WLAN-Access-Point ("Dynamic-Price-Clock-Setup", im Web-Dashboard unter **WLAN → Setup-Access-Point** änderbar) zur Erstkonfiguration.
 
-### WLAN-Zugangsdaten und Tibber-Token bleiben beim Update erhalten
+### WLAN-Zugangsdaten, Tibber-Token, Anker-Login etc. bleiben beim Update erhalten
 
-Alle gespeicherten Werte (WLAN-SSID/Passwort, Tibber-Token, Strompreis-Einstellungen, Layout, ...) liegen in einem eigenen NVS-Speicherbereich (`Preferences`), der von einem Firmware-Update **nicht** angefasst wird:
+Alle gespeicherten Werte (WLAN-SSID/Passwort, Tibber-Token, Anker-Zugangsdaten, Strompreis-Einstellungen, Kiosk-Layouts, ...) liegen in einem eigenen NVS-Speicherbereich (`Preferences`), der von einem Firmware-Update **nicht** angefasst wird:
 
-- **OTA-Update über den Button "Jetzt aktualisieren"** (Konto-Seite): schreibt ausschließlich die neue Firmware in die App-Partition, rührt den Preferences-Speicher nicht an. Zugangsdaten bleiben garantiert erhalten.
+- **OTA-Update über den Button "Jetzt aktualisieren"** (Konto-Seite) **oder manueller `.bin`-Upload im Browser**: schreibt ausschließlich die neue Firmware in die aktuell inaktive App-Partition, rührt den Preferences-Speicher nicht an. Zugangsdaten bleiben garantiert erhalten – vorausgesetzt, das Gerät läuft bereits auf einem echten 2-Slot-OTA-Schema (siehe oben).
 - **Manuelles Neuflashen per USB (Arduino IDE)**: bleibt ebenfalls erhalten, **solange** du
   1. **nicht** "Erase All Flash Before Sketch Upload" aktivierst, und
-  2. **immer dasselbe Partition Scheme** verwendest ("Minimal SPIFFS", siehe oben) – ein Wechsel des Schemas kann die Partitionstabelle verschieben und den Zugriff auf die alten NVS-Daten faktisch unmöglich machen, auch wenn sie physisch noch auf dem Chip liegen.
+  2. **immer dasselbe Partition Scheme** verwendest ("No FS 4MB (2MB APP x2)", siehe oben) – ein Wechsel des Schemas verschiebt die Partitionstabelle und macht den Zugriff auf die alten NVS-Daten faktisch unmöglich, auch wenn sie physisch noch auf dem Chip liegen. Ein Partitionsschema kann grundsätzlich **nur** per USB-Neuflash geändert werden, niemals per OTA – ein einmaliger Wechsel (z.B. von einem alten Ein-Slot-Schema) erfordert also zwangsläufig, dass alle Einstellungen einmalig neu eingegeben werden.
 
 ## Setup-WLAN-Passwort
 
