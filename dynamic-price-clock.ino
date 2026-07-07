@@ -73,7 +73,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "2.5.3"
+#define FIRMWARE_VERSION "2.5.4"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -4080,10 +4080,10 @@ void handleRoot() {
   html += " Slots</span></div>";
   html += buildSvgChart();
   html += "<div style='display:flex;flex-wrap:wrap;gap:14px;margin-top:10px;font-size:12px;color:var(--muted)'>";
-  html += "<span><span style='display:inline-block;width:10px;height:10px;border-radius:50%;background:#2563eb;margin-right:5px'></span>Preis</span>";
-  html += "<span><span style='display:inline-block;width:10px;height:10px;border-radius:50%;background:#0d9488;margin-right:5px'></span>Jetzt</span>";
-  html += "<span><span style='display:inline-block;width:10px;height:10px;border-radius:50%;background:#b45309;margin-right:5px'></span>Tiefstpreis (60 Min)</span>";
-  html += "<span><span style='display:inline-block;width:10px;height:2px;background:#5b6478;margin-right:5px;vertical-align:middle'></span>Tagesschnitt</span>";
+  html += "<span><span style='display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--accent);margin-right:5px'></span>Preis</span>";
+  html += "<span><span style='display:inline-block;width:10px;height:10px;border-radius:50%;background:#34C759;margin-right:5px'></span>Jetzt</span>";
+  html += "<span><span style='display:inline-block;width:10px;height:10px;border-radius:50%;background:#FFD60A;margin-right:5px'></span>Tiefstpreis (60 Min)</span>";
+  html += "<span><span style='display:inline-block;width:10px;height:2px;background:var(--muted);margin-right:5px;vertical-align:middle'></span>Tagesschnitt</span>";
   html += "</div></section>";
 
 
@@ -7294,9 +7294,10 @@ String buildSvgChart(String lineColor, String fillColor) {
   if (quarterCount == 0) {
     return "<p>Keine Diagrammdaten</p>";
   }
-  // Default-Farben wenn keine uebergeben
-  if (lineColor.length() == 0) lineColor = "rgba(255,255,255,.85)";
-  if (fillColor.length() == 0) fillColor = "rgba(255,255,255,.25)";
+  // Default-Farben wenn keine uebergeben: Akzentfarbe des Themes statt
+  // hartcodiertem Weiss, damit das Diagramm im Light-Theme nicht unsichtbar ist
+  if (lineColor.length() == 0) lineColor = "var(--accent)";
+  if (fillColor.length() == 0) fillColor = "var(--accent)";
 
   float minP = quarterPrices[0];
   float maxP = quarterPrices[0];
@@ -7364,12 +7365,12 @@ String buildSvgChart(String lineColor, String fillColor) {
   for (int t = 0; t <= 4; t++) {
     float value = minP + ((maxP - minP) * t / 4.0);
     int y = top + chartH - ((chartH * t) / 4);
-    svg += "<line x1='" + String(left) + "' y1='" + String(y) + "' x2='" + String(left + chartW) + "' y2='" + String(y) + "' stroke='rgba(255,255,255,.08)' stroke-width='1'/>";
-    svg += "<text x='3' y='" + String(y + 4) + "' fill='rgba(255,255,255,.45)' font-size='11' font-weight='500'>" + String(euroToCentRounded(value)) + "</text>";
+    svg += "<line x1='" + String(left) + "' y1='" + String(y) + "' x2='" + String(left + chartW) + "' y2='" + String(y) + "' stroke='var(--line)' stroke-width='1'/>";
+    svg += "<text x='3' y='" + String(y + 4) + "' fill='var(--muted)' font-size='11' font-weight='500'>" + String(euroToCentRounded(value)) + "</text>";
   }
   // Zeitstempel unten
   for (int i = 0; i < quarterCount; i += 12) {
-    svg += "<text x='" + String(xs[i]) + "' y='315' fill='rgba(255,255,255,.38)' font-size='10' font-weight='500' text-anchor='middle'>" + formatTimeOnly(quarterTimes[i]) + "</text>";
+    svg += "<text x='" + String(xs[i]) + "' y='315' fill='var(--muted)' font-size='10' font-weight='500' text-anchor='middle'>" + formatTimeOnly(quarterTimes[i]) + "</text>";
   }
 
   String linePoints;
@@ -7387,8 +7388,8 @@ String buildSvgChart(String lineColor, String fillColor) {
     if (normAvg < 0) normAvg = 0;
     if (normAvg > 1) normAvg = 1;
     int yAvg = top + chartH - int(normAvg * chartH);
-    svg += "<line x1='" + String(left) + "' y1='" + String(yAvg) + "' x2='" + String(left + chartW) + "' y2='" + String(yAvg) + "' stroke='rgba(255,255,255,.22)' stroke-width='1' stroke-dasharray='6,4'/>";
-    svg += "<text x='" + String(left + chartW - 4) + "' y='" + String(yAvg - 5) + "' fill='rgba(255,255,255,.45)' font-size='10' font-weight='600' text-anchor='end'>&#8960; " + String(euroToCentRounded(metricDayAvg)) + " ct</text>";
+    svg += "<line x1='" + String(left) + "' y1='" + String(yAvg) + "' x2='" + String(left + chartW) + "' y2='" + String(yAvg) + "' stroke='var(--muted)' stroke-width='1' stroke-dasharray='6,4' opacity='.5'/>";
+    svg += "<text x='" + String(left + chartW - 4) + "' y='" + String(yAvg - 5) + "' fill='var(--muted)' font-size='10' font-weight='600' text-anchor='end'>&#8960; " + String(euroToCentRounded(metricDayAvg)) + " ct</text>";
   }
 
   // Hauptlinie — glatt, in uebergebener Farbe
@@ -7396,8 +7397,8 @@ String buildSvgChart(String lineColor, String fillColor) {
 
   // Morgen-Trenner
   if (tomorrowIndex > 0) {
-    svg += "<line x1='" + String(xs[tomorrowIndex]) + "' y1='" + String(top) + "' x2='" + String(xs[tomorrowIndex]) + "' y2='" + String(top + chartH) + "' stroke='rgba(255,255,255,.15)' stroke-width='1' stroke-dasharray='3,4'/>";
-    svg += "<text x='" + String(xs[tomorrowIndex] + 5) + "' y='" + String(top + 13) + "' fill='rgba(255,255,255,.35)' font-size='10' font-weight='600'>Morgen</text>";
+    svg += "<line x1='" + String(xs[tomorrowIndex]) + "' y1='" + String(top) + "' x2='" + String(xs[tomorrowIndex]) + "' y2='" + String(top + chartH) + "' stroke='var(--line)' stroke-width='1' stroke-dasharray='3,4'/>";
+    svg += "<text x='" + String(xs[tomorrowIndex] + 5) + "' y='" + String(top + 13) + "' fill='var(--muted)' font-size='10' font-weight='600'>Morgen</text>";
   }
 
   // Tiefster 60-Min-Block — goldener Marker
@@ -7418,7 +7419,7 @@ String buildSvgChart(String lineColor, String fillColor) {
     String nowColor = "#34C759";
     if (nowCent >= ledRedCent) nowColor = "#FF3B30";
     else if (nowCent >= ledYellowCent) nowColor = "#FF9500";
-    svg += "<circle cx='" + String(xs[nowIndex]) + "' cy='" + String(ys[nowIndex]) + "' r='8' fill='#fff' filter='url(#chartGlow)'/>";
+    svg += "<circle cx='" + String(xs[nowIndex]) + "' cy='" + String(ys[nowIndex]) + "' r='8' fill='var(--card)' filter='url(#chartGlow)'/>";
     svg += "<circle cx='" + String(xs[nowIndex]) + "' cy='" + String(ys[nowIndex]) + "' r='5' fill='" + nowColor + "'/>";
     int lx = xs[nowIndex] + 12; if (lx > left + chartW - 65) lx = xs[nowIndex] - 72;
     int ly = ys[nowIndex] - 12; if (ly < top + 16) ly = ys[nowIndex] + 22;
@@ -7952,7 +7953,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent);box-shadow:0 
 .badge.okb{background:var(--okb-bg);color:var(--okb-text)}.badge.errb{background:var(--errb-bg);color:var(--errb-text)}.badge.warnb{background:var(--warnb-bg);color:var(--warnb-text)}.badge.infob{background:var(--infob-bg);color:var(--infob-text)}.badge.purpleb{background:var(--purpleb-bg);color:var(--purpleb-text)}
 table{width:100%;border-collapse:separate;border-spacing:0;margin-top:12px;font-size:13px;overflow:hidden;border:1px solid var(--line);border-radius:16px}
 td,th{border-bottom:1px solid var(--line);padding:9px 10px;text-align:left}tr:last-child td{border-bottom:0}tr:nth-child(even){background:var(--overlay-row)}
-svg{background:#0b1224;border:1px solid var(--line);border-radius:18px;margin-top:8px;width:100%;height:320px}
+svg{background:var(--overlay-faint);border:1px solid var(--line);border-radius:18px;margin-top:8px;width:100%;height:320px}
 .gaugeWrap{display:flex;justify-content:center;margin:6px 0 4px}
 .gaugeWrap svg{width:240px;max-width:100%;height:auto;background:transparent;border:0;margin:0}
 /* Ring-Gauge (SmartFin-Style) */
