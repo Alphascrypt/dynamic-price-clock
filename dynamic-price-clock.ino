@@ -82,7 +82,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "2.6.3"
+#define FIRMWARE_VERSION "2.6.4"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -318,6 +318,7 @@ float ankerHomeLoadW = -1;  // home_load_power (Gesamt-Hausverbrauch)
 int ankerBatterySoc = -1;   // Batterie-Ladezustand in %, falls verfuegbar
 String ankerLastError = "";
 bool ankerConfigured = false;
+String ankerLastRawJson = ""; // letzte rohe Antwort von get_scen_info, zur Fehlersuche auf der Konto-Seite
 
 String lastError = "Noch kein Update";
 String webInterfaceName = "Dynamic Price Clock";
@@ -2643,6 +2644,7 @@ static bool ankerAuthedPost(const String &path, const String &bodyJson, DynamicJ
 
   String resp = http.getString();
   http.end();
+  if (path.indexOf("get_scen_info") >= 0) ankerLastRawJson = resp;
 
   if (deserializeJson(outDoc, resp)) {
     ankerLastError = path + ": ungueltige Antwort";
@@ -4670,6 +4672,11 @@ void handleAccountPage() {
       html += "<p class='small'>PV: " + String(ankerPvW, 0) + " W &middot; Batterie: " + String(ankerBatteryW, 0) + " W &middot; Ausgang: " + String(ankerOutputW, 0) + " W &middot; Hausverbrauch: " + String(ankerHomeLoadW, 0) + " W</p>";
     } else {
       html += "<p class='small'>Noch keine Daten abgefragt - erster Poll erfolgt automatisch innerhalb von 60s.</p>";
+    }
+    if (ankerLastRawJson.length() > 0) {
+      html += "<details style='margin-top:8px'><summary class='small' style='cursor:pointer'>Rohdaten der letzten Anker-Antwort (Debug)</summary>";
+      html += "<pre style='white-space:pre-wrap;word-break:break-all;font-size:11px;background:var(--overlay-faint);border-radius:10px;padding:8px;margin-top:6px'>" + htmlEscape(ankerLastRawJson) + "</pre>";
+      html += "</details>";
     }
     html += "</div>";
   }
