@@ -82,7 +82,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "2.6.1"
+#define FIRMWARE_VERSION "2.6.2"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -2482,6 +2482,46 @@ static String ankerAesEncryptB64(const uint8_t key[32], const uint8_t ivIn[16], 
   return result;
 }
 
+// Lokaler UTC-Offset in Sekunden (positiv = oestlich von UTC).
+static long ankerTzOffsetSeconds() {
+  time_t nowSec = time(nullptr);
+  struct tm utcTm, localTm;
+  gmtime_r(&nowSec, &utcTm);
+  localtime_r(&nowSec, &localTm);
+  time_t utcAsTime = mktime(&utcTm);
+  time_t localAsTime = mktime(&localTm);
+  return (long)difftime(localAsTime, utcAsTime);
+}
+
+// Format "GMT+01:00" / "GMT-03:30", wie von der Anker-Cloud als
+// timezone-Header erwartet (siehe ha-anker-solix helpers.py getTimezoneGMTString()).
+static String ankerTzGmtString() {
+  long offsetSec = ankerTzOffsetSeconds();
+  char sign = (offsetSec < 0) ? '-' : '+';
+  long absSec = labs(offsetSec);
+  int hh = absSec / 3600;
+  int mm = (absSec % 3600) / 60;
+  char buf[16];
+  snprintf(buf, sizeof(buf), "GMT%c%02d:%02d", sign, hh, mm);
+  return String(buf);
+}
+
+// Gemeinsame Header, die die Anker-Cloud auf JEDER Anfrage erwartet (nicht
+// nur beim Login) - ohne country/timezone/model-type/app-name/os-type
+// antwortet der Server bei authentifizierten Endpunkten mit HTTP 500.
+static void ankerAddCommonHeaders(HTTPClient &http, bool withAuth) {
+  http.addHeader("content-type", "application/json");
+  http.addHeader("model-type", "DESKTOP");
+  http.addHeader("app-name", "anker_power");
+  http.addHeader("os-type", "android");
+  http.addHeader("country", "DE");
+  http.addHeader("timezone", ankerTzGmtString());
+  if (withAuth) {
+    http.addHeader("gtoken", ankerGtoken);
+    http.addHeader("x-auth-token", ankerAuthToken);
+  }
+}
+
 // Meldet sich bei der Anker-Cloud an und speichert auth_token/user_id/gtoken
 // im RAM (nicht in Preferences - Token sind kurzlebig, bei Bedarf Re-Login).
 bool ankerLogin() {
@@ -2511,26 +2551,13 @@ bool ankerLogin() {
 
   time_t nowSec = time(nullptr);
   unsigned long long transactionMs = (unsigned long long)nowSec * 1000ULL;
-  long tzOffsetMs = 3600000L; // Fallback: CET (UTC+1)
-  {
-    struct tm utcTm, localTm;
-    gmtime_r(&nowSec, &utcTm);
-    localtime_r(&nowSec, &localTm);
-    time_t utcAsTime = mktime(&utcTm);
-    time_t localAsTime = mktime(&localTm);
-    tzOffsetMs = (long)difftime(localAsTime, utcAsTime) * 1000L;
-  }
+  long tzOffsetMs = ankerTzOffsetSeconds() * 1000L;
 
   WiFiClientSecure client;
   client.setInsecure();
   HTTPClient http;
   http.begin(client, "https://ankerpower-api-eu.anker.com/passport/login");
-  http.addHeader("content-type", "application/json");
-  http.addHeader("model-type", "DESKTOP");
-  http.addHeader("app-name", "anker_power");
-  http.addHeader("os-type", "android");
-  http.addHeader("country", "DE");
-  http.addHeader("timezone", "Europe/Berlin");
+  ankerAddCommonHeaders(http, false);
 
   DynamicJsonDocument reqDoc(1024);
   reqDoc["ab"] = "DE";
@@ -2593,18 +2620,14 @@ static bool ankerAuthedPost(const String &path, const String &bodyJson, DynamicJ
   client.setInsecure();
   HTTPClient http;
   http.begin(client, url);
-  http.addHeader("content-type", "application/json");
-  http.addHeader("x-auth-token", ankerAuthToken);
-  http.addHeader("gtoken", ankerGtoken);
+  ankerAddCommonHeaders(http, true);
   int code = http.POST(bodyJson);
 
   if (code == 401) {
     http.end();
     if (!ankerLogin()) return false;
     http.begin(client, url);
-    http.addHeader("content-type", "application/json");
-    http.addHeader("x-auth-token", ankerAuthToken);
-    http.addHeader("gtoken", ankerGtoken);
+    ankerAddCommonHeaders(http, true);
     code = http.POST(bodyJson);
   }
 
