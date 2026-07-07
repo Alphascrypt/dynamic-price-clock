@@ -7131,9 +7131,12 @@ String buildPriceGaugeSvg() {
   String timeFrom = formatTimeOnly(currentStartsAt);
   String timeTo = formatTimeOnly(addMinutesToIsoTime(currentStartsAt, 15));
 
-  // Ring-Parameter: cx=120,cy=120,r=90, circumference≈565.5
-  float circ = 2.0f * 3.14159f * 90.0f;
-  float dashOff = circ * (1.0f - f);
+  // 270°-Tachobogen: Luecke unten (45° je Seite), Start unten-links, Ende unten-rechts
+  // r=90, circumference=565.5, arcLen=424.1 (75% = 270°)
+  // rotate(-225) bringt Startpunkt auf 7:30-Uhr-Position (unten-links)
+  float circ = 2.0f * 3.14159f * 90.0f;  // 565.49
+  float arcLen = circ * 0.75f;             // 424.12 = 270°
+  float progressLen = arcLen * f;
 
   String html;
   html.reserve(1600);
@@ -7141,21 +7144,22 @@ String buildPriceGaugeSvg() {
   if (timeFrom.length() > 0 && timeTo.length() > 0) {
     html += "<div class='pr-time'>" + timeFrom + " &ndash; " + timeTo + " Uhr</div>";
   }
-  html += "<svg viewBox='0 0 240 240' xmlns='http://www.w3.org/2000/svg'>";
-  // Hintergrundring
-  html += "<circle cx='120' cy='120' r='90' fill='none' stroke='var(--pr-track)' stroke-width='18' stroke-linecap='round'/>";
-  // Fortschrittsring in Zonenfarbe
-  html += "<circle cx='120' cy='120' r='90' fill='none' stroke='" + ringColor + "' stroke-width='18' stroke-linecap='round'";
-  html += " stroke-dasharray='" + String(circ, 1) + "'";
-  html += " stroke-dashoffset='" + String(dashOff, 1) + "'";
-  html += " transform='rotate(-90 120 120)'/>";
+  html += "<svg viewBox='0 0 240 250' xmlns='http://www.w3.org/2000/svg'>";
+  // Hintergrundbogen (270°)
+  html += "<circle cx='120' cy='115' r='90' fill='none' stroke='var(--pr-track)' stroke-width='18' stroke-linecap='round'";
+  html += " stroke-dasharray='" + String(arcLen, 1) + " " + String(circ, 1) + "'";
+  html += " transform='rotate(-225 120 115)'/>";
+  // Fortschrittsbogen in Zonenfarbe
+  html += "<circle cx='120' cy='115' r='90' fill='none' stroke='" + ringColor + "' stroke-width='18' stroke-linecap='round'";
+  html += " stroke-dasharray='" + String(progressLen, 1) + " " + String(circ, 1) + "'";
+  html += " transform='rotate(-225 120 115)'/>";
   // Preis in der Mitte
-  html += "<text x='120' y='108' fill='var(--text)' font-size='56' font-weight='700' text-anchor='middle' font-family='-apple-system,system-ui,sans-serif' letter-spacing='-3'>" + String(nowCent) + "</text>";
-  html += "<text x='120' y='130' fill='var(--muted)' font-size='13' font-weight='500' text-anchor='middle'>ct/kWh</text>";
-  html += "<text x='120' y='152' fill='" + ringColor + "' font-size='14' font-weight='600' text-anchor='middle'>" + zoneLabel + "</text>";
-  // Min/Max Beschriftung
-  html += "<text x='22' y='218' fill='var(--muted)' font-size='11' font-weight='500'>" + String(minCent) + " ct</text>";
-  html += "<text x='218' y='218' fill='var(--muted)' font-size='11' font-weight='500' text-anchor='end'>" + String(maxCent) + " ct</text>";
+  html += "<text x='120' y='103' fill='var(--text)' font-size='56' font-weight='700' text-anchor='middle' font-family='-apple-system,system-ui,sans-serif' letter-spacing='-3'>" + String(nowCent) + "</text>";
+  html += "<text x='120' y='125' fill='var(--muted)' font-size='13' font-weight='500' text-anchor='middle'>ct/kWh</text>";
+  html += "<text x='120' y='147' fill='" + ringColor + "' font-size='14' font-weight='600' text-anchor='middle'>" + zoneLabel + "</text>";
+  // Min/Max Beschriftung an den Bogenenden (unten-links / unten-rechts)
+  html += "<text x='22' y='222' fill='var(--muted)' font-size='11' font-weight='500'>" + String(minCent) + " ct</text>";
+  html += "<text x='218' y='222' fill='var(--muted)' font-size='11' font-weight='500' text-anchor='end'>" + String(maxCent) + " ct</text>";
   html += "</svg>";
   html += "</div>";
   return html;
