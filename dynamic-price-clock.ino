@@ -8136,7 +8136,12 @@ String htmlHeader(String title) {
   html += "<!DOCTYPE html><html><head>";
   html += "<meta charset='utf-8'>";
   html += "<meta name='viewport' content='width=device-width, initial-scale=1'>";
-  html += "<meta http-equiv='refresh' content='60'>";
+  // Kein Auto-Reload waehrend ein OTA-Update laeuft, sonst wird die
+  // Fortschrittsanzeige (pollGhProgress) durch den Seiten-Neuladevorgang
+  // mitten im Update abgebrochen.
+  if (!otaTaskRunning) {
+    html += "<meta http-equiv='refresh' content='60'>";
+  }
   html += "<title>";
   html += htmlEscape(webInterfaceName + " - " + title);
   html += "</title>";
