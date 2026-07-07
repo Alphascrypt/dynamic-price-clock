@@ -82,7 +82,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "2.6.7"
+#define FIRMWARE_VERSION "2.6.8"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -5773,11 +5773,21 @@ void handleKiosk2Page() {
   html += ".ef-value{font-size:clamp(18px,3.6vh,36px);font-weight:700;color:#fff;letter-spacing:-0.5px;font-variant-numeric:tabular-nums}";
   html += ".ef-sub{font-size:clamp(8px,1.2vh,11px);color:rgba(255,255,255,.4)}";
   html += ".ef-row{display:flex;align-items:center;justify-content:center;gap:clamp(6px,1.6vw,18px)}";
-  html += ".ef-arrow{font-size:clamp(20px,3.6vh,34px);color:rgba(255,255,255,.25);transition:color .4s var(--ease)}";
-  html += ".ef-arrow.on{color:#34C759;animation:efPulse 1.4s ease-in-out infinite}";
+  html += ".ef-arrow{position:relative;font-size:clamp(20px,3.6vh,34px);color:rgba(255,255,255,.25);transition:color .4s var(--ease);display:inline-block}";
+  html += ".ef-arrow.on{color:#34C759}";
   html += ".ef-arrow.on.grid{color:#FF9500}";
   html += ".ef-arrow.on.batt-out{color:#0A84FF}";
+  // Fluss-Animationen: Pfeil bewegt sich sichtbar in Richtung des Energieflusses
+  html += "@keyframes flowRight{0%{transform:translateX(-8px);opacity:.25}50%{opacity:1}100%{transform:translateX(8px);opacity:.25}}";
+  html += "@keyframes flowLeft{0%{transform:translateX(8px);opacity:.25}50%{opacity:1}100%{transform:translateX(-8px);opacity:.25}}";
+  html += "@keyframes flowDown{0%{transform:translateY(-6px);opacity:.25}50%{opacity:1}100%{transform:translateY(6px);opacity:.25}}";
+  html += ".ef-arrow.flow-right{animation:flowRight 1.1s ease-in-out infinite}";
+  html += ".ef-arrow.flow-left{animation:flowLeft 1.1s ease-in-out infinite}";
+  html += ".ef-arrow.flow-down{animation:flowDown 1.1s ease-in-out infinite}";
   html += ".ef-error{color:rgba(255,255,255,.6);font-size:clamp(11px,1.6vh,14px);text-align:center;max-width:80vw}";
+  html += ".ef-price{background:rgba(255,255,255,.07);backdrop-filter:blur(24px) saturate(160%);-webkit-backdrop-filter:blur(24px) saturate(160%);border:1px solid rgba(255,255,255,.12);border-radius:22px;padding:clamp(8px,1.6vh,16px) clamp(16px,3.6vw,32px);display:flex;flex-direction:column;align-items:center;gap:2px}";
+  html += ".kiosk-topbar{position:fixed;top:14px;right:14px;display:flex;gap:8px;opacity:.25;transition:opacity .2s var(--ease);z-index:10}";
+  html += ".kiosk-topbar:hover{opacity:1}";
   html += "</style>";
   html += "</head><body>";
 
@@ -5787,6 +5797,7 @@ void handleKiosk2Page() {
   html += "</div>";
 
   html += "<div class='ef-wrap' id='efWrap'>";
+  html += "<div class='ef-row'><div class='ef-node ef-price'><div class='ef-label'>Aktueller Preis</div><div class='ef-value' id='efPrice'>-- ct/kWh</div><div class='ef-sub' id='efPriceLabel'></div></div></div>";
   if (!ankerConfigured) {
     html += "<p class='ef-error'>Keine Anker-Solarbank eingerichtet. Zugangsdaten auf der Konto-Seite hinterlegen.</p>";
   } else {
@@ -5812,6 +5823,11 @@ function efFmt(w){
   return Math.round(w) + ' W';
 }
 function efApply(d){
+  var priceEl = document.getElementById('efPrice');
+  var priceLbl = document.getElementById('efPriceLabel');
+  if (priceEl) priceEl.innerText = (typeof d.priceCent === 'number' && d.priceCent >= 0) ? (d.priceCent + ' ct/kWh') : '-- ct/kWh';
+  if (priceLbl) { priceLbl.innerText = d.priceZone || ''; priceLbl.style.color = d.priceColor || 'rgba(255,255,255,.4)'; }
+
   var errEl = document.getElementById('efErr');
   if (!d.ok) {
     if (errEl) { errEl.style.display = ''; errEl.innerText = d.error || 'Verbindung zur Anker-Cloud fehlgeschlagen.'; }
@@ -5825,13 +5841,31 @@ function efApply(d){
   var grid = document.getElementById('efGrid'); if (grid) grid.innerText = efFmt(d.grid);
 
   var battSub = document.getElementById('efBattSub');
-  if (battSub) battSub.innerText = d.batt > 5 ? 'Laedt' : (d.batt < -5 ? 'Entlaedt' : 'Im Ruhezustand');
+  if (battSub) battSub.innerText = d.batt > 5 ? 'Laedt' : (d.batt < -5 ? 'Entlaedt (versorgt Haus)' : 'Im Ruhezustand');
   var gridSub = document.getElementById('efGridSub');
   if (gridSub) gridSub.innerText = d.grid > 5 ? 'Bezug' : (d.grid < -5 ? 'Einspeisung' : '');
 
-  var arrPv = document.getElementById('efArrowPv'); if (arrPv) arrPv.className = 'ef-arrow' + (d.pv > 5 ? ' on' : '');
-  var arrBatt = document.getElementById('efArrowBatt'); if (arrBatt) { arrBatt.innerText = d.batt > 5 ? '→' : (d.batt < -5 ? '←' : '↔'); arrBatt.className = 'ef-arrow' + (Math.abs(d.batt) > 5 ? ' on batt-out' : ''); }
-  var arrGrid = document.getElementById('efArrowGrid'); if (arrGrid) { arrGrid.innerText = d.grid > 5 ? '←' : (d.grid < -5 ? '→' : '↔'); arrGrid.className = 'ef-arrow' + (Math.abs(d.grid) > 5 ? ' on grid' : ''); }
+  var arrPv = document.getElementById('efArrowPv');
+  if (arrPv) arrPv.className = 'ef-arrow' + (d.pv > 5 ? ' on flow-down' : '');
+
+  // Batterie-Pfeil: positiv=laedt (Energie fliesst INS Batterie-Symbol, also
+  // nach links), negativ=entlaedt und versorgt damit das Haus (Energie
+  // fliesst nach rechts zum Haus-Symbol).
+  var arrBatt = document.getElementById('efArrowBatt');
+  if (arrBatt) {
+    if (d.batt > 5) { arrBatt.innerText = '←'; arrBatt.className = 'ef-arrow on batt-out flow-left'; }
+    else if (d.batt < -5) { arrBatt.innerText = '→'; arrBatt.className = 'ef-arrow on batt-out flow-right'; }
+    else { arrBatt.innerText = '↔'; arrBatt.className = 'ef-arrow'; }
+  }
+
+  // Netz-Pfeil: positiv=Bezug (Energie fliesst vom Netz nach links zum Haus),
+  // negativ=Einspeisung (Energie fliesst vom Haus nach rechts ins Netz).
+  var arrGrid = document.getElementById('efArrowGrid');
+  if (arrGrid) {
+    if (d.grid > 5) { arrGrid.innerText = '←'; arrGrid.className = 'ef-arrow on grid flow-left'; }
+    else if (d.grid < -5) { arrGrid.innerText = '→'; arrGrid.className = 'ef-arrow on grid flow-right'; }
+    else { arrGrid.innerText = '↔'; arrGrid.className = 'ef-arrow'; }
+  }
 }
 function efPoll(){
   fetch('/ankerdata').then(function(r){ return r.json(); }).then(efApply).catch(function(e){});
@@ -5853,7 +5887,17 @@ setInterval(efPoll, 15000);
 void handleAnkerData() {
   if (!checkAuth()) return;
 
+  // Aktueller Preis (wie auf Kiosk-Seite 1) wird unabhaengig vom
+  // Anker-Status mitgeliefert, damit die Energiefluss-Seite denselben
+  // Preis anzeigen kann, ohne einen zweiten Endpunkt abzufragen.
+  String zoneText, zoneColor;
+  getKioskPriceStatus(zoneText, zoneColor);
+  int nowCent = (quarterCount > 0 && metricCurrent15 >= 0) ? euroToCentRounded(metricCurrent15) : -1;
+
   String json = "{";
+  json += "\"priceCent\":" + String(nowCent) + ",";
+  json += "\"priceZone\":\"" + jsonEscapeValue(zoneText) + "\",";
+  json += "\"priceColor\":\"" + jsonEscapeValue(zoneColor) + "\",";
   if (!ankerConfigured) {
     json += "\"ok\":false,\"error\":\"Keine Anker-Zugangsdaten hinterlegt\"";
   } else if (ankerLastError.length() > 0 && ankerPvW < 0) {
