@@ -82,7 +82,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "2.6.5"
+#define FIRMWARE_VERSION "2.6.6"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -2702,13 +2702,33 @@ void updateAnkerSolarData() {
   String reqBody;
   serializeJson(reqDoc, reqBody);
 
-  DynamicJsonDocument doc(6144);
+  DynamicJsonDocument doc(10240);
   if (!ankerAuthedPost("power_service/v1/site/get_scen_info", reqBody, doc)) return;
 
+  // PV-Erzeugung, Batterie und Solarbank-Ausgang stecken NICHT direkt unter
+  // "data" (nur home_load_power sitzt dort), sondern unter
+  // data.solarbank_info - siehe reale Beispielantwort in ankerLastRawJson.
   JsonObject data = doc["data"];
-  ankerPvW = data["total_photovoltaic_power"].as<String>().toFloat();
-  ankerBatteryW = data["total_battery_power"].as<String>().toFloat();
-  ankerOutputW = data["total_output_power"].as<String>().toFloat();
+  JsonObject solarbankInfo = data["solarbank_info"];
+  ankerPvW = solarbankInfo["total_photovoltaic_power"].as<String>().toFloat();
+  ankerOutputW = solarbankInfo["total_output_power"].as<String>().toFloat();
+
+  // Netto-Batterieleistung (positiv=laedt, negativ=entlaedt) ueber alle
+  // Solarbank-Geraete aufsummiert statt ueber "total_battery_power" (das ist
+  // dort tatsaechlich der Ladezustand in Prozent/Fraktion, keine Leistung).
+  float battNet = 0;
+  JsonArray sbList = solarbankInfo["solarbank_list"].as<JsonArray>();
+  if (!sbList.isNull()) {
+    for (JsonObject sb : sbList) {
+      float chg = sb["bat_charge_power"].as<String>().toFloat();
+      float dis = sb["bat_discharge_power"].as<String>().toFloat();
+      battNet += (chg - dis);
+    }
+  } else {
+    battNet = solarbankInfo["total_charging_power"].as<String>().toFloat();
+  }
+  ankerBatteryW = battNet;
+
   ankerHomeLoadW = data["home_load_power"].as<String>().toFloat();
   ankerLastError = "";
 }
