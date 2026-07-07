@@ -82,7 +82,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "2.7.0"
+#define FIRMWARE_VERSION "2.7.2"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -254,6 +254,7 @@ volatile bool otaTaskDone = false;
 volatile bool otaTaskSuccess = false;
 String otaTaskError = "";
 String otaPendingUrl = "";
+String otaLastDiag = ""; // WLAN-Signal/Heap/DNS-Status des letzten Verbindungsversuchs, siehe otaPreflightDiag()
 
 String tibberToken = "";
 String selectedHomeId = "";
@@ -502,28 +503,30 @@ KioskWidgetLayout kioskLandscape[KIOSK_WIDGET_COUNT];
 // Energiefluss-Kiosk-Seite (/kiosk2): eigenes Widget-Set, gleiche
 // Grid-Architektur/Groesse (6x12 Portrait, 12x8 Landscape) wie Kiosk-Seite 1,
 // damit derselbe Layout-Editor (Drag/Resize) wiederverwendet werden kann.
-#define KIOSK2_WIDGET_COUNT 6
-const char* KIOSK2_WIDGET_KEYS[KIOSK2_WIDGET_COUNT] = { "pricegauge", "pricechart", "pv", "battery", "house", "grid" };
-const char* KIOSK2_WIDGET_LABELS[KIOSK2_WIDGET_COUNT] = { "Preis-Gauge", "Preis-Diagramm", "PV-Erzeugung", "Batterie", "Hausverbrauch", "Netz" };
+#define KIOSK2_WIDGET_COUNT 7
+const char* KIOSK2_WIDGET_KEYS[KIOSK2_WIDGET_COUNT] = { "clock", "pricegauge", "pricechart", "pv", "battery", "house", "grid" };
+const char* KIOSK2_WIDGET_LABELS[KIOSK2_WIDGET_COUNT] = { "Uhrzeit", "Preis-Gauge", "Preis-Diagramm", "PV-Erzeugung", "Batterie", "Hausverbrauch", "Netz" };
 
 // Portrait: 6 Spalten x 12 Reihen
 const KioskWidgetLayout KIOSK2_PORTRAIT_DEFAULTS[KIOSK2_WIDGET_COUNT] = {
-  { 1, 6, 1,  4, true }, // pricegauge: ganze Breite, oben
-  { 1, 6, 5,  3, true }, // pricechart: ganze Breite, darunter
-  { 1, 6, 8,  2, true }, // pv:         ganze Breite, schmal
-  { 1, 2, 10, 3, true }, // battery:    unten links
-  { 3, 2, 10, 3, true }, // house:      unten mittig
-  { 5, 2, 10, 3, true }, // grid:       unten rechts
+  { 1, 6, 1,  1, true }, // clock:      ganze Breite, oberste Reihe
+  { 1, 6, 2,  4, true }, // pricegauge: ganze Breite
+  { 1, 6, 6,  3, true }, // pricechart: ganze Breite
+  { 1, 6, 9,  2, true }, // pv:         ganze Breite, schmal
+  { 1, 2, 11, 2, true }, // battery:    unten links
+  { 3, 2, 11, 2, true }, // house:      unten mittig
+  { 5, 2, 11, 2, true }, // grid:       unten rechts
 };
 
 // Landscape: 12 Spalten x 8 Reihen
 const KioskWidgetLayout KIOSK2_LANDSCAPE_DEFAULTS[KIOSK2_WIDGET_COUNT] = {
-  { 1, 5,  1, 5, true }, // pricegauge: linke Haelfte gross
-  { 6, 7,  1, 5, true }, // pricechart: rechte Haelfte gross
-  { 1, 3,  6, 3, true }, // pv:         unten
-  { 4, 3,  6, 3, true }, // battery:    unten
-  { 7, 3,  6, 3, true }, // house:      unten
-  { 10, 3, 6, 3, true }, // grid:       unten
+  { 5, 4,  1, 1, true }, // clock:      mittig oben
+  { 1, 5,  2, 5, true }, // pricegauge: linke Haelfte gross
+  { 6, 7,  2, 5, true }, // pricechart: rechte Haelfte gross
+  { 1, 3,  7, 2, true }, // pv:         unten
+  { 4, 3,  7, 2, true }, // battery:    unten
+  { 7, 3,  7, 2, true }, // house:      unten
+  { 10, 3, 7, 2, true }, // grid:       unten
 };
 
 KioskWidgetLayout kiosk2Portrait[KIOSK2_WIDGET_COUNT];
@@ -540,6 +543,7 @@ void updateAwattarPrices();
 void updatePrices();
 void updateTibberLiveMeasurement();
 void handleTibberWsEvent(WStype_t type, uint8_t *payload, size_t length);
+String otaPreflightDiag(const String &host);
 bool checkGithubUpdate();
 bool checkGithubUpdateQuiet();
 void handleVersionCheck();
@@ -2261,6 +2265,7 @@ bool checkGithubUpdate() {
   }
 
   String url = "https://api.github.com/repos/" + githubRepo + "/releases/latest";
+  otaLastDiag = otaPreflightDiag("api.github.com");
 
   // Der allererste TLS-Verbindungsaufbau auf dem ESP32-C5 schlaegt gelegentlich
   // mit "Connection refused" (HTTPClient-Code -1) fehl, ein sofortiger
@@ -2276,6 +2281,7 @@ bool checkGithubUpdate() {
     // rotierenden Zertifikaten - ein einzelnes gepinntes Zertifikat waere kaum
     // wartbar und wuerde ohne zusaetzlichen Nutzen regelmaessig brechen.
     client.setInsecure();
+    client.setHandshakeTimeout(12000);
 
     HTTPClient http;
     http.setTimeout(15000);
@@ -2759,13 +2765,19 @@ void updateAnkerSolarData() {
   // Netto-Batterieleistung (positiv=laedt, negativ=entlaedt) ueber alle
   // Solarbank-Geraete aufsummiert statt ueber "total_battery_power" (das ist
   // dort tatsaechlich der Ladezustand in Prozent/Fraktion, keine Leistung).
+  // "battery_power" (Singular) pro Geraet ist dagegen bereits der echte
+  // Ladezustand in Prozent (z.B. "95" = 95%), siehe reale Beispielantwort.
   float battNet = 0;
+  ankerBatterySoc = -1;
   JsonArray sbList = solarbankInfo["solarbank_list"].as<JsonArray>();
   if (!sbList.isNull()) {
     for (JsonObject sb : sbList) {
       float chg = sb["bat_charge_power"].as<String>().toFloat();
       float dis = sb["bat_discharge_power"].as<String>().toFloat();
       battNet += (chg - dis);
+    }
+    if (sbList.size() > 0) {
+      ankerBatterySoc = sbList[0]["battery_power"].as<String>().toInt();
     }
   } else {
     battNet = solarbankInfo["total_charging_power"].as<String>().toFloat();
@@ -2776,6 +2788,31 @@ void updateAnkerSolarData() {
   ankerLastError = "";
 }
 
+// Extrahiert den Host-Teil aus einer https://host/pfad-URL, um DNS/Praeflight-
+// Checks vor dem eigentlichen Verbindungsversuch machen zu koennen.
+static String extractHostFromUrl(const String &url) {
+  int start = url.indexOf("://");
+  if (start < 0) return "";
+  start += 3;
+  int end = url.indexOf('/', start);
+  if (end < 0) end = url.length();
+  return url.substring(start, end);
+}
+
+// Sammelt Diagnosedaten (WLAN-Signal, freier Heap, DNS-Aufloesung) VOR einem
+// Verbindungsversuch. Wird im Fehlerfall mit angezeigt, damit ein
+// fehlgeschlagenes Update ueber die Web-Oberflaeche nachvollziehbar ist, ohne
+// dass ein serieller Monitor angeschlossen werden muss.
+String otaPreflightDiag(const String &host) {
+  String diag = "RSSI " + String(WiFi.RSSI()) + " dBm, frei " + String(ESP.getFreeHeap() / 1024) + " KB";
+  if (host.length() > 0) {
+    IPAddress resolvedIp;
+    bool dnsOk = WiFi.hostByName(host.c_str(), resolvedIp) == 1;
+    diag += dnsOk ? (", DNS " + host + " -> " + resolvedIp.toString()) : (", DNS-Aufloesung fuer " + host + " fehlgeschlagen");
+  }
+  return diag;
+}
+
 bool performGithubUpdate(String url) {
   if (url.length() == 0 || url.indexOf("github") < 0) {
     lastError = "Ungueltige Update-URL";
@@ -2784,6 +2821,13 @@ bool performGithubUpdate(String url) {
 
   if (apMode || WiFi.status() != WL_CONNECTED) {
     lastError = "Kein Internet / AP Modus";
+    return false;
+  }
+
+  String host = extractHostFromUrl(url);
+  otaLastDiag = otaPreflightDiag(host);
+  if (otaLastDiag.indexOf("fehlgeschlagen") >= 0) {
+    lastError = "DNS-Aufloesung fehlgeschlagen (" + otaLastDiag + ")";
     return false;
   }
 
@@ -2798,17 +2842,23 @@ bool performGithubUpdate(String url) {
   // GitHub-Asset-URLs leiten per 302 auf einen anderen Host um
   // (objects.githubusercontent.com). Der allererste TLS-Handshake zu diesem
   // neuen Host schlaegt auf dem ESP32 gelegentlich fehl (DNS/TLS-Session-
-  // Aufbau), ein sofortiger erneuter Versuch klappt praktisch immer -
-  // deshalb hier automatisch bis zu 3x versuchen, statt den Nutzer manuell
-  // erneut klicken zu lassen.
-  const int maxAttempts = 3;
+  // Aufbau), ein sofortiger erneuter Versuch klappt meistens - deshalb hier
+  // automatisch mehrfach versuchen, statt den Nutzer manuell erneut klicken
+  // zu lassen. Progressive Pausen (3.5s/5s/6.5s) geben dem Heap Zeit, sich
+  // von der vorherigen TLS-Sitzung zu erholen.
+  const int maxAttempts = 4;
   for (int attempt = 1; attempt <= maxAttempts; attempt++) {
     {
       WiFiClientSecure client;
       client.setInsecure();
+      // Explizites Handshake-Limit statt auf Bibliotheks-Default zu
+      // vertrauen - verhindert, dass ein einzelner Verbindungsversuch
+      // unbegrenzt haengen bleibt und den ganzen OTA-Task blockiert.
+      client.setHandshakeTimeout(12000);
       otaBytesWritten = 0;
       otaBytesTotal = 0;
       otaHeartbeatMs = millis();
+      otaLastDiag = otaPreflightDiag(host) + ", Versuch " + String(attempt) + "/" + String(maxAttempts);
 
       t_httpUpdate_return ret = httpUpdate.update(client, url);
       client.stop();
@@ -2817,14 +2867,14 @@ bool performGithubUpdate(String url) {
         return true;
       }
 
-      lastError = "Update fehlgeschlagen (Versuch " + String(attempt) + "/" + String(maxAttempts) + "): " + httpUpdate.getLastErrorString();
+      lastError = "Update fehlgeschlagen (Versuch " + String(attempt) + "/" + String(maxAttempts) + "): " + httpUpdate.getLastErrorString() + " [" + otaLastDiag + "]";
     }
     // client explizit vor der Pause aus dem Scope laufen lassen, damit der
     // TLS-Speicher (mbedTLS-Puffer, ~40KB je Sitzung) sicher freigegeben ist,
     // bevor der naechste Versuch startet - sonst kann der naechste
     // Verbindungsaufbau mangels Heap mit "Connection refused/lost" scheitern.
     if (attempt < maxAttempts) {
-      delay(4000);
+      delay(2000 + attempt * 1500);
     }
   }
 
@@ -5822,6 +5872,8 @@ void handleKiosk2Page() {
   html += ".kiosk-wrap{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;max-height:100vh;padding:clamp(8px,2.2vh,20px);box-sizing:border-box;text-align:center;overflow:hidden}";
   html += ".kiosk-canvas{display:grid;grid-template-columns:repeat(" + String(KIOSK_GRID_COLS_PORTRAIT) + ",1fr);grid-template-rows:repeat(" + String(KIOSK_GRID_ROWS_PORTRAIT) + ",1fr);gap:clamp(4px,1vh,10px);width:min(97vw,700px);height:min(94vh,1200px);box-sizing:border-box;margin:0 auto}";
   html += ".kw{overflow:hidden;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;justify-content:center;min-width:0;min-height:0;border-radius:clamp(12px,2vh,24px);background:rgba(255,255,255,.07);backdrop-filter:blur(24px) saturate(160%);-webkit-backdrop-filter:blur(24px) saturate(160%);border:1px solid rgba(255,255,255,.12);padding:clamp(6px,1.4vh,14px);gap:4px}";
+  html += ".kiosk-time{font-size:clamp(18px,5vh,56px);font-weight:700;line-height:1;letter-spacing:-1px;color:#fff;font-variant-numeric:tabular-nums}";
+  html += ".kiosk-date{font-size:clamp(9px,1.5vh,15px);color:rgba(255,255,255,.65);margin-top:4px;text-transform:capitalize;font-weight:500}";
   html += ".kw-pricegauge .priceRing{max-width:100%;padding:0}";
   html += ".kw-pricechart{padding:clamp(6px,1.4vh,12px)}";
   html += ".kw-pricechart svg{width:100%;height:100%;display:block;background:transparent!important;border:0!important;border-radius:0!important;margin:0!important;box-shadow:none!important}";
@@ -5865,6 +5917,7 @@ void handleKiosk2Page() {
 
   html += "<div class='kiosk-wrap'>";
   html += "<div class='kiosk-canvas' id='kioskCanvas'>";
+  html += "<div class='kw kw-clock'><div class='kiosk-time' id='kioskTime'>--:--</div><div class='kiosk-date' id='kioskDate'></div></div>";
   html += "<div class='kw kw-pricegauge' id='efGaugeCard'>" + buildPriceGaugeSvg() + "</div>";
   html += "<div class='kw kw-pricechart' id='efChartCard'>" + buildSvgChart(chartLine, chartFill) + "</div>";
   html += "<div class='kw kw-pv'><div class='ef-icon'>&#9728;&#65039;</div><div class='ef-label'>PV-Erzeugung</div><div class='ef-value'><span id='efPv'>-- W</span><span class='ef-flow pv' id='efFlowPv'>&#8595;</span></div></div>";
@@ -5901,7 +5954,11 @@ function efApply(d){
   var grid = document.getElementById('efGrid'); if (grid) grid.innerText = efFmt(d.grid);
 
   var battSub = document.getElementById('efBattSub');
-  if (battSub) battSub.innerText = d.batt > 5 ? 'Laedt' : (d.batt < -5 ? 'Entlaedt (versorgt Haus)' : 'Im Ruhezustand');
+  if (battSub) {
+    var battState = d.batt > 5 ? 'Laedt' : (d.batt < -5 ? 'Entlaedt (versorgt Haus)' : 'Im Ruhezustand');
+    var socText = (typeof d.soc === 'number' && d.soc >= 0) ? (' &middot; ' + d.soc + '%') : '';
+    battSub.innerHTML = battState + socText;
+  }
   var gridSub = document.getElementById('efGridSub');
   if (gridSub) gridSub.innerText = d.grid > 5 ? 'Bezug' : (d.grid < -5 ? 'Einspeisung' : '');
 
@@ -5917,11 +5974,14 @@ function efApply(d){
     else { flowBatt.innerText = ''; flowBatt.className = 'ef-flow'; }
   }
 
-  // Netz: positiv=Bezug (Pfeil nach unten, Energie kommt an), negativ=Einspeisung (Pfeil nach oben, Energie geht raus).
+  // Netz: statt Pfeil zeigt sich hier ein bewegtes €-Symbol, um den
+  // Geldfluss zu verdeutlichen - positiv=Bezug (kostet Geld, Symbol bewegt
+  // sich abwaerts Richtung Haus), negativ=Einspeisung (bringt Geld,
+  // Symbol bewegt sich aufwaerts Richtung Netz).
   var flowGrid = document.getElementById('efFlowGrid');
   if (flowGrid) {
-    if (d.grid > 5) { flowGrid.innerText = '↓'; flowGrid.className = 'ef-flow grid on flow-down'; }
-    else if (d.grid < -5) { flowGrid.innerText = '↑'; flowGrid.className = 'ef-flow grid on flow-up'; }
+    if (d.grid > 5) { flowGrid.innerText = '€'; flowGrid.className = 'ef-flow grid on flow-down'; }
+    else if (d.grid < -5) { flowGrid.innerText = '€'; flowGrid.className = 'ef-flow grid on flow-up'; }
     else { flowGrid.innerText = ''; flowGrid.className = 'ef-flow grid'; }
   }
 }
@@ -5946,6 +6006,17 @@ function efPriceRefresh(){
   }).catch(function(e){});
 }
 setInterval(efPriceRefresh, 30000);
+
+function updateKioskClock(){
+  var timeEl = document.getElementById('kioskTime');
+  var dateEl = document.getElementById('kioskDate');
+  if (!timeEl && !dateEl) return;
+  var d = new Date();
+  if (timeEl) timeEl.innerText = d.toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'});
+  if (dateEl) dateEl.innerText = d.toLocaleDateString('de-DE', {weekday:'long', day:'2-digit', month:'long', year:'numeric'});
+}
+updateKioskClock();
+setInterval(updateKioskClock, 1000);
 </script>
 )JS";
 
@@ -5981,6 +6052,7 @@ void handleAnkerData() {
     json += "\"ok\":true,";
     json += "\"pv\":" + String(ankerPvW, 1) + ",";
     json += "\"batt\":" + String(ankerBatteryW, 1) + ",";
+    json += "\"soc\":" + String(ankerBatterySoc) + ",";
     json += "\"house\":" + String(ankerHomeLoadW, 1) + ",";
     json += "\"grid\":" + String(grid, 1);
   }
@@ -8521,6 +8593,7 @@ void handleOtaProgress() {
   json += "\"bytesTotal\":" + String(otaBytesTotal) + ",";
   json += "\"percent\":" + String(percent) + ",";
   json += "\"heartbeatAge\":" + String(heartbeatAge) + ",";
+  json += "\"diag\":\"" + jsEscape(otaLastDiag) + "\",";
   json += "\"error\":\"" + jsEscape(otaTaskError) + "\"";
   json += "}";
 
@@ -9347,7 +9420,7 @@ async function pollGhProgress() {
     var hbAge = (typeof j.heartbeatAge === 'number') ? j.heartbeatAge : 0;
     if (j.percent < 0 || j.bytesTotal === 0) {
       var waitSec = Math.round((now - _ghPollStart) / 1000);
-      var hint = hbAge > 45 ? 'Keine Aktivitaet seit ' + hbAge + 's — ESP32 hängt möglicherweise. Bitte Gerät neu starten.' : 'GitHub leitet den Download um — das dauert 5-15 Sekunden.';
+      var hint = hbAge > 45 ? 'Keine Aktivitaet seit ' + hbAge + 's — ESP32 hängt möglicherweise. Bitte Gerät neu starten.' : 'GitHub leitet den Download um — das dauert 5-15 Sekunden.' + (j.diag ? ' (' + j.diag + ')' : '');
       ghSetPhase('&#8987;', 'Verbinde & lade herunter... (' + waitSec + 's)', hint);
       text.innerText = '';
       if(speed) speed.innerText = '';

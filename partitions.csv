@@ -1,0 +1,26 @@
+# Name,   Type, SubType, Offset,  Size, Flags
+# Eigenes Partitionsschema fuer 4MB-Flash-Module (ESP32-C5-WROOM-1):
+# - Richtiges 2-Slot-OTA (app0/ota_0 + app1/ota_1), im Gegensatz zum zuvor
+#   verwendeten "Huge APP"-Schema, das nur einen einzigen App-Slot hat
+#   ("3MB No OTA" - OTA-Schreibvorgaenge ueberschreiben dabei die gerade
+#   laufende Partition, was strukturell riskant ist und wahrscheinlich
+#   Ursache der wiederkehrenden OTA-Fehler war).
+# - NVS auf 84KB vergroessert (Standard waeren nur 20KB) - nach den vielen
+#   Einstellungen (WLAN, Tibber, GitHub, Anker, Kiosk-Layouts x2 Seiten x2
+#   Ausrichtungen) war der Standard-NVS-Speicher zu knapp bemessen.
+# - Kein SPIFFS/FATFS, da dieses Projekt keinerlei Dateisystem nutzt (alle
+#   Einstellungen liegen in NVS/Preferences, alle Web-Assets werden
+#   dynamisch im Code erzeugt) - der Platz kommt stattdessen App-Slots und
+#   NVS zugute.
+# - Coredump-Partition fuer Absturz-Diagnose ohne seriellen Monitor.
+#
+# WICHTIG: Ein Partitionsschema kann NICHT per OTA geaendert werden - dieses
+# Schema muss EINMALIG per USB-Neuflash (mit vollstaendigem Loeschen)
+# aufgespielt werden. Dabei geht der bisherige NVS-Inhalt (alle
+# Einstellungen) verloren und muss danach neu eingegeben werden. Alle
+# folgenden Updates koennen dann wieder normal per OTA erfolgen.
+nvs,      data, nvs,     0x9000,   0x15000,
+otadata,  data, ota,     0x1E000,  0x2000,
+app0,     app,  ota_0,   0x20000,  0x1E0000,
+app1,     app,  ota_1,   0x200000, 0x1E0000,
+coredump, data, coredump,0x3E0000, 0x10000,
