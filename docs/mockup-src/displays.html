@@ -1,90 +1,124 @@
-<!DOCTYPE html><html><head>
-<meta charset='utf-8'>
-<meta name='viewport' content='width=device-width, initial-scale=1'>
-<title>Dynamic Price Clock - Displays</title>
-<script>(function(){try{var qp=new URLSearchParams(location.search).get('theme');if(qp==='dark'||(!qp&&localStorage.getItem('theme')==='dark')){document.documentElement.setAttribute('data-theme','dark');}}catch(e){}})();</script>
-<link rel='stylesheet' href='style.css'>
-</head><body><main class='shell'>
-<section class='hero' style='background:linear-gradient(120deg,rgba(167,139,250,.22),rgba(244,114,182,.12))'><h1>Displays</h1><p>Display 1 und Display 2 separat aktivieren, deaktivieren oder als Uhrzeit-/Datumsanzeige verwenden.</p></section>
-<nav class='nav'><span class='badge okb'>Dynamic Price Clock</span>
-<a href='index.html'><button class='navbtn'><svg viewBox='0 0 24 24' width='18' height='18'><path d='M3 11l9-8 9 8M5 10v10h5v-6h4v6h5V10' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/></svg><span>Übersicht</span></button></a>
-<span class='navDivider'></span>
-<a href='wifi.html'><button class='navbtn'><svg viewBox='0 0 24 24' width='18' height='18'><path d='M2 8.5a16 16 0 0 1 20 0M5.5 12.5a11 11 0 0 1 13 0M9 16.5a6 6 0 0 1 6 0' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round'/><circle cx='12' cy='20' r='1.3' fill='currentColor'/></svg><span>WLAN</span></button></a>
-<a href='account.html'><button class='navbtn'><svg viewBox='0 0 24 24' width='18' height='18'><circle cx='8' cy='8' r='4' fill='none' stroke='currentColor' stroke-width='2'/><path d='M11 11l9 9m-4-4l3-3m-6 2l2-2' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg><span>Konto</span></button></a>
-<a href='pinout.html'><button class='navbtn'><svg viewBox='0 0 24 24' width='18' height='18'><rect x='6' y='6' width='12' height='12' rx='2' fill='none' stroke='currentColor' stroke-width='2'/><path d='M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg><span>Pinout</span></button></a>
-<span class='navDivider'></span>
-<a href='#'><button class='navbtn active'><svg viewBox='0 0 24 24' width='18' height='18'><rect x='3' y='4' width='18' height='12' rx='2' fill='none' stroke='currentColor' stroke-width='2'/><path d='M8 20h8M12 16v4' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg><span>Displays</span></button></a>
-<a href='ledring.html'><button class='navbtn'><svg viewBox='0 0 24 24' width='18' height='18'><circle cx='12' cy='12' r='4' fill='none' stroke='currentColor' stroke-width='2'/><path d='M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg><span>Tagesring</span></button></a>
-<a href='matrix.html'><button class='navbtn'><svg viewBox='0 0 24 24' width='18' height='18'><rect x='3' y='3' width='4' height='4' fill='currentColor'/><rect x='10' y='3' width='4' height='4' fill='currentColor'/><rect x='17' y='3' width='4' height='4' fill='currentColor'/><rect x='3' y='10' width='4' height='4' fill='currentColor'/><rect x='10' y='10' width='4' height='4' fill='currentColor'/><rect x='17' y='10' width='4' height='4' fill='currentColor'/><rect x='3' y='17' width='4' height='4' fill='currentColor'/><rect x='10' y='17' width='4' height='4' fill='currentColor'/><rect x='17' y='17' width='4' height='4' fill='currentColor'/></svg><span>Matrix</span></button></a>
-<a href='layout.html'><button class='navbtn'><svg viewBox='0 0 24 24' width='18' height='18'><path d='M4 6h10M4 12h16M4 18h7' stroke='currentColor' stroke-width='2' stroke-linecap='round'/><circle cx='16' cy='6' r='2' fill='currentColor'/><circle cx='9' cy='18' r='2' fill='currentColor'/></svg><span>Layout</span></button></a>
-<span class='navDivider'></span>
-<button type='button' class='themeToggle' onclick='toggleTheme()' title='Hell/Dunkel umschalten'><svg class='iconSun' viewBox='0 0 24 24'><circle cx='12' cy='12' r='5' fill='currentColor'/><path d='M12 1v2M12 21v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M1 12h2M21 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg><svg class='iconMoon' viewBox='0 0 24 24'><path d='M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5z' fill='currentColor'/></svg><span>Theme</span></button>
-</nav>
+<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><meta http-equiv='refresh' content='60'><title>Dynamic Price Clock - Displays</title><script>(function(){try{var qs=new URLSearchParams(location.search);if(qs.get('theme')==='dark'||localStorage.getItem('theme')==='dark'){document.documentElement.setAttribute('data-theme','dark');}}catch(e){}})();</script><link rel='stylesheet' href='/style.css?v=10'><link rel='icon' type='image/svg+xml' href='/favicon.svg'><style>:root{--accent:#34C759;--accent2:#34C759;--accent-tint-bg:#34C7591F;--accent-tint-border:#34C75959}:root[data-theme='dark']{--accent:#30D158;--accent2:#30D158;--accent-tint-bg:#30D1582E;--accent-tint-border:#30D15866}</style></head><body><main class='shell'><section class='hero'><h1>Displays</h1><p>Anzeigemodi, feste Overlays und der freie Layout-Editor fuer Display 1 und Display 2 - an einem Ort.</p></section><nav class='nav'><span class='badge okb'>Dynamic Price Clock</span><span id='fwVersionBadge' class='badge' style='cursor:pointer' title='Firmware-Version - prueft alle 10 Minuten auf GitHub-Updates. Klicken fuer sofortigen Check.'>v2.7.3</span><a href='/'><button class='navbtn'><svg viewBox='0 0 24 24' width='18' height='18'><path d='M3 11l9-8 9 8M5 10v10h5v-6h4v6h5V10' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/></svg><span>Übersicht</span></button></a><span class='navDivider'></span><a href='/wifi'><button class='navbtn'><svg viewBox='0 0 24 24' width='18' height='18'><path d='M2 8.5a16 16 0 0 1 20 0M5.5 12.5a11 11 0 0 1 13 0M9 16.5a6 6 0 0 1 6 0' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round'/><circle cx='12' cy='20' r='1.3' fill='currentColor'/></svg><span>WLAN</span></button></a><a href='/account'><button class='navbtn'><svg viewBox='0 0 24 24' width='18' height='18'><circle cx='8' cy='8' r='4' fill='none' stroke='currentColor' stroke-width='2'/><path d='M11 11l9 9m-4-4l3-3m-6 2l2-2' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg><span>Konto</span></button></a><a href='/anbieter'><button class='navbtn'><svg viewBox='0 0 24 24' width='18' height='18'><path d='M9 2v4M15 2v4M7 6h10v4a5 5 0 0 1-5 5 5 5 0 0 1-5-5V6z' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/><path d='M12 15v4M9 21h6' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg><span>Anbieter</span></button></a><a href='/pinout'><button class='navbtn'><svg viewBox='0 0 24 24' width='18' height='18'><rect x='6' y='6' width='12' height='12' rx='2' fill='none' stroke='currentColor' stroke-width='2'/><path d='M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg><span>Pinout</span></button></a><span class='navDivider'></span><a href='/displays'><button class='navbtn active'><svg viewBox='0 0 24 24' width='18' height='18'><rect x='3' y='4' width='18' height='12' rx='2' fill='none' stroke='currentColor' stroke-width='2'/><path d='M8 20h8M12 16v4' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg><span>Displays</span></button></a><a href='/ring'><button class='navbtn'><svg viewBox='0 0 24 24' width='18' height='18'><circle cx='12' cy='12' r='4' fill='none' stroke='currentColor' stroke-width='2'/><path d='M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg><span>Tagesring</span></button></a><a href='/matrix'><button class='navbtn'><svg viewBox='0 0 24 24' width='18' height='18'><rect x='3' y='3' width='4' height='4' fill='currentColor'/><rect x='10' y='3' width='4' height='4' fill='currentColor'/><rect x='17' y='3' width='4' height='4' fill='currentColor'/><rect x='3' y='10' width='4' height='4' fill='currentColor'/><rect x='10' y='10' width='4' height='4' fill='currentColor'/><rect x='17' y='10' width='4' height='4' fill='currentColor'/><rect x='3' y='17' width='4' height='4' fill='currentColor'/><rect x='10' y='17' width='4' height='4' fill='currentColor'/><rect x='17' y='17' width='4' height='4' fill='currentColor'/></svg><span>Matrix</span></button></a><a href='/kiosklayout'><button class='navbtn'><svg viewBox='0 0 24 24' width='18' height='18'><rect x='4' y='2' width='16' height='20' rx='2' fill='none' stroke='currentColor' stroke-width='2'/><circle cx='12' cy='18' r='1.2' fill='currentColor'/></svg><span>Kiosk</span></button></a><span class='navDivider'></span><button type='button' class='themeToggle' onclick='toggleTheme()' title='Hell/Dunkel umschalten'><svg class='iconSun' viewBox='0 0 24 24'><circle cx='12' cy='12' r='5' fill='currentColor'/><path d='M12 1v2M12 21v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M1 12h2M21 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg><svg class='iconMoon' viewBox='0 0 24 24'><path d='M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5z' fill='currentColor'/></svg><span>Theme</span></button><div class='navFooter'><a href='https://github.com/Alphascrypt/dynamic-price-clock' target='_blank' rel='noopener'>GitHub-Repository</a><span>Martin W.</span></div></nav><div class='dpTabs'><button type='button' id='tabBtn-overlays' class='dpTab active' onclick="switchDpTab('overlays')">Overlays</button><button type='button' id='tabBtn-layout' class='dpTab' onclick="switchDpTab('layout')">Layout-Editor</button></div><style>.dpTabs{display:inline-flex;padding:4px;background:var(--panel2);border-radius:12px;margin:14px 0 16px;gap:2px}.dpTab{background:transparent!important;color:var(--muted)!important;border:0!important;box-shadow:none!important;padding:8px 20px!important;min-height:36px!important;border-radius:10px!important;font-weight:600!important;font-size:14px!important;transition:background .15s var(--ease),color .15s var(--ease)!important}.dpTab.active{background:var(--card)!important;color:var(--text)!important;box-shadow:0 1px 2px var(--shadow-soft)!important}.dpTab:hover:not(.active){color:var(--text)!important}</style><div id='tabOverlays'><section class='card'><h2>Display-Modi</h2><form action='/savedisplays' method='post'><div class='twoCol'><div class='metric'><div class='label'>Display 1</div><div class='value' style='font-size:28px'>Ein</div><div class='field'><label>Aktiv</label><select name='d1Enabled'><option value='1' selected>Ein</option><option value='0'>Aus</option></select></div><div class='field'><label>Anzeigemodus</label><select name='d1Mode'><option value='0' selected>Layout aus Editor</option><option value='1'>Display aus</option><option value='2'>Nur Uhrzeit</option><option value='3'>Nur Datum</option><option value='4'>Datum + Uhrzeit</option></select></div><p class='small'>Uhrzeit: 21:47 · Datum: 07.07.2026</p></div><div class='metric'><div class='label'>Display 2</div><div class='value' style='font-size:28px'>Ein</div><div class='field'><label>Aktiv</label><select name='d2Enabled'><option value='1' selected>Ein</option><option value='0'>Aus</option></select></div><div class='field'><label>Anzeigemodus</label><select name='d2Mode'><option value='0' selected>Layout aus Editor</option><option value='1'>Display aus</option><option value='2'>Nur Uhrzeit</option><option value='3'>Nur Datum</option><option value='4'>Datum + Uhrzeit</option></select></div><p class='small'>Uhrzeit: 21:47 · Datum: 07.07.2026</p></div></div><section class='formSection'><h3>Preisbalken am Bildschirmrand</h3><p class='small'>Schmaler Farbbalken am Rand von Display 1, der den aktuellen Preis anzeigt.</p><div class='formGrid'><div class='field'><label>Preisbalken anzeigen</label><select name='priceBarOn'><option value='1'>Ein</option><option value='0' selected>Aus</option></select></div><div class='field'><label>Preistext unter dem Balken anzeigen</label><select name='priceBarText'><option value='1'>Ein</option><option value='0' selected>Aus</option></select></div><div class='field'><label>Skala Minimalpreis (ct/kWh)</label><input name='priceBarMin' type='number' min='0' max='200' value='0'></div><div class='field'><label>Skala Maximalpreis (ct/kWh)</label><input name='priceBarMax' type='number' min='1' max='300' value='60'></div><div class='field'><label>Balkenbreite (Pixel)</label><input name='priceBarW' type='number' min='4' max='24' value='10'></div></div></section><section class='formSection'><h3>Tages-Liniendiagramm</h3><p class='small'>Kleines Preisverlaufs-Diagramm, das zusaetzlich auf einem oder beiden Displays eingeblendet werden kann.</p><div class='formGrid'><div class='field'><label>Auf Display 1 anzeigen</label><select name='d1DayChart'><option value='1'>Ein</option><option value='0' selected>Aus</option></select></div><div class='field'><label>Auf Display 2 anzeigen</label><select name='d2DayChart'><option value='1'>Ein</option><option value='0' selected>Aus</option></select></div><div class='field'><label>Position X (Pixel)</label><input id='dayChartX' name='dayChartX' type='number' min='0' max='239' value='18'></div><div class='field'><label>Position Y (Pixel)</label><input id='dayChartY' name='dayChartY' type='number' min='0' max='239' value='154'></div><div class='field'><label>Breite (Pixel)</label><input id='dayChartW' name='dayChartW' type='number' min='60' max='240' value='204'></div><div class='field'><label>Höhe (Pixel)</label><input id='dayChartH' name='dayChartH' type='number' min='40' max='150' value='76'></div></div><div class='formSection'><h4>Diagramm per Drag &amp; Drop verschieben</h4><div id='chartDragPreview' style='position:relative;width:240px;height:240px;border-radius:50%;overflow:hidden;background:#020617;border:2px solid #334155;margin:10px auto;touch-action:none;'><div style='position:absolute;inset:8px;border-radius:50%;border:1px dashed rgba(255,255,255,.18);'></div><div id='chartDragBox' style='position:absolute;left:18px;top:154px;width:204px;height:76px;border:2px solid #fff;background:rgba(34,197,94,.18);box-sizing:border-box;cursor:move;border-radius:8px;box-shadow:0 0 12px rgba(255,255,255,.35);'><span style='position:absolute;left:6px;top:4px;color:#fff;font-size:11px;font-weight:800;'>Diagramm</span></div></div><p class='small'>Ziehe das Diagramm in der runden Vorschau. X/Y werden automatisch gespeichert. Breite und Höhe kannst du oben ueber die Felder einstellen.</p></div></section><section class='formSection'><h3>Preis-Uhr auf Display 2 (24h-Ring)</h3><p class='small'>Ringfoermige Anzeige, die die guenstigen und teuren Stunden des Tages farbig um das Display herum darstellt.</p><div class='formGrid'><div class='field'><label>Preis-Uhr aktivieren</label><select name='d2ClockRing'><option value='1' selected>Ein</option><option value='0'>Aus</option></select></div><div class='field'><label>Ringbreite (Pixel)</label><input name='d2ClockRingW' type='number' min='6' max='28' value='14'></div><div class='field'><label>Preistext unter der Uhr anzeigen</label><select name='d2ClockText'><option value='1'>Ein</option><option value='0' selected>Aus</option></select></div><div class='field'><label>Uhrzeit-Beschriftung am Ring anzeigen</label><select name='d2ClockLabels'><option value='1' selected>Ein</option><option value='0'>Aus</option></select></div></div><h4>Ringfarben</h4><div class='formGrid'><div class='field'><label>Farbe günstige Stunden</label><select name='d2RingCheap'><option value='0' selected>Gruen</option><option value='1'>Gelb</option><option value='2'>Rot</option><option value='3'>Blau</option><option value='4'>Weiss</option><option value='5'>Cyan</option><option value='6'>Violett</option><option value='7'>Orange</option><option value='8'>Pink</option><option value='9'>Grau</option><option value='10'>Aus</option></select></div><div class='field'><label>Farbe mittlere Stunden</label><select name='d2RingMid'><option value='0'>Gruen</option><option value='1' selected>Gelb</option><option value='2'>Rot</option><option value='3'>Blau</option><option value='4'>Weiss</option><option value='5'>Cyan</option><option value='6'>Violett</option><option value='7'>Orange</option><option value='8'>Pink</option><option value='9'>Grau</option><option value='10'>Aus</option></select></div><div class='field'><label>Farbe teure Stunden</label><select name='d2RingHigh'><option value='0'>Gruen</option><option value='1'>Gelb</option><option value='2' selected>Rot</option><option value='3'>Blau</option><option value='4'>Weiss</option><option value='5'>Cyan</option><option value='6'>Violett</option><option value='7'>Orange</option><option value='8'>Pink</option><option value='9'>Grau</option><option value='10'>Aus</option></select></div><div class='field'><label>Farbe guenstigster Block</label><select name='d2RingBest'><option value='0'>Gruen</option><option value='1'>Gelb</option><option value='2'>Rot</option><option value='3'>Blau</option><option value='4' selected>Weiss</option><option value='5'>Cyan</option><option value='6'>Violett</option><option value='7'>Orange</option><option value='8'>Pink</option><option value='9'>Grau</option><option value='10'>Aus</option></select></div><div class='field'><label>Farbe aktuelle Stunde</label><select name='d2RingNow'><option value='0'>Gruen</option><option value='1'>Gelb</option><option value='2'>Rot</option><option value='3' selected>Blau</option><option value='4'>Weiss</option><option value='5'>Cyan</option><option value='6'>Violett</option><option value='7'>Orange</option><option value='8'>Pink</option><option value='9'>Grau</option><option value='10'>Aus</option></select></div></div></section><div class='actions'><button type='submit'>Display-Einstellungen speichern</button><span id='displayAutoSaveState' class='badge warnb'>Bereit</span></div>
+<script>
+let displayAutoSaveTimer=null;
+let displayAutoSaveBusy=false;
+let displayAutoSaveAgain=false;
+let chartDragActive=false;
+let chartDragOffX=0;
+let chartDragOffY=0;
 
-<section class='card'><h2>Display-Modi</h2>
-<form>
-<div class='twoCol'>
-<div class='metric'>
-<div class='label'>Display 1</div>
-<div class='value' style='font-size:28px'>Ein</div>
-<div class='field'><label>Aktiv</label><select name='d1Enabled'><option value='1' selected>Ein</option><option value='0'>Aus</option></select></div>
-<div class='field'><label>Anzeigemodus</label><select name='d1Mode'>
-<option value='0' selected>Layout aus Editor</option><option value='1'>Display aus</option><option value='2'>Nur Uhrzeit</option><option value='3'>Nur Datum</option><option value='4'>Datum + Uhrzeit</option>
-</select></div>
-<p class='small'>Uhrzeit: 14:12 · Datum: 01.07.2026</p>
-</div>
-<div class='metric'>
-<div class='label'>Display 2</div>
-<div class='value' style='font-size:28px'>Ein</div>
-<div class='field'><label>Aktiv</label><select name='d2Enabled'><option value='1' selected>Ein</option><option value='0'>Aus</option></select></div>
-<div class='field'><label>Anzeigemodus</label><select name='d2Mode'>
-<option value='0'>Layout aus Editor</option><option value='1'>Display aus</option><option value='2'>Nur Uhrzeit</option><option value='3'>Nur Datum</option><option value='4' selected>Datum + Uhrzeit</option>
-</select></div>
-<p class='small'>Uhrzeit: 14:12 · Datum: 01.07.2026</p>
-</div>
-</div>
+function displayAutoState(text, cls){
+  const el=document.getElementById('displayAutoSaveState');
+  if(!el)return;
+  el.className='badge '+cls;
+  el.innerText=text;
+}
 
-<section class='formSection'><h3>Preisbalken am Bildschirmrand</h3><p class='small'>Schmaler Farbbalken am Rand von Display 1, der den aktuellen Preis anzeigt.</p><div class='formGrid'>
-<div class='field'><label>Preisbalken anzeigen</label><select name='priceBarOn'><option value='1' selected>Ein</option><option value='0'>Aus</option></select></div>
-<div class='field'><label>Preistext unter dem Balken anzeigen</label><select name='priceBarText'><option value='1' selected>Ein</option><option value='0'>Aus</option></select></div>
-<div class='field'><label>Skala Minimalpreis (ct/kWh)</label><input name='priceBarMin' type='number' min='0' max='200' value='0'></div>
-<div class='field'><label>Skala Maximalpreis (ct/kWh)</label><input name='priceBarMax' type='number' min='1' max='300' value='50'></div>
-<div class='field'><label>Balkenbreite (Pixel)</label><input name='priceBarW' type='number' min='4' max='24' value='10'></div>
-</div></section>
+function displayForm(){
+  return document.querySelector("form[action='/savedisplays']") || document.querySelector('form');
+}
 
-<section class='formSection'><h3>Tages-Liniendiagramm</h3><p class='small'>Kleines Preisverlaufs-Diagramm, das zusaetzlich auf einem oder beiden Displays eingeblendet werden kann.</p><div class='formGrid'>
-<div class='field'><label>Auf Display 1 anzeigen</label><select name='d1DayChart'><option value='1' selected>Ein</option><option value='0'>Aus</option></select></div>
-<div class='field'><label>Auf Display 2 anzeigen</label><select name='d2DayChart'><option value='1'>Ein</option><option value='0' selected>Aus</option></select></div>
-<div class='field'><label>Position X (Pixel)</label><input id='dayChartX' name='dayChartX' type='number' min='0' max='239' value='18'></div>
-<div class='field'><label>Position Y (Pixel)</label><input id='dayChartY' name='dayChartY' type='number' min='0' max='239' value='150'></div>
-<div class='field'><label>Breite (Pixel)</label><input id='dayChartW' name='dayChartW' type='number' min='60' max='240' value='204'></div>
-<div class='field'><label>Höhe (Pixel)</label><input id='dayChartH' name='dayChartH' type='number' min='40' max='150' value='76'></div>
-</div>
-<div class='formSection'><h4>Diagramm per Drag &amp; Drop verschieben</h4>
-<div id='chartDragPreview' style='position:relative;width:240px;height:240px;border-radius:50%;overflow:hidden;background:#020617;border:2px solid #334155;margin:10px auto;touch-action:none;'>
-<div style='position:absolute;inset:8px;border-radius:50%;border:1px dashed rgba(255,255,255,.18);'></div>
-<div id='chartDragBox' style='position:absolute;left:18px;top:150px;width:204px;height:76px;border:2px solid #fff;background:rgba(34,197,94,.18);box-sizing:border-box;cursor:move;border-radius:8px;box-shadow:0 0 12px rgba(255,255,255,.35);'>
-<span style='position:absolute;left:6px;top:4px;color:#fff;font-size:11px;font-weight:800;'>Diagramm</span></div></div>
-<p class='small'>Ziehe das Diagramm in der runden Vorschau. X/Y werden automatisch gespeichert. Breite und Höhe kannst du oben ueber die Felder einstellen.</p></div>
-</section>
+function saveDisplaysNow(){
+  const form=displayForm();
+  if(!form){displayAutoState('Kein Formular','errb');return;}
+  if(displayAutoSaveBusy){displayAutoSaveAgain=true;return;}
+  displayAutoSaveBusy=true;
+  displayAutoState('Speichere...','warnb');
+  fetch('/savedisplaychartajax',{
+    method:'POST',cache:'no-store',credentials:'same-origin',
+    headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'},
+    body:new URLSearchParams(new FormData(form)).toString()
+  }).then(()=>{
+    displayAutoState('Gespeichert','okb');
+  }).catch(()=>{
+    displayAutoState('Fehler','errb');
+  }).finally(()=>{
+    displayAutoSaveBusy=false;
+    if(displayAutoSaveAgain){displayAutoSaveAgain=false;setTimeout(saveDisplaysNow,150);}
+  });
+}
 
-<section class='formSection'><h3>Preis-Uhr auf Display 2 (24h-Ring)</h3><p class='small'>Ringfoermige Anzeige, die die guenstigen und teuren Stunden des Tages farbig um das Display herum darstellt.</p><div class='formGrid'>
-<div class='field'><label>Preis-Uhr aktivieren</label><select name='d2ClockRing'><option value='1' selected>Ein</option><option value='0'>Aus</option></select></div>
-<div class='field'><label>Ringbreite (Pixel)</label><input name='d2ClockRingW' type='number' min='6' max='28' value='16'></div>
-<div class='field'><label>Preistext unter der Uhr anzeigen</label><select name='d2ClockText'><option value='1' selected>Ein</option><option value='0'>Aus</option></select></div>
-<div class='field'><label>Uhrzeit-Beschriftung am Ring anzeigen</label><select name='d2ClockLabels'><option value='1' selected>Ein</option><option value='0'>Aus</option></select></div>
-</div>
-<h4>Ringfarben</h4><div class='formGrid'>
-<div class='field'><label>Farbe günstige Stunden</label><select name='d2RingCheap'><option value='0' selected>Gruen</option><option value='1'>Gelb</option><option value='2'>Rot</option><option value='3'>Blau</option><option value='4'>Weiss</option><option value='5'>Cyan</option><option value='6'>Violett</option><option value='7'>Orange</option><option value='8'>Pink</option><option value='9'>Grau</option><option value='10'>Aus</option></select></div>
-<div class='field'><label>Farbe mittlere Stunden</label><select name='d2RingMid'><option value='0'>Gruen</option><option value='1' selected>Gelb</option><option value='2'>Rot</option><option value='3'>Blau</option><option value='4'>Weiss</option><option value='5'>Cyan</option><option value='6'>Violett</option><option value='7'>Orange</option><option value='8'>Pink</option><option value='9'>Grau</option><option value='10'>Aus</option></select></div>
-<div class='field'><label>Farbe teure Stunden</label><select name='d2RingHigh'><option value='0'>Gruen</option><option value='1'>Gelb</option><option value='2' selected>Rot</option><option value='3'>Blau</option><option value='4'>Weiss</option><option value='5'>Cyan</option><option value='6'>Violett</option><option value='7'>Orange</option><option value='8'>Pink</option><option value='9'>Grau</option><option value='10'>Aus</option></select></div>
-<div class='field'><label>Farbe guenstigster Block</label><select name='d2RingBest'><option value='0'>Gruen</option><option value='1'>Gelb</option><option value='2'>Rot</option><option value='3'>Blau</option><option value='4'>Weiss</option><option value='5'>Cyan</option><option value='6'>Violett</option><option value='7' selected>Orange</option><option value='8'>Pink</option><option value='9'>Grau</option><option value='10'>Aus</option></select></div>
-<div class='field'><label>Farbe aktuelle Stunde</label><select name='d2RingNow'><option value='0'>Gruen</option><option value='1'>Gelb</option><option value='2'>Rot</option><option value='3'>Blau</option><option value='4'>Weiss</option><option value='5' selected>Cyan</option><option value='6'>Violett</option><option value='7'>Orange</option><option value='8'>Pink</option><option value='9'>Grau</option><option value='10'>Aus</option></select></div>
-</div></section>
+function scheduleDisplayAutoSave(){
+  clearTimeout(displayAutoSaveTimer);
+  displayAutoState('Änderungen...','warnb');
+  displayAutoSaveTimer=setTimeout(saveDisplaysNow,450);
+}
 
-<div class='actions'><button type='submit'>Display-Einstellungen speichern</button><a href='layout.html'><button type='button' class='secondary'>Layout bearbeiten</button></a><span id='displayAutoSaveState' class='badge okb'>Gespeichert</span></div>
-</form></section>
+function clampDisplayChart(){
+  const x=document.getElementById('dayChartX');
+  const y=document.getElementById('dayChartY');
+  const w=document.getElementById('dayChartW');
+  const h=document.getElementById('dayChartH');
+  if(!x||!y||!w||!h)return;
+  let vx=parseInt(x.value||0),vy=parseInt(y.value||0),vw=parseInt(w.value||204),vh=parseInt(h.value||76);
+  if(vw<60)vw=60;if(vw>240)vw=240;if(vh<40)vh=40;if(vh>150)vh=150;
+  if(vx<0)vx=0;if(vy<0)vy=0;if(vx+vw>240)vx=240-vw;if(vy+vh>240)vy=240-vh;
+  x.value=vx;y.value=vy;w.value=vw;h.value=vh;
+}
 
-<div id='toastHost' class='toastHost'></div>
-<script src='app.js'></script>
-</main></body></html>
+function updateChartDragBox(){
+  clampDisplayChart();
+  const box=document.getElementById('chartDragBox');
+  const x=document.getElementById('dayChartX');
+  const y=document.getElementById('dayChartY');
+  const w=document.getElementById('dayChartW');
+  const h=document.getElementById('dayChartH');
+  if(!box||!x||!y||!w||!h)return;
+  box.style.left=x.value+'px';box.style.top=y.value+'px';box.style.width=w.value+'px';box.style.height=h.value+'px';
+}
+
+function chartPoint(e){
+  if(e.touches&&e.touches.length)return {x:e.touches[0].clientX,y:e.touches[0].clientY};
+  return {x:e.clientX,y:e.clientY};
+}
+
+function chartDragStart(e){
+  const box=document.getElementById('chartDragBox');
+  if(!box)return;
+  const p=chartPoint(e);const r=box.getBoundingClientRect();
+  chartDragOffX=p.x-r.left;chartDragOffY=p.y-r.top;chartDragActive=true;
+  if(e.preventDefault)e.preventDefault();
+}
+
+function chartDragMove(e){
+  if(!chartDragActive)return;
+  const prev=document.getElementById('chartDragPreview');
+  const x=document.getElementById('dayChartX');
+  const y=document.getElementById('dayChartY');
+  const w=document.getElementById('dayChartW');
+  const h=document.getElementById('dayChartH');
+  if(!prev||!x||!y||!w||!h)return;
+  const p=chartPoint(e);const r=prev.getBoundingClientRect();
+  let px=Math.round((p.x-r.left-chartDragOffX)/4)*4;
+  let py=Math.round((p.y-r.top-chartDragOffY)/4)*4;
+  const vw=parseInt(w.value||204),vh=parseInt(h.value||76);
+  if(px<0)px=0;if(py<0)py=0;if(px+vw>240)px=240-vw;if(py+vh>240)py=240-vh;
+  x.value=px;y.value=py;
+  updateChartDragBox();
+  scheduleDisplayAutoSave();
+  if(e.preventDefault)e.preventDefault();
+}
+
+function chartDragEnd(){chartDragActive=false;}
+
+document.addEventListener('DOMContentLoaded',()=>{
+  const form=displayForm();
+  if(form){
+    form.querySelectorAll('input,select').forEach(el=>{
+      el.addEventListener('input',()=>{updateChartDragBox();scheduleDisplayAutoSave();});
+      el.addEventListener('change',()=>{updateChartDragBox();scheduleDisplayAutoSave();});
+    });
+  }
+  const box=document.getElementById('chartDragBox');
+  if(box){
+    box.addEventListener('mousedown',chartDragStart);
+    box.addEventListener('touchstart',chartDragStart,{passive:false});
+    document.addEventListener('mousemove',chartDragMove);
+    document.addEventListener('touchmove',chartDragMove,{passive:false});
+    document.addEventListener('mouseup',chartDragEnd);
+    document.addEventListener('touchend',chartDragEnd);
+  }
+  updateChartDragBox();
+});
+</script>
+</form></section></div><div id='tabLayout' style='display:none'><section class='card'><div class='panelTitle'><h2>Aktionen</h2><span id='saveState' class='badge warnb'>Bereit</span></div><div class='layout-actions'><div class='layout-box'><h3>Speichern</h3><p>Speichert per AJAX und aktualisiert die Displays direkt.</p><button class='btnSuccess' type='button' onclick='saveLayoutNow()'>Jetzt speichern</button></div><div class='layout-box'><h3>Export</h3><p>Layout als JSON sichern.</p><form action='/exportlayout' method='get'><button class='btnMuted' type='submit'>Layout exportieren</button></form></div><div class='layout-box dangerZone'><h3>Zuruecksetzen</h3><p>Standardlayout wiederherstellen.</p><form action='/resetlayout' method='post'><button class='danger' type='submit'>Layout zuruecksetzen</button></form></div></div></section><section class='card'><h2>Presets</h2><div class='presetGrid'><form action='/presetlayout' method='post'><input type='hidden' name='preset' value='price'><button type='submit'>Preset: Preis gross</button></form><form action='/presetlayout' method='post'><input type='hidden' name='preset' value='low2'><button type='submit'>Preset: Tiefpreis + 2. Tiefpreis</button></form><form action='/presetlayout' method='post'><input type='hidden' name='preset' value='compact'><button type='submit'>Preset: Kompakt</button></form></div></section><section class='card'><h2>Layout importieren</h2><form action='/importlayout' method='post'><textarea name='json' rows='5' placeholder='Exportiertes Layout-JSON hier einfuegen'></textarea><div class='actions'><button type='submit'>Layout importieren</button></div></form></section><form id='layoutForm' action='/savelayout' method='post'><input type='hidden' id='d1e0key' name='d1e0key' value='customText'><input type='hidden' id='d1e0txt' name='d1e0txt' value='Aktueller Preis'><input type='hidden' id='d1e0pre' name='d1e0pre' value=''><input type='hidden' id='d1e0suf' name='d1e0suf' value=''><input type='hidden' id='d1e0x' name='d1e0x' value='225'><input type='hidden' id='d1e0y' name='d1e0y' value='135'><input type='hidden' id='d1e0s' name='d1e0s' value='2'><input type='hidden' id='d1e0a' name='d1e0a' value='1'><input type='hidden' id='d1e0al' name='d1e0al' value='1'><input type='hidden' id='d1e0v' name='d1e0v' value='1'><input type='hidden' id='d1e1key' name='d1e1key' value='current15'></form></div>

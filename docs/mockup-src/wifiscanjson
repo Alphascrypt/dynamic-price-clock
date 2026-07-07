@@ -1,0 +1,1 @@
+{"networks":[{"ssid":"Mein-Heimnetzwerk","bssid":"AA:BB:CC:11:22:33","rssi":-54,"quality":92,"channel":1,"auth":3},{"ssid":"Nachbar-WLAN","bssid":"AA:BB:CC:44:55:66","rssi":-71,"quality":58,"channel":6,"auth":3},{"ssid":"FRITZ!Box Gast","bssid":"AA:BB:CC:77:88:99","rssi":-80,"quality":34,"channel":11,"auth":4}]}

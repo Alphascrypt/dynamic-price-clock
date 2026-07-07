@@ -1,179 +1,198 @@
-<!DOCTYPE html><html><head>
-<meta charset='utf-8'>
-<meta name='viewport' content='width=device-width, initial-scale=1'>
-<title>Dynamic Price Clock - Layout Editor</title>
-<script>(function(){try{var qp=new URLSearchParams(location.search).get('theme');if(qp==='dark'||(!qp&&localStorage.getItem('theme')==='dark')){document.documentElement.setAttribute('data-theme','dark');}}catch(e){}})();</script>
-<link rel='stylesheet' href='style.css'>
-</head><body><main class='shell'>
-<section class='hero' style='background:linear-gradient(120deg,rgba(244,114,182,.22),rgba(167,139,250,.14))'><h1>Layout Editor</h1><p>JavaScript-Editor fuer Display 1 und Display 2.</p></section>
-<nav class='nav'><span class='badge okb'>Dynamic Price Clock</span>
-<a href='index.html'><button class='navbtn'><svg viewBox='0 0 24 24' width='18' height='18'><path d='M3 11l9-8 9 8M5 10v10h5v-6h4v6h5V10' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/></svg><span>Übersicht</span></button></a>
-<span class='navDivider'></span>
-<a href='wifi.html'><button class='navbtn'><svg viewBox='0 0 24 24' width='18' height='18'><path d='M2 8.5a16 16 0 0 1 20 0M5.5 12.5a11 11 0 0 1 13 0M9 16.5a6 6 0 0 1 6 0' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round'/><circle cx='12' cy='20' r='1.3' fill='currentColor'/></svg><span>WLAN</span></button></a>
-<a href='account.html'><button class='navbtn'><svg viewBox='0 0 24 24' width='18' height='18'><circle cx='8' cy='8' r='4' fill='none' stroke='currentColor' stroke-width='2'/><path d='M11 11l9 9m-4-4l3-3m-6 2l2-2' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg><span>Konto</span></button></a>
-<a href='pinout.html'><button class='navbtn'><svg viewBox='0 0 24 24' width='18' height='18'><rect x='6' y='6' width='12' height='12' rx='2' fill='none' stroke='currentColor' stroke-width='2'/><path d='M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg><span>Pinout</span></button></a>
-<span class='navDivider'></span>
-<a href='displays.html'><button class='navbtn'><svg viewBox='0 0 24 24' width='18' height='18'><rect x='3' y='4' width='18' height='12' rx='2' fill='none' stroke='currentColor' stroke-width='2'/><path d='M8 20h8M12 16v4' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg><span>Displays</span></button></a>
-<a href='ledring.html'><button class='navbtn'><svg viewBox='0 0 24 24' width='18' height='18'><circle cx='12' cy='12' r='4' fill='none' stroke='currentColor' stroke-width='2'/><path d='M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg><span>Tagesring</span></button></a>
-<a href='matrix.html'><button class='navbtn'><svg viewBox='0 0 24 24' width='18' height='18'><rect x='3' y='3' width='4' height='4' fill='currentColor'/><rect x='10' y='3' width='4' height='4' fill='currentColor'/><rect x='17' y='3' width='4' height='4' fill='currentColor'/><rect x='3' y='10' width='4' height='4' fill='currentColor'/><rect x='10' y='10' width='4' height='4' fill='currentColor'/><rect x='17' y='10' width='4' height='4' fill='currentColor'/><rect x='3' y='17' width='4' height='4' fill='currentColor'/><rect x='10' y='17' width='4' height='4' fill='currentColor'/><rect x='17' y='17' width='4' height='4' fill='currentColor'/></svg><span>Matrix</span></button></a>
-<a href='#'><button class='navbtn active'><svg viewBox='0 0 24 24' width='18' height='18'><path d='M4 6h10M4 12h16M4 18h7' stroke='currentColor' stroke-width='2' stroke-linecap='round'/><circle cx='16' cy='6' r='2' fill='currentColor'/><circle cx='9' cy='18' r='2' fill='currentColor'/></svg><span>Layout</span></button></a>
-<span class='navDivider'></span>
-<button type='button' class='themeToggle' onclick='toggleTheme()' title='Hell/Dunkel umschalten'><svg class='iconSun' viewBox='0 0 24 24'><circle cx='12' cy='12' r='5' fill='currentColor'/><path d='M12 1v2M12 21v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M1 12h2M21 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg><svg class='iconMoon' viewBox='0 0 24 24'><path d='M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5z' fill='currentColor'/></svg><span>Theme</span></button>
-</nav>
+<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><meta http-equiv='refresh' content='60'><title>Dynamic Price Clock - Kiosk-Layout</title><script>(function(){try{var qs=new URLSearchParams(location.search);if(qs.get('theme')==='dark'||localStorage.getItem('theme')==='dark'){document.documentElement.setAttribute('data-theme','dark');}}catch(e){}})();</script><link rel='stylesheet' href='/style.css?v=10'><link rel='icon' type='image/svg+xml' href='/favicon.svg'><style>:root{--accent:#34C759;--accent2:#34C759;--accent-tint-bg:#34C7591F;--accent-tint-border:#34C75959}:root[data-theme='dark']{--accent:#30D158;--accent2:#30D158;--accent-tint-bg:#30D1582E;--accent-tint-border:#30D15866}body{background:linear-gradient(135deg,#e0eafc,#cfdef3,#f5e6ff)}:root[data-theme='dark'] body{background:linear-gradient(135deg,#1a1a2e,#16213e,#0f0c29)}.card,.hero,.nav{background:rgba(255,255,255,.55);backdrop-filter:blur(20px) saturate(180%);-webkit-backdrop-filter:blur(20px) saturate(180%);border:1px solid rgba(255,255,255,.35)}:root[data-theme='dark'] .card,:root[data-theme='dark'] .hero,:root[data-theme='dark'] .nav{background:rgba(28,28,30,.55);border:1px solid rgba(255,255,255,.1)}</style></head><body><main class='shell'><section class='hero'><h1>Kiosk-Layout</h1><p>Anordnung des Tablet-Modus frei per Ziehen/Skalieren gestalten - getrennt fuer Hoch- und Querformat.</p></section><nav class='nav'><span class='badge okb'>Dynamic Price Clock</span><span id='fwVersionBadge' class='badge' style='cursor:pointer' title='Firmware-Version - prueft alle 10 Minuten auf GitHub-Updates. Klicken fuer sofortigen Check.'>v2.7.3</span><a href='/'><button class='navbtn'><svg viewBox='0 0 24 24' width='18' height='18'><path d='M3 11l9-8 9 8M5 10v10h5v-6h4v6h5V10' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/></svg><span>Übersicht</span></button></a><span class='navDivider'></span><a href='/wifi'><button class='navbtn'><svg viewBox='0 0 24 24' width='18' height='18'><path d='M2 8.5a16 16 0 0 1 20 0M5.5 12.5a11 11 0 0 1 13 0M9 16.5a6 6 0 0 1 6 0' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round'/><circle cx='12' cy='20' r='1.3' fill='currentColor'/></svg><span>WLAN</span></button></a><a href='/account'><button class='navbtn'><svg viewBox='0 0 24 24' width='18' height='18'><circle cx='8' cy='8' r='4' fill='none' stroke='currentColor' stroke-width='2'/><path d='M11 11l9 9m-4-4l3-3m-6 2l2-2' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg><span>Konto</span></button></a><a href='/anbieter'><button class='navbtn'><svg viewBox='0 0 24 24' width='18' height='18'><path d='M9 2v4M15 2v4M7 6h10v4a5 5 0 0 1-5 5 5 5 0 0 1-5-5V6z' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/><path d='M12 15v4M9 21h6' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg><span>Anbieter</span></button></a><a href='/pinout'><button class='navbtn'><svg viewBox='0 0 24 24' width='18' height='18'><rect x='6' y='6' width='12' height='12' rx='2' fill='none' stroke='currentColor' stroke-width='2'/><path d='M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg><span>Pinout</span></button></a><span class='navDivider'></span><a href='/displays'><button class='navbtn'><svg viewBox='0 0 24 24' width='18' height='18'><rect x='3' y='4' width='18' height='12' rx='2' fill='none' stroke='currentColor' stroke-width='2'/><path d='M8 20h8M12 16v4' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg><span>Displays</span></button></a><a href='/ring'><button class='navbtn'><svg viewBox='0 0 24 24' width='18' height='18'><circle cx='12' cy='12' r='4' fill='none' stroke='currentColor' stroke-width='2'/><path d='M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg><span>Tagesring</span></button></a><a href='/matrix'><button class='navbtn'><svg viewBox='0 0 24 24' width='18' height='18'><rect x='3' y='3' width='4' height='4' fill='currentColor'/><rect x='10' y='3' width='4' height='4' fill='currentColor'/><rect x='17' y='3' width='4' height='4' fill='currentColor'/><rect x='3' y='10' width='4' height='4' fill='currentColor'/><rect x='10' y='10' width='4' height='4' fill='currentColor'/><rect x='17' y='10' width='4' height='4' fill='currentColor'/><rect x='3' y='17' width='4' height='4' fill='currentColor'/><rect x='10' y='17' width='4' height='4' fill='currentColor'/><rect x='17' y='17' width='4' height='4' fill='currentColor'/></svg><span>Matrix</span></button></a><a href='/kiosklayout'><button class='navbtn active'><svg viewBox='0 0 24 24' width='18' height='18'><rect x='4' y='2' width='16' height='20' rx='2' fill='none' stroke='currentColor' stroke-width='2'/><circle cx='12' cy='18' r='1.2' fill='currentColor'/></svg><span>Kiosk</span></button></a><span class='navDivider'></span><button type='button' class='themeToggle' onclick='toggleTheme()' title='Hell/Dunkel umschalten'><svg class='iconSun' viewBox='0 0 24 24'><circle cx='12' cy='12' r='5' fill='currentColor'/><path d='M12 1v2M12 21v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M1 12h2M21 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg><svg class='iconMoon' viewBox='0 0 24 24'><path d='M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5z' fill='currentColor'/></svg><span>Theme</span></button><div class='navFooter'><a href='https://github.com/Alphascrypt/dynamic-price-clock' target='_blank' rel='noopener'>GitHub-Repository</a><span>Martin W.</span></div></nav><style>
+.kl-shell{display:flex;gap:16px;flex-wrap:wrap;margin-top:14px}
+.kl-canvas-wrap{flex:1;min-width:280px;display:flex;justify-content:center}
+.kl-canvas{position:relative;width:min(360px,90vw);aspect-ratio:9/16;display:grid;grid-template-columns:repeat(6,1fr);grid-template-rows:repeat(12,1fr);gap:2px;padding:6px;background:var(--overlay-faint);border:1px solid var(--line);border-radius:12px;overflow:hidden;touch-action:none;box-sizing:border-box}
+.kl-canvas.landscape{width:min(560px,90vw);aspect-ratio:16/9;grid-template-columns:repeat(12,1fr);grid-template-rows:repeat(8,1fr)}
+.kl-cell{background:rgba(96,165,250,.06);border-radius:2px;pointer-events:none}
+.kl-item{position:relative;border:2px dashed var(--accent2);background:rgba(96,165,250,.14);border-radius:6px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:4px;cursor:move;box-sizing:border-box;user-select:none;overflow:visible;text-align:center;min-width:0;min-height:0;z-index:2}
+.kl-item.selected{border-style:solid;background:rgba(96,165,250,.24)}
+.kl-item.kl-hidden{opacity:.32;border-style:dotted}
+.kl-item-caption{font-size:9px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;pointer-events:none;line-height:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.kl-item-preview{font-size:12px;font-weight:800;color:var(--text);pointer-events:none;line-height:1.1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.kl-resize{position:absolute;right:-7px;bottom:-7px;width:16px;height:16px;background:var(--accent2);border:2px solid var(--panel);border-radius:50%;cursor:nwse-resize}
+.kl-layers{width:230px;border:0;border-radius:14px;padding:12px;background:var(--panel2)}
+.kl-layer-row{display:flex;align-items:center;gap:8px;padding:8px;border-radius:8px;cursor:pointer}
+.kl-layer-row:hover{background:var(--overlay-hover)}
+.kl-layer-row.selected{background:var(--accent-tint-bg)}
+.kl-layer-row span{flex:1;font-size:13px;font-weight:700}
+.kl-layer-row button{padding:2px 10px;min-height:30px;font-size:15px}
+</style><section class='card'><div class='panelTitle'><h2>Anordnung</h2><div style='display:flex;gap:8px;flex-wrap:wrap'><button type='button' id='klTabK1' onclick="klSwitchPage('k1')">Kiosk 1: Preise</button><button type='button' class='secondary' id='klTabK2' onclick="klSwitchPage('k2')">Kiosk 2: Energie</button><span style='width:1px;background:var(--line);align-self:stretch;margin:0 2px'></span><button type='button' id='klTabPortrait' onclick="klSwitchOrientation('portrait')">Hochformat</button><button type='button' class='secondary' id='klTabLandscape' onclick="klSwitchOrientation('landscape')">Querformat</button></div></div><p class='small'>Elemente ziehen zum Verschieben, Punkt unten rechts zum Skalieren. Auge-Symbol = ein-/ausblenden. Aenderungen werden automatisch gespeichert.</p><div class='kl-shell'><div class='kl-canvas-wrap'><div class='kl-canvas' id='klCanvas'></div></div><div class='kl-layers' id='klLayers'></div></div><div class='actions'><button type='button' class='secondary' onclick='klReset()'>Diese Ausrichtung zuruecksetzen</button><a href='/kiosk' target='_blank'><button type='button' class='secondary'>Preis-Modus oeffnen</button></a><a href='/kiosk2' target='_blank'><button type='button' class='secondary'>Energie-Modus oeffnen</button></a><span id='klSaveState' class='badge warnb'>Bereit</span></div></section><section class='card'><div class='panelTitle'><h2>Preis-Schwellen</h2></div><p class='small'>Ab welchem Preis gilt der Strom als &quot;Mittel&quot; bzw. &quot;Teuer&quot;? Wirkt sich auf die Farbanzeige in Kiosk, Uebersicht und LED-Ring aus.</p><form action='/save' method='post'><input type='hidden' name='redirectTo' value='/kiosklayout'><div class='formGrid'><div class='field'><label>Balken-Start (ct/kWh)</label><input name='gaugeMin' type='number' min='0' max='200' value='0' title='Linker Rand des Preis-Balkens.'></div><div class='field'><label>Balken-Ende (ct/kWh)</label><input name='gaugeMax' type='number' min='1' max='200' value='60' title='Rechter Rand des Preis-Balkens.'></div><div class='field'><label>Schwelle Mittel (ab ct/kWh)</label><input name='ledYellow' type='number' min='0' max='200' value='30' title='Unter diesem Wert = Guenstig (gruen). Ab diesem Wert = Mittel (gelb).'></div><div class='field'><label>Schwelle Teuer (ab ct/kWh)</label><input name='ledRed' type='number' min='0' max='200' value='40' title='Ab diesem Wert = Teuer (rot).'></div></div><div style='margin:12px 0;padding:12px 16px;border-radius:14px;background:var(--panel2);font-size:13px;display:flex;gap:16px;flex-wrap:wrap'><span style='color:#8e8e93;font-weight:600'>Skala: 0 &ndash; 60 ct</span><span style='color:#34C759;font-weight:600'>&#9632; Guenstig: &lt; 30 ct</span><span style='color:#FF9500;font-weight:600'>&#9632; Mittel: 30 &ndash; 39 ct</span><span style='color:#FF3B30;font-weight:600'>&#9632; Teuer: &ge; 40 ct</span></div><div class='actions'><button type='submit'>Speichern</button></div></form></section><section class='card'><div class='panelTitle'><h2>Live-Verbrauch-Anzeige</h2></div><p class='small'>Wie der aktuelle Verbrauch im Tablet-Modus dargestellt wird und wo die Farbschwellen des Balkens liegen. Der Balken wird auch auf der Uebersichts-Seite (Modern-Design) verwendet. In der &quot;Bar&quot;-Variante zeigt der Kiosk nur Wert und einen farbigen Balken &ndash; genug fuer eine kompakte Widget-Groesse.</p><form action='/save' method='post'><input type='hidden' name='redirectTo' value='/kiosklayout'><div class='formGrid'><div class='field'><label>Kiosk-Stil</label><select name='klpStyle'><option value='text' selected>Text (kompakt, z.B. &quot;&#9889; 1.23 kW&quot;)</option><option value='bar'>Bar (Wert + Farbbalken 0-max)</option></select></div><div class='field'><label>Balken Maximum (kW)</label><input name='lpMax' type='number' step='0.5' min='1' max='50' value='10.0' title='Endwert der Skala und des Farbverlaufs.'></div><div class='field'><label>Gruene Zone bis (kW)</label><input name='lpGreen' type='number' step='0.1' min='0.1' max='50' value='2.0' title='Bis zu diesem Wert wird der Balken gruen (niedriger Verbrauch).'></div><div class='field'><label>Gelbe Zone bis (kW)</label><input name='lpYellow' type='number' step='0.1' min='0.1' max='50' value='5.0' title='Bis zu diesem Wert wird der Balken gelb, darueber rot.'></div></div><div class='actions'><button type='submit'>Speichern</button></div></form></section><script>var klData = {k1:{portrait:[{"key":"clock","label":"Uhrzeit","preview":"22:10","colStart":1,"colSpan":6,"rowStart":1,"rowSpan":1,"visible":true},{"key":"gauge","label":"Preis-Gauge","preview":"36 ct/kWh","colStart":1,"colSpan":6,"rowStart":2,"rowSpan":4,"visible":true},{"key":"status","label":"Status-Badge","preview":"Mittel","colStart":2,"colSpan":4,"rowStart":6,"rowSpan":1,"visible":true},{"key":"livepower","label":"Live-Verbrauch","preview":"&#9889; 131 W","colStart":2,"colSpan":4,"rowStart":7,"rowSpan":1,"visible":true},{"key":"chart","label":"Diagramm","preview":"&#128200; Preisverlauf (192 Slots)","colStart":1,"colSpan":6,"rowStart":8,"rowSpan":4,"visible":true},{"key":"meta","label":"Infozeile","preview":"Tief 21 &middot; Schnitt 30","colStart":1,"colSpan":6,"rowStart":12,"rowSpan":1,"visible":true}],landscape:[{"key":"clock","label":"Uhrzeit","preview":"22:10","colStart":5,"colSpan":4,"rowStart":1,"rowSpan":1,"visible":true},{"key":"gauge","label":"Preis-Gauge","preview":"36 ct/kWh","colStart":1,"colSpan":6,"rowStart":2,"rowSpan":5,"visible":true},{"key":"status","label":"Status-Badge","preview":"Mittel","colStart":1,"colSpan":6,"rowStart":7,"rowSpan":1,"visible":true},{"key":"livepower","label":"Live-Verbrauch","preview":"&#9889; 131 W","colStart":1,"colSpan":6,"rowStart":8,"rowSpan":1,"visible":true},{"key":"chart","label":"Diagramm","preview":"&#128200; Preisverlauf (192 Slots)","colStart":7,"colSpan":6,"rowStart":2,"rowSpan":5,"visible":true},{"key":"meta","label":"Infozeile","preview":"Tief 21 &middot; Schnitt 30","colStart":7,"colSpan":6,"rowStart":7,"rowSpan":2,"visible":true}]},k2:{portrait:[{"key":"clock","label":"Uhrzeit","preview":"22:10","colStart":1,"colSpan":6,"rowStart":1,"rowSpan":1,"visible":true},{"key":"pricegauge","label":"Preis-Gauge","preview":"36 ct/kWh","colStart":1,"colSpan":6,"rowStart":2,"rowSpan":4,"visible":true},{"key":"pricechart","label":"Preis-Diagramm","preview":"&#128200; Preisverlauf (192 Slots)","colStart":1,"colSpan":6,"rowStart":6,"rowSpan":3,"visible":true},{"key":"pv","label":"PV-Erzeugung","preview":"&#9728;&#65039; -- W","colStart":1,"colSpan":6,"rowStart":9,"rowSpan":2,"visible":true},{"key":"battery","label":"Batterie","preview":"&#128267; -1 W","colStart":1,"colSpan":2,"rowStart":11,"rowSpan":2,"visible":true},{"key":"house","label":"Hausverbrauch","preview":"&#127968; -- W","colStart":3,"colSpan":2,"rowStart":11,"rowSpan":2,"visible":true},{"key":"grid","label":"Netz","preview":"&#9889; -- W","colStart":5,"colSpan":2,"rowStart":11,"rowSpan":2,"visible":true}],landscape:[{"key":"clock","label":"Uhrzeit","preview":"22:10","colStart":1,"colSpan":12,"rowStart":1,"rowSpan":1,"visible":true},{"key":"pricegauge","label":"Preis-Gauge","preview":"36 ct/kWh","colStart":1,"colSpan":5,"rowStart":2,"rowSpan":4,"visible":true},{"key":"pricechart","label":"Preis-Diagramm","preview":"&#128200; Preisverlauf (192 Slots)","colStart":8,"colSpan":5,"rowStart":2,"rowSpan":4,"visible":true},{"key":"pv","label":"PV-Erzeugung","preview":"&#9728;&#65039; -- W","colStart":6,"colSpan":2,"rowStart":2,"rowSpan":4,"visible":true},{"key":"battery","label":"Batterie","preview":"&#128267; -1 W","colStart":1,"colSpan":4,"rowStart":6,"rowSpan":3,"visible":true},{"key":"house","label":"Hausverbrauch","preview":"&#127968; -- W","colStart":5,"colSpan":4,"rowStart":6,"rowSpan":3,"visible":true},{"key":"grid","label":"Netz","preview":"&#9889; -- W","colStart":9,"colSpan":4,"rowStart":6,"rowSpan":3,"visible":true}]}};</script><script>
+var klPage = 'k1';
+var klOrientation = 'portrait';
+var klSelected = 0;
+var KL_GRID = {
+  portrait:  { cols: 6,  rows: 12 },
+  landscape: { cols: 12, rows: 8  }
+};
+function klGrid(){ return KL_GRID[klOrientation]; }
+function klClamp(v, lo, hi){ return Math.max(lo, Math.min(hi, v)); }
 
-<style>
-.layout-js-wrap{display:grid;gap:18px}
-.layout-actions{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
-.layout-box{border:1px solid var(--line);background:var(--overlay-faint);border-radius:18px;padding:14px}
-.layout-box h3{margin:0 0 8px;font-size:16px}.layout-box p{margin:0 0 12px;color:var(--muted);font-size:13px}.layout-box button{width:100%}
-.palette{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:12px 0 16px;max-height:130px;overflow-y:auto;padding:10px;border:1px solid var(--line);border-radius:14px;background:var(--overlay-faint)}
-.palette-hint{width:100%;color:var(--muted);font-size:12px;margin-bottom:2px}
-.palette-group{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
-.palette-group-label{color:#64748b;font-size:10px;text-transform:uppercase;letter-spacing:.05em;margin-right:1px}
-.palette-chip{background:rgba(96,165,250,.14);border:1px solid rgba(96,165,250,.35);color:var(--text);font-size:11px;font-weight:700;padding:6px 10px;border-radius:999px;cursor:grab;user-select:none;-webkit-user-select:none;touch-action:none}
-.palette-chip:active{cursor:grabbing}
-.editor-shell{display:grid;grid-template-columns:190px 1fr 300px;gap:14px;align-items:start}
-.layer-panel{border:1px solid var(--line);background:var(--overlay-faint);border-radius:16px;padding:10px}
-.panel-label{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px}
-.layer-list{display:grid;gap:4px}
-.layer-row{display:grid;grid-template-columns:16px 18px 1fr 20px;gap:6px;align-items:center;padding:7px 6px;border-radius:10px;cursor:pointer;font-size:12px;border:1px solid transparent;transition:background .15s var(--ease),border-color .15s var(--ease)}
-.layer-row:hover{background:var(--overlay-hover)}
-.layer-row.selected{background:var(--accent-tint-bg);border-color:var(--accent-tint-border)}
-.layer-handle{cursor:grab;color:#64748b;touch-action:none;text-align:center}
-.layer-num{color:#64748b;font-weight:800;text-align:center}
-.layer-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.layer-vis{appearance:none;background:transparent;border:0;box-shadow:none;color:var(--ok);width:auto;min-height:auto;padding:0;font-size:13px;cursor:pointer}
-.layer-vis.off{color:#64748b}
-.canvas-panel{display:flex;flex-direction:column;align-items:center}
-.layout-preview{position:relative;width:240px;height:240px;background-color:#000;background-image:linear-gradient(rgba(255,255,255,.10) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.10) 1px,transparent 1px),linear-gradient(rgba(94,234,212,.18) 1px,transparent 1px),linear-gradient(90deg,rgba(94,234,212,.18) 1px,transparent 1px);background-size:12px 12px,12px 12px,40px 40px,40px 40px;border:2px solid #3b4664;margin:0 auto 8px;border-radius:50%;overflow:hidden;touch-action:none;box-shadow:inset 0 0 24px rgba(96,165,250,.16)}
-.layout-preview:after{content:'240 x 240 rund';position:absolute;right:6px;bottom:4px;color:#64748b;font-size:10px;pointer-events:none}
-.layout-item{position:absolute;color:#fff;border:1px dashed rgba(255,255,255,.42);padding:3px;cursor:grab;user-select:none;-webkit-user-select:none;white-space:nowrap;touch-action:none;background:rgba(96,165,250,.18);border-radius:5px;z-index:20;pointer-events:auto}
-.layout-item.selected{outline:2px solid var(--accent);outline-offset:1px;z-index:35}
-.layout-item-num{position:absolute;left:-7px;top:-9px;background:#0b1224;border:1px solid rgba(255,255,255,.4);color:#9aa8c7;font-size:9px;font-weight:800;border-radius:999px;width:15px;height:15px;display:flex;align-items:center;justify-content:center;line-height:1;z-index:1}
-.resize-handle{position:absolute;right:-6px;bottom:-6px;width:13px;height:13px;background:var(--accent);border:2px solid #0b1224;border-radius:50%;cursor:nwse-resize;z-index:40;touch-action:none}
-.props-panel{border:1px solid var(--line);background:var(--overlay-faint);border-radius:16px;padding:12px;position:sticky;top:92px;min-height:120px}
-.props-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px}
-.props-head strong{font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.card-head-btns{display:flex;gap:4px;align-items:center;flex:none}
-.icon-btn{appearance:none;background:transparent;border:1px solid var(--line);box-shadow:none;width:28px;height:28px;min-height:28px;padding:0;border-radius:8px;color:var(--muted);font-size:13px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
-.layout-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.layout-fields .wide{grid-column:1/3}.layout-fields label:not(.toggle){display:block;color:var(--muted);font-size:12px;margin-bottom:4px}
-.layout-nudge{display:grid;grid-template-columns:repeat(3,42px);gap:6px;justify-content:center;margin-top:10px;padding:10px;border:1px solid var(--line);border-radius:14px;background:var(--overlay-faint)}
-.layout-nudge button{padding:8px 0;border-radius:10px;box-shadow:none;background:var(--btn-muted);margin:0}.layout-nudge .blank{visibility:hidden}
-.layout-floating{position:fixed;right:18px;bottom:18px;z-index:99999;background:var(--float-bg);border:1px solid var(--float-border);border-radius:18px;padding:10px;box-shadow:0 14px 40px var(--shadow-float);display:flex;gap:8px;align-items:center;backdrop-filter:blur(14px)}
-@media(max-width:1080px){.editor-shell{grid-template-columns:170px 1fr 260px}}
-@media(max-width:900px){.editor-shell{grid-template-columns:1fr}.layer-panel{order:2}.layer-list{display:flex;overflow-x:auto;gap:6px}.layer-row{grid-template-columns:14px 16px auto 18px;flex:none;min-width:160px}.canvas-panel{order:1}.props-panel{order:3;position:relative;top:auto}}
-@media(max-width:760px){.layout-floating{left:10px;right:10px;bottom:10px;justify-content:center}.layout-fields{grid-template-columns:1fr}.layout-fields .wide{grid-column:1}}
-</style>
+function klRenderCanvas(){
+  var canvas = document.getElementById('klCanvas');
+  canvas.innerHTML = '';
+  canvas.className = 'kl-canvas' + (klOrientation === 'landscape' ? ' landscape' : '');
+  var g = klGrid();
+  // Grid-Zellen als visueller Hintergrund
+  for (var r = 0; r < g.rows; r++) {
+    for (var c = 0; c < g.cols; c++) {
+      var cell = document.createElement('div');
+      cell.className = 'kl-cell';
+      cell.style.gridColumn = (c+1) + '/span 1';
+      cell.style.gridRow = (r+1) + '/span 1';
+      canvas.appendChild(cell);
+    }
+  }
+  var items = klData[klPage][klOrientation];
+  items.forEach(function(item, i){
+    var el = document.createElement('div');
+    el.className = 'kl-item' + (i === klSelected ? ' selected' : '') + (!item.visible ? ' kl-hidden' : '');
+    el.style.gridColumn = item.colStart + '/span ' + item.colSpan;
+    el.style.gridRow = item.rowStart + '/span ' + item.rowSpan;
+    var caption = document.createElement('span');
+    caption.className = 'kl-item-caption';
+    caption.textContent = item.label;
+    el.appendChild(caption);
+    if (item.preview) {
+      var val = document.createElement('span');
+      val.className = 'kl-item-preview';
+      val.innerHTML = item.preview;
+      el.appendChild(val);
+    }
+    var handle = document.createElement('span');
+    handle.className = 'kl-resize';
+    handle.addEventListener('pointerdown', function(e){ klStartResize(e, i); });
+    el.appendChild(handle);
+    el.addEventListener('pointerdown', function(e){ klStartDrag(e, i); });
+    canvas.appendChild(el);
+  });
+  klRenderLayers();
+}
 
-<section class='card'><div class='panelTitle'><h2>Aktionen</h2><span id='saveState' class='badge okb'>Gespeichert</span></div>
-<div class='layout-actions'>
-<div class='layout-box'><h3>Speichern</h3><p>Speichert per AJAX und aktualisiert die Displays direkt.</p><button class='btnSuccess' type='button'>Jetzt speichern</button></div>
-<div class='layout-box'><h3>Export</h3><p>Layout als JSON sichern.</p><form><button class='btnMuted' type='submit'>Layout exportieren</button></form></div>
-<div class='layout-box dangerZone'><h3>Zuruecksetzen</h3><p>Standardlayout wiederherstellen.</p><form><button class='danger' type='submit'>Layout zuruecksetzen</button></form></div>
-</div></section>
+function klRenderLayers(){
+  var wrap = document.getElementById('klLayers');
+  wrap.innerHTML = '';
+  klData[klPage][klOrientation].forEach(function(item, i){
+    var row = document.createElement('div');
+    row.className = 'kl-layer-row' + (i === klSelected ? ' selected' : '');
+    row.addEventListener('click', function(){ klSelected = i; klRenderCanvas(); });
+    var label = document.createElement('span');
+    label.textContent = item.label;
+    var vis = document.createElement('button');
+    vis.type = 'button';
+    vis.className = 'secondary';
+    vis.textContent = item.visible ? '●' : '○';
+    vis.title = item.visible ? 'Ausblenden' : 'Einblenden';
+    vis.addEventListener('click', function(e){ e.stopPropagation(); item.visible = !item.visible; klSave(i); klRenderCanvas(); });
+    row.appendChild(label);
+    row.appendChild(vis);
+    wrap.appendChild(row);
+  });
+}
 
-<section class='card'><h2>Presets</h2><div class='presetGrid'>
-<form><input type='hidden' name='preset' value='price'><button type='submit'>Preset: Preis gross</button></form>
-<form><input type='hidden' name='preset' value='low2'><button type='submit'>Preset: Tiefpreis + 2. Tiefpreis</button></form>
-<form><input type='hidden' name='preset' value='compact'><button type='submit'>Preset: Kompakt</button></form>
-</div></section>
+// Drag: verschiebt das Widget um ganze Zellen. Snap ist automatisch, weil
+// Ziel-Koordinaten immer ganzzahlig sind.
+function klStartDrag(e, i){
+  e.preventDefault();
+  klSelected = i;
+  var canvas = document.getElementById('klCanvas');
+  var rect = canvas.getBoundingClientRect();
+  var g = klGrid();
+  var cellW = rect.width / g.cols;
+  var cellH = rect.height / g.rows;
+  var item = klData[klPage][klOrientation][i];
+  var startColStart = item.colStart, startRowStart = item.rowStart;
+  var startX = e.clientX, startY = e.clientY;
+  function onMove(ev){
+    var dc = Math.round((ev.clientX - startX) / cellW);
+    var dr = Math.round((ev.clientY - startY) / cellH);
+    item.colStart = klClamp(startColStart + dc, 1, g.cols - item.colSpan + 1);
+    item.rowStart = klClamp(startRowStart + dr, 1, g.rows - item.rowSpan + 1);
+    klRenderCanvas();
+  }
+  function onUp(){
+    document.removeEventListener('pointermove', onMove);
+    document.removeEventListener('pointerup', onUp);
+    klSave(i);
+  }
+  document.addEventListener('pointermove', onMove);
+  document.addEventListener('pointerup', onUp);
+}
 
-<section class='card'><h2>Layout importieren</h2><form>
-<textarea name='json' rows='5' placeholder='Exportiertes Layout-JSON hier einfuegen'></textarea>
-<div class='actions'><button type='submit'>Layout importieren</button></div></form></section>
+function klStartResize(e, i){
+  e.preventDefault();
+  e.stopPropagation();
+  klSelected = i;
+  var canvas = document.getElementById('klCanvas');
+  var rect = canvas.getBoundingClientRect();
+  var g = klGrid();
+  var cellW = rect.width / g.cols;
+  var cellH = rect.height / g.rows;
+  var item = klData[klPage][klOrientation][i];
+  var startColSpan = item.colSpan, startRowSpan = item.rowSpan;
+  var startX = e.clientX, startY = e.clientY;
+  function onMove(ev){
+    var dc = Math.round((ev.clientX - startX) / cellW);
+    var dr = Math.round((ev.clientY - startY) / cellH);
+    item.colSpan = klClamp(startColSpan + dc, 1, g.cols - item.colStart + 1);
+    item.rowSpan = klClamp(startRowSpan + dr, 1, g.rows - item.rowStart + 1);
+    klRenderCanvas();
+  }
+  function onUp(){
+    document.removeEventListener('pointermove', onMove);
+    document.removeEventListener('pointerup', onUp);
+    klSave(i);
+  }
+  document.addEventListener('pointermove', onMove);
+  document.addEventListener('pointerup', onUp);
+}
 
-<div id='layoutApp' class='layout-js-wrap'>
+function klSave(i){
+  var item = klData[klPage][klOrientation][i];
+  var state = document.getElementById('klSaveState');
+  if (state) { state.className = 'badge warnb'; state.textContent = 'Speichere...'; }
+  var body = new URLSearchParams();
+  body.set('target', klPage);
+  body.set('orientation', klOrientation);
+  body.set('index', i);
+  body.set('colStart', item.colStart);
+  body.set('colSpan', item.colSpan);
+  body.set('rowStart', item.rowStart);
+  body.set('rowSpan', item.rowSpan);
+  body.set('visible', item.visible ? '1' : '0');
+  fetch('/savekiosklayoutajax', { method: 'POST', headers: {'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'}, body: body.toString() })
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if (state) { state.className = d.ok ? 'badge okb' : 'badge errb'; state.textContent = d.ok ? 'Gespeichert' : 'Fehler'; }
+    })
+    .catch(function(){ if (state) { state.className = 'badge errb'; state.textContent = 'Fehler'; } });
+}
 
-<section class='card layoutPanel'><div class='panelTitle'><h2>Display 1</h2><span class='badge okb'>5/8 sichtbar</span></div>
-<div class='palette'>
-<div class='palette-hint'>Element auf die Vorschau ziehen, um es hinzuzufuegen:</div>
-<div class='palette-group'><span class='palette-group-label'>Text</span><span class='palette-chip'>Eigener Text / Ueberschrift</span></div>
-<div class='palette-group'><span class='palette-group-label'>Preis</span><span class='palette-chip'>Aktueller 15-Minuten-Preis jetzt</span><span class='palette-chip'>Tagesdurchschnitt heute</span><span class='palette-chip'>Tiefster 15-Minuten-Preis heute</span></div>
-<div class='palette-group'><span class='palette-group-label'>System</span><span class='palette-chip'>IP-Adresse des ESP32</span><span class='palette-chip'>Aktuelle Uhrzeit des ESP32</span></div>
-</div>
-<div class='editor-shell'>
-<div class='layer-panel'><div class='panel-label'>Ebenen</div><div class='layer-list'>
-<div class='layer-row selected'><span class='layer-handle'>⋮⋮</span><span class='layer-num'>1</span><span class='layer-label'>Aktueller 15-Minuten-Preis jetzt</span><button type='button' class='layer-vis'>●</button></div>
-<div class='layer-row'><span class='layer-handle'>⋮⋮</span><span class='layer-num'>2</span><span class='layer-label'>Beschriftung: Aktueller 15-Minuten-Preis</span><button type='button' class='layer-vis'>●</button></div>
-<div class='layer-row'><span class='layer-handle'>⋮⋮</span><span class='layer-num'>3</span><span class='layer-label'>Aktuelle Uhrzeit des ESP32</span><button type='button' class='layer-vis'>●</button></div>
-<div class='layer-row'><span class='layer-handle'>⋮⋮</span><span class='layer-num'>4</span><span class='layer-label'>Tiefster 15-Minuten-Preis heute</span><button type='button' class='layer-vis'>●</button></div>
-<div class='layer-row'><span class='layer-handle'>⋮⋮</span><span class='layer-num'>5</span><span class='layer-label'>IP-Adresse des ESP32</span><button type='button' class='layer-vis'>●</button></div>
-<div class='layer-row'><span class='layer-handle'>⋮⋮</span><span class='layer-num'>6</span><span class='layer-label'>Eigener Text / Ueberschrift</span><button type='button' class='layer-vis off'>○</button></div>
-<div class='layer-row'><span class='layer-handle'>⋮⋮</span><span class='layer-num'>7</span><span class='layer-label'>Eigener Text / Ueberschrift</span><button type='button' class='layer-vis off'>○</button></div>
-<div class='layer-row'><span class='layer-handle'>⋮⋮</span><span class='layer-num'>8</span><span class='layer-label'>Eigener Text / Ueberschrift</span><button type='button' class='layer-vis off'>○</button></div>
-</div></div>
-<div class='canvas-panel'><div class='layout-preview'>
-<div class='layout-item selected' style='left:70px;top:70px;font-size:40px'><span class='layout-item-num'>1</span><span class='layout-item-text'>32</span><span class='resize-handle'></span></div>
-<div class='layout-item' style='left:74px;top:52px;font-size:12px'><span class='layout-item-num'>2</span><span class='layout-item-text'>Aktuell</span></div>
-<div class='layout-item' style='left:82px;top:180px;font-size:20px'><span class='layout-item-num'>3</span><span class='layout-item-text'>14:12</span></div>
-<div class='layout-item' style='left:20px;top:20px;font-size:12px'><span class='layout-item-num'>4</span><span class='layout-item-text'>18 um 03:15</span></div>
-<div class='layout-item' style='left:20px;top:210px;font-size:10px'><span class='layout-item-num'>5</span><span class='layout-item-text'>192.168.1.42</span></div>
-</div>
-<p class='small' style='text-align:center'>Ziehen zum Verschieben, Punkt unten rechts zum Skalieren.</p></div>
-<div class='props-panel'><div class='props-head'><strong>1. Aktueller 15-Minuten-Preis jetzt</strong><div class='card-head-btns'><button type='button' class='icon-btn' title='Auf Vorschau zeigen'>◎</button><button type='button' class='icon-btn' title='Auf anderes Display kopieren'>⇄</button><button type='button' class='icon-btn' title='Element zuruecksetzen'>↺</button></div></div>
-<div class='layout-fields'>
-<div class='wide'><label>Wert / Anzeigeinhalt</label><select><optgroup label='Preis'><option selected>Aktueller 15-Minuten-Preis jetzt</option><option>Tagesdurchschnitt heute</option></optgroup></select></div>
-<div class='wide'><label>Eigener Text</label><input value=''></div>
-<div><label>Text davor (Praefix)</label><input value=''></div>
-<div><label>Text danach (Suffix)</label><input value=' ct'></div>
-<div><label>Position X (0-239 px)</label><input type='number' value='70'></div>
-<div><label>Position Y (0-239 px)</label><input type='number' value='70'></div>
-<div><label>Schriftgroesse (Stufe 1-4)</label><input type='number' value='4'></div>
-<div><label>Ausrichtung</label><select><option value='0'>Links</option><option value='1' selected>Zentriert</option><option value='2'>Rechts</option></select></div>
-<div class='toggleRow'><label>Automatische Groesse</label><label class='toggle'><input type='checkbox' checked><span class='toggleSlider'></span></label></div>
-<div class='toggleRow'><label>Sichtbar</label><label class='toggle'><input type='checkbox' checked><span class='toggleSlider'></span></label></div>
-</div>
-<div class='layout-nudge'><span class='blank'></span><button type='button'>&uarr;</button><span class='blank'></span><button type='button'>&larr;</button><button type='button'>&darr;</button><button type='button'>&rarr;</button></div>
-</div>
-</div>
-</section>
+function klSwitchOrientation(o){
+  klOrientation = o;
+  klSelected = 0;
+  document.getElementById('klTabPortrait').className = o === 'portrait' ? '' : 'secondary';
+  document.getElementById('klTabLandscape').className = o === 'landscape' ? '' : 'secondary';
+  klRenderCanvas();
+}
 
-<section class='card layoutPanel'><div class='panelTitle'><h2>Display 2</h2><span class='badge okb'>4/8 sichtbar</span></div>
-<div class='palette'>
-<div class='palette-hint'>Element auf die Vorschau ziehen, um es hinzuzufuegen:</div>
-<div class='palette-group'><span class='palette-group-label'>Preis</span><span class='palette-chip'>Guenstigster 60-Minuten-Block heute</span></div>
-<div class='palette-group'><span class='palette-group-label'>Uhrzeit</span><span class='palette-chip'>Start guenstigster 60-Minuten-Block</span></div>
-<div class='palette-group'><span class='palette-group-label'>System</span><span class='palette-chip'>Startzeit aktueller Tibber-Preis</span></div>
-</div>
-<div class='editor-shell'>
-<div class='layer-panel'><div class='panel-label'>Ebenen</div><div class='layer-list'>
-<div class='layer-row selected'><span class='layer-handle'>⋮⋮</span><span class='layer-num'>1</span><span class='layer-label'>Guenstigster 60-Minuten-Block heute</span><button type='button' class='layer-vis'>●</button></div>
-<div class='layer-row'><span class='layer-handle'>⋮⋮</span><span class='layer-num'>2</span><span class='layer-label'>Zeitraum: Guenstigster 60-Minuten-Block</span><button type='button' class='layer-vis'>●</button></div>
-<div class='layer-row'><span class='layer-handle'>⋮⋮</span><span class='layer-num'>3</span><span class='layer-label'>Aktuelle Uhrzeit des ESP32</span><button type='button' class='layer-vis'>●</button></div>
-<div class='layer-row'><span class='layer-handle'>⋮⋮</span><span class='layer-num'>4</span><span class='layer-label'>Startzeit aktueller Tibber-Preis</span><button type='button' class='layer-vis'>●</button></div>
-<div class='layer-row'><span class='layer-handle'>⋮⋮</span><span class='layer-num'>5</span><span class='layer-label'>Eigener Text / Ueberschrift</span><button type='button' class='layer-vis off'>○</button></div>
-<div class='layer-row'><span class='layer-handle'>⋮⋮</span><span class='layer-num'>6</span><span class='layer-label'>Eigener Text / Ueberschrift</span><button type='button' class='layer-vis off'>○</button></div>
-<div class='layer-row'><span class='layer-handle'>⋮⋮</span><span class='layer-num'>7</span><span class='layer-label'>Eigener Text / Ueberschrift</span><button type='button' class='layer-vis off'>○</button></div>
-<div class='layer-row'><span class='layer-handle'>⋮⋮</span><span class='layer-num'>8</span><span class='layer-label'>Eigener Text / Ueberschrift</span><button type='button' class='layer-vis off'>○</button></div>
-</div></div>
-<div class='canvas-panel'><div class='layout-preview'>
-<div class='layout-item selected' style='left:78px;top:90px;font-size:30px'><span class='layout-item-num'>1</span><span class='layout-item-text'>19</span><span class='resize-handle'></span></div>
-<div class='layout-item' style='left:70px;top:130px;font-size:14px'><span class='layout-item-num'>2</span><span class='layout-item-text'>03:15-04:15</span></div>
-<div class='layout-item' style='left:90px;top:20px;font-size:20px'><span class='layout-item-num'>3</span><span class='layout-item-text'>14:12</span></div>
-<div class='layout-item' style='left:20px;top:200px;font-size:10px'><span class='layout-item-num'>4</span><span class='layout-item-text'>14:00</span></div>
-</div>
-<p class='small' style='text-align:center'>Ziehen zum Verschieben, Punkt unten rechts zum Skalieren.</p></div>
-<div class='props-panel'><div class='props-head'><strong>1. Guenstigster 60-Minuten-Block heute</strong><div class='card-head-btns'><button type='button' class='icon-btn' title='Auf Vorschau zeigen'>◎</button><button type='button' class='icon-btn' title='Auf anderes Display kopieren'>⇄</button><button type='button' class='icon-btn' title='Element zuruecksetzen'>↺</button></div></div>
-<div class='layout-fields'>
-<div class='wide'><label>Wert / Anzeigeinhalt</label><select><optgroup label='Preis'><option selected>Guenstigster 60-Minuten-Block heute</option></optgroup></select></div>
-<div class='wide'><label>Eigener Text</label><input value=''></div>
-<div><label>Text davor (Praefix)</label><input value=''></div>
-<div><label>Text danach (Suffix)</label><input value=' ct'></div>
-<div><label>Position X (0-239 px)</label><input type='number' value='78'></div>
-<div><label>Position Y (0-239 px)</label><input type='number' value='90'></div>
-<div><label>Schriftgroesse (Stufe 1-4)</label><input type='number' value='3'></div>
-<div><label>Ausrichtung</label><select><option value='0'>Links</option><option value='1' selected>Zentriert</option><option value='2'>Rechts</option></select></div>
-<div class='toggleRow'><label>Automatische Groesse</label><label class='toggle'><input type='checkbox' checked><span class='toggleSlider'></span></label></div>
-<div class='toggleRow'><label>Sichtbar</label><label class='toggle'><input type='checkbox' checked><span class='toggleSlider'></span></label></div>
-</div>
-<div class='layout-nudge'><span class='blank'></span><button type='button'>&uarr;</button><span class='blank'></span><button type='button'>&larr;</button><button type='button'>&darr;</button><button type='button'>&rarr;</button></div>
-</div>
-</div>
-</section>
+function klSwitchPage(p){
+  klPage = p;
+  klSelected = 0;
+  document.getElementById('klTabK1').className = p === 'k1' ? '' : 'secondary';
+  document.getElementById('klTabK2').className = p === 'k2' ? '' : 'secondary';
+  klRenderCanvas();
+}
 
-</div>
-<div class='layout-floating'><button class='btnSuccess' type='button'>Speichern</button><span id='floatSaveState' class='badge okb'>Gespeichert</span></div>
+function klReset(){
+  var name = klOrientation === 'landscape' ? 'Querformat' : 'Hochformat';
+  var pageName = klPage === 'k2' ? 'Kiosk 2 (Energie)' : 'Kiosk 1 (Preise)';
+  if (!confirm(pageName + ' - ' + name + ' auf Standard zuruecksetzen?')) return;
+  var body = new URLSearchParams();
+  body.set('target', klPage);
+  body.set('orientation', klOrientation);
+  fetch('/resetkiosklayout', { method: 'POST', headers: {'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'}, body: body.toString() })
+    .then(function(){ location.reload(); });
+}
 
-<div id='toastHost' class='toastHost'></div>
-<script src='app.js'></script>
-</main></body></html>
+klRenderCanvas();
+</script><div id='toastHost' class='toastHost'></div><script src='/app.js?v=10'></script></main></body></html>

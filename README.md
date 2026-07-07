@@ -46,15 +46,23 @@ Es gibt zwei eigene Vollbild-Ansichten für ein dauerhaft angeschlossenes Tablet
 
 Beide Seiten verlinken sich gegenseitig oben rechts. Die Widget-Positionen lassen sich für **beide** Kiosk-Seiten getrennt nach Hoch-/Querformat im Layout-Editor per Drag-and-Drop anpassen (Seiten-Umschalter "Kiosk 1: Preise" / "Kiosk 2: Energie" oben im Editor).
 
-| Hochformat | Hochformat (Dunkelmodus) |
+| `/kiosk` Hochformat | `/kiosk` Hochformat (Dunkelmodus) |
 |---|---|
-| ![Tablet-Modus Hochformat](docs/screenshots/kiosk-tablet-portrait-light.png) | ![Tablet-Modus Hochformat Dunkel](docs/screenshots/kiosk-tablet-portrait-dark.png) |
+| ![Tablet-Modus Preise Hochformat](docs/screenshots/kiosk-tablet-portrait-light.png) | ![Tablet-Modus Preise Hochformat Dunkel](docs/screenshots/kiosk-tablet-portrait-dark.png) |
 
-| Querformat (Dunkelmodus) |
+| `/kiosk` Querformat (Dunkelmodus) |
 |---|
-| ![Tablet-Modus Querformat](docs/screenshots/kiosk-tablet-landscape-dark.png) |
+| ![Tablet-Modus Preise Querformat](docs/screenshots/kiosk-tablet-landscape-dark.png) |
 
-> Screenshots der Energiefluss-Ansicht (`/kiosk2`) und des erweiterten Layout-Editors mit Seiten-Umschalter fehlen hier noch – die obigen Bilder zeigen nur die Preise-Kiosk-Seite.
+| `/kiosk2` Hochformat | `/kiosk2` Hochformat (Dunkelmodus) |
+|---|---|
+| ![Tablet-Modus Energiefluss Hochformat](docs/screenshots/kiosk2-tablet-portrait-light.png) | ![Tablet-Modus Energiefluss Hochformat Dunkel](docs/screenshots/kiosk2-tablet-portrait-dark.png) |
+
+| `/kiosk2` Querformat (Dunkelmodus) |
+|---|
+| ![Tablet-Modus Energiefluss Querformat](docs/screenshots/kiosk2-tablet-landscape-dark.png) |
+
+> Der Layout-Editor (Screenshot oben) hat einen Seiten-Umschalter oben ("Kiosk 1: Preise" / "Kiosk 2: Energie"), mit dem sich beide Kiosk-Seiten getrennt anpassen lassen.
 
 ## Anker Solarbank (optional)
 
