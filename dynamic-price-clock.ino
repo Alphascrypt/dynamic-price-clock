@@ -82,7 +82,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "2.6.6"
+#define FIRMWARE_VERSION "2.6.7"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -2229,71 +2229,83 @@ bool checkGithubUpdate() {
     return false;
   }
 
-  WiFiClientSecure client;
-
-  // Keine manuelle Root-CA-Pinnung fuer GitHub: der Download laeuft ueber
-  // zwei verschiedene Hosts (api.github.com fuer die Metadaten, per Redirect
-  // objects.githubusercontent.com fuer die eigentliche .bin-Datei) mit
-  // rotierenden Zertifikaten - ein einzelnes gepinntes Zertifikat waere kaum
-  // wartbar und wuerde ohne zusaetzlichen Nutzen regelmaessig brechen.
-  client.setInsecure();
-
-  HTTPClient http;
-  http.setTimeout(15000);
-
   String url = "https://api.github.com/repos/" + githubRepo + "/releases/latest";
 
-  if (!http.begin(client, url)) {
-    lastError = "GitHub HTTP Fehler";
-    return false;
-  }
+  // Der allererste TLS-Verbindungsaufbau auf dem ESP32-C5 schlaegt gelegentlich
+  // mit "Connection refused" (HTTPClient-Code -1) fehl, ein sofortiger
+  // erneuter Versuch klappt praktisch immer (gleiches Muster wie beim
+  // OTA-Download) - deshalb bis zu 3x versuchen statt sofort aufzugeben.
+  int code = -1;
+  const int maxAttempts = 3;
+  for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+    WiFiClientSecure client;
+    // Keine manuelle Root-CA-Pinnung fuer GitHub: der Download laeuft ueber
+    // zwei verschiedene Hosts (api.github.com fuer die Metadaten, per Redirect
+    // objects.githubusercontent.com fuer die eigentliche .bin-Datei) mit
+    // rotierenden Zertifikaten - ein einzelnes gepinntes Zertifikat waere kaum
+    // wartbar und wuerde ohne zusaetzlichen Nutzen regelmaessig brechen.
+    client.setInsecure();
 
-  http.addHeader("User-Agent", "dynamic-price-clock-esp32");
-  http.addHeader("Accept", "application/vnd.github+json");
-  if (githubToken.length() > 0) {
-    http.addHeader("Authorization", "Bearer " + githubToken);
-  }
+    HTTPClient http;
+    http.setTimeout(15000);
 
-  int code = http.GET();
+    if (!http.begin(client, url)) {
+      lastError = "GitHub HTTP Fehler";
+      code = -1;
+    } else {
+      http.addHeader("User-Agent", "dynamic-price-clock-esp32");
+      http.addHeader("Accept", "application/vnd.github+json");
+      if (githubToken.length() > 0) {
+        http.addHeader("Authorization", "Bearer " + githubToken);
+      }
 
-  if (code != 200) {
-    lastError = "GitHub API Fehler " + String(code);
-    http.end();
-    return false;
-  }
+      code = http.GET();
 
-  DynamicJsonDocument doc(8192);
-  DeserializationError jsonErr = deserializeJson(doc, http.getStream());
-  http.end();
+      if (code == 200) {
+        DynamicJsonDocument doc(8192);
+        DeserializationError jsonErr = deserializeJson(doc, http.getStream());
+        http.end();
+        client.stop();
 
-  if (jsonErr) {
-    lastError = "GitHub JSON Fehler";
-    return false;
-  }
+        if (jsonErr) {
+          lastError = "GitHub JSON Fehler";
+          return false;
+        }
 
-  String tag = String(doc["tag_name"] | "");
-  tag.trim();
-  if (tag.startsWith("v") || tag.startsWith("V")) tag = tag.substring(1);
+        String tag = String(doc["tag_name"] | "");
+        tag.trim();
+        if (tag.startsWith("v") || tag.startsWith("V")) tag = tag.substring(1);
 
-  String binUrl = "";
-  JsonArray assets = doc["assets"];
-  for (JsonObject asset : assets) {
-    String name = String(asset["name"] | "");
-    if (name.endsWith(".bin")) {
-      binUrl = String(asset["browser_download_url"] | "");
-      break;
+        String binUrl = "";
+        JsonArray assets = doc["assets"];
+        for (JsonObject asset : assets) {
+          String name = String(asset["name"] | "");
+          if (name.endsWith(".bin") && name.indexOf("merged") < 0) {
+            binUrl = String(asset["browser_download_url"] | "");
+            break;
+          }
+        }
+
+        if (tag.length() == 0) {
+          lastError = "Kein gueltiges Release gefunden";
+          return false;
+        }
+
+        githubLatestVersion = tag;
+        githubLatestUrl = binUrl;
+        lastError = "";
+        return true;
+      }
+
+      http.end();
     }
+
+    client.stop();
+    if (attempt < maxAttempts) delay(1500);
   }
 
-  if (tag.length() == 0 || binUrl.length() == 0) {
-    lastError = "Kein gueltiges Release gefunden (Tag oder .bin-Datei fehlt)";
-    return false;
-  }
-
-  githubLatestVersion = tag;
-  githubLatestUrl = binUrl;
-  lastError = "";
-  return true;
+  lastError = "GitHub API Fehler " + String(code);
+  return false;
 }
 
 // Leiser Zwilling von checkGithubUpdate() fuer den periodischen Hintergrund-
