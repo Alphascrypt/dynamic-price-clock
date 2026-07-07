@@ -73,7 +73,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "2.4.1"
+#define FIRMWARE_VERSION "2.4.2"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -619,7 +619,7 @@ void handleLayoutEditorJs();
 void handleAccountUpdateJs();
 void handleLivePower();
 
-String buildSvgChart();
+String buildSvgChart(String lineColor = "", String fillColor = "");
 String buildChartPointsJson();
 String buildPinoutSvg();
 String buildPriceGaugeSvg();
@@ -4952,9 +4952,15 @@ void handleKioskPage() {
     html += "<div class='kw kw-livepower kiosk-live-power' id='kioskLivePower'>" + livePowerText + "</div>";
   }
 
+  // Zonen-Farbe fuer Chart: Linie + Fill passend zum Hintergrund-Glow
+  int nc2 = (metricCurrent15 >= 0) ? euroToCentRounded(metricCurrent15) : -1;
+  String chartLine = "#4ade80"; String chartFill = "#22c55e";
+  if (nc2 >= ledRedCent) { chartLine = "#ff6b6b"; chartFill = "#ff3b30"; }
+  else if (nc2 >= ledYellowCent) { chartLine = "#ffb347"; chartFill = "#ff9500"; }
+
   html += "<div class='kw kw-chart'>";
   html += "<div class='kiosk-chart' id='kioskChartWrap'>";
-  html += buildSvgChart();
+  html += buildSvgChart(chartLine, chartFill);
   html += "<div class='kiosk-tooltip' id='kioskTooltip'></div>";
   html += "</div>";
   html += "<p class='small kiosk-chart-hint'>Mit Finger oder Maus über das Diagramm fahren, um Preise zu sehen.</p>";
@@ -5244,7 +5250,11 @@ void handleKioskData() {
   json += "\"statusText\":\"" + jsonEscapeValue(statusText) + "\",";
   json += "\"statusColor\":\"" + jsonEscapeValue(statusColor) + "\",";
   json += "\"gaugeSvg\":\"" + jsonEscapeValue(buildPriceGaugeSvg()) + "\",";
-  json += "\"chartSvg\":\"" + jsonEscapeValue(buildSvgChart()) + "\",";
+  int nc3 = (metricCurrent15 >= 0) ? euroToCentRounded(metricCurrent15) : -1;
+  String cLine = "#4ade80"; String cFill = "#22c55e";
+  if (nc3 >= ledRedCent) { cLine = "#ff6b6b"; cFill = "#ff3b30"; }
+  else if (nc3 >= ledYellowCent) { cLine = "#ffb347"; cFill = "#ff9500"; }
+  json += "\"chartSvg\":\"" + jsonEscapeValue(buildSvgChart(cLine, cFill)) + "\",";
   json += "\"chartPoints\":" + buildChartPointsJson() + ",";
   json += "\"lowText\":\"" + jsonEscapeValue(lowText) + "\",";
   json += "\"avgText\":\"" + jsonEscapeValue(avgText) + "\",";
@@ -7263,10 +7273,13 @@ String buildChartPointsJson() {
   return json;
 }
 
-String buildSvgChart() {
+String buildSvgChart(String lineColor, String fillColor) {
   if (quarterCount == 0) {
     return "<p>Keine Diagrammdaten</p>";
   }
+  // Default-Farben wenn keine uebergeben
+  if (lineColor.length() == 0) lineColor = "rgba(255,255,255,.85)";
+  if (fillColor.length() == 0) fillColor = "rgba(255,255,255,.25)";
 
   float minP = quarterPrices[0];
   float maxP = quarterPrices[0];
@@ -7324,8 +7337,8 @@ String buildSvgChart() {
   svg += "<svg id='priceChartSvg' viewBox='0 0 760 320' xmlns='http://www.w3.org/2000/svg' style='font-family:-apple-system,Inter,system-ui,sans-serif'>";
   svg += "<defs>";
   svg += "<linearGradient id='chartFill' x1='0' y1='0' x2='0' y2='1'>";
-  svg += "<stop offset='0%' stop-color='#ffffff' stop-opacity='.25'/>";
-  svg += "<stop offset='100%' stop-color='#ffffff' stop-opacity='.02'/>";
+  svg += "<stop offset='0%' stop-color='" + fillColor + "' stop-opacity='1'/>";
+  svg += "<stop offset='100%' stop-color='" + fillColor + "' stop-opacity='0'/>";
   svg += "</linearGradient>";
   svg += "<filter id='chartGlow'><feGaussianBlur stdDeviation='3' result='b'/><feMerge><feMergeNode in='b'/><feMergeNode in='SourceGraphic'/></feMerge></filter>";
   svg += "</defs>";
@@ -7361,8 +7374,8 @@ String buildSvgChart() {
     svg += "<text x='" + String(left + chartW - 4) + "' y='" + String(yAvg - 5) + "' fill='rgba(255,255,255,.45)' font-size='10' font-weight='600' text-anchor='end'>&#8960; " + String(euroToCentRounded(metricDayAvg)) + " ct</text>";
   }
 
-  // Hauptlinie — glatt, weiss-translucent
-  svg += "<polyline fill='none' stroke='rgba(255,255,255,.85)' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round' points='" + linePoints + "'/>";
+  // Hauptlinie — glatt, in uebergebener Farbe
+  svg += "<polyline fill='none' stroke='" + lineColor + "' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round' points='" + linePoints + "'/>";
 
   // Morgen-Trenner
   if (tomorrowIndex > 0) {
