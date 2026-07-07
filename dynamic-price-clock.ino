@@ -82,7 +82,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "2.7.3"
+#define FIRMWARE_VERSION "2.7.4"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -5875,6 +5875,7 @@ void handleKiosk2Page() {
   html += ".kiosk-time{font-size:clamp(18px,5vh,56px);font-weight:700;line-height:1;letter-spacing:-1px;color:#fff;font-variant-numeric:tabular-nums}";
   html += ".kiosk-date{font-size:clamp(9px,1.5vh,15px);color:rgba(255,255,255,.65);margin-top:4px;text-transform:capitalize;font-weight:500}";
   html += ".kw-pricegauge .priceRing{max-width:100%;padding:0}";
+  html += ".kw-pricegauge svg{background:transparent!important;border:0!important;border-radius:0!important;margin:0!important;box-shadow:none!important}";
   html += ".kw-pricechart{padding:clamp(6px,1.4vh,12px)}";
   html += ".kw-pricechart svg{width:100%;height:100%;display:block;background:transparent!important;border:0!important;border-radius:0!important;margin:0!important;box-shadow:none!important}";
   html += ".ef-icon{font-size:clamp(18px,4vh,38px);line-height:1}";
