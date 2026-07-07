@@ -16,6 +16,15 @@
 #include <Adafruit_NeoPixel.h>
 #include <WebSocketsClient.h>
 
+// Fuer die (inoffizielle) Anker-Solix-Cloud-Anmeldung: ECDH(SECP256R1) +
+// AES-256-CBC + MD5, siehe updateAnkerSolarData().
+#include <mbedtls/ecdh.h>
+#include <mbedtls/aes.h>
+#include <mbedtls/md5.h>
+#include <mbedtls/entropy.h>
+#include <mbedtls/ctr_drbg.h>
+#include <mbedtls/base64.h>
+
 // -----------------------------------------------------------------------------
 // Hardware
 // -----------------------------------------------------------------------------
@@ -73,7 +82,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "2.5.4"
+#define FIRMWARE_VERSION "2.6.0"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -289,6 +298,27 @@ String priceProvider = "tibber";
 float priceSurchargeCt = 0.0;
 float priceVatPercent = 0.0;
 
+// -----------------------------------------------------------------------------
+// Anker Solix Cloud (Solarbank) - inoffizielle Cloud-API, siehe updateAnkerSolarData()
+// -----------------------------------------------------------------------------
+String ankerEmail = "";
+String ankerPassword = "";
+String ankerSiteId = "";
+String ankerAuthToken = "";
+String ankerUserId = "";
+String ankerGtoken = "";
+unsigned long ankerTokenObtainedMs = 0;
+const unsigned long ANKER_TOKEN_LIFETIME_MS = 20UL * 60UL * 60UL * 1000UL; // vorsorglich re-login nach 20h
+unsigned long lastAnkerPoll = 0;
+const unsigned long ANKER_POLL_INTERVAL_MS = 60UL * 1000UL; // Anker-Empfehlung: nicht schneller als 60s pollen
+float ankerPvW = -1;        // total_photovoltaic_power
+float ankerBatteryW = -1;   // total_battery_power (positiv=laden, negativ=entladen je nach API)
+float ankerOutputW = -1;    // total_output_power (Ausgang der Solarbank Richtung Haus)
+float ankerHomeLoadW = -1;  // home_load_power (Gesamt-Hausverbrauch)
+int ankerBatterySoc = -1;   // Batterie-Ladezustand in %, falls verfuegbar
+String ankerLastError = "";
+bool ankerConfigured = false;
+
 String lastError = "Noch kein Update";
 String webInterfaceName = "Dynamic Price Clock";
 // Akzentfarbe fuer das UI (iOS-Systemfarben). Erlaubt: blue, green, orange, red, pink, purple, teal, indigo.
@@ -485,6 +515,9 @@ void handleVersionCheck();
 bool performGithubUpdate(String url);
 void otaUpdateTask(void *param);
 void calculateMetrics();
+bool ankerLogin();
+void updateAnkerSolarData();
+String buildAnkerFlowSvg();
 
 String priceToCentText(float price);
 String euroCostText(float value);
@@ -549,6 +582,8 @@ void handleRoot();
 void handleWifiPage();
 void handleKioskPage();
 void handleKioskData();
+void handleKiosk2Page();
+void handleAnkerData();
 void handleGaugeStatus();
 void handlePinoutPage();
 void handleSavePins();
@@ -1313,6 +1348,11 @@ void setup() {
   githubRepo = prefs.getString("ghRepo", "Alphascrypt/dynamic-price-clock");
   githubToken = prefs.getString("ghToken", "");
 
+  ankerEmail = prefs.getString("ankerEmail", "");
+  ankerPassword = prefs.getString("ankerPass", "");
+  ankerSiteId = prefs.getString("ankerSite", "");
+  ankerConfigured = (ankerEmail.length() > 0 && ankerPassword.length() > 0);
+
   tftSclkPin = prefs.getInt("tftSclkPin", 4);
   tftMosiPin = prefs.getInt("tftMosiPin", 5);
   ledRingPinVar = prefs.getInt("ledRingPin", 24);
@@ -1549,6 +1589,8 @@ void setup() {
   server.on("/wifi", handleWifiPage);
   server.on("/kiosk", handleKioskPage);
   server.on("/kioskdata", HTTP_GET, handleKioskData);
+  server.on("/kiosk2", handleKiosk2Page);
+  server.on("/ankerdata", HTTP_GET, handleAnkerData);
   server.on("/gaugestatus", HTTP_GET, handleGaugeStatus);
   server.on("/kiosklayout", handleKioskLayoutPage);
   server.on("/savekiosklayoutajax", HTTP_POST, handleSaveKioskLayoutAjax);
@@ -1632,6 +1674,11 @@ void loop() {
 
   if (!apMode) {
     updateTibberLiveMeasurement();
+  }
+
+  if (!apMode && ankerConfigured && millis() - lastAnkerPoll >= ANKER_POLL_INTERVAL_MS) {
+    lastAnkerPoll = millis();
+    updateAnkerSolarData();
   }
 
   #if ENABLE_TFT_DISPLAYS
@@ -2297,6 +2344,332 @@ bool checkGithubUpdateQuiet() {
   versionCheckLatest = tag;
   versionCheckError = "";
   return true;
+}
+
+// -----------------------------------------------------------------------------
+// Anker Solix Cloud (Solarbank) - inoffizielle Cloud-API
+// -----------------------------------------------------------------------------
+// Reverse-engineert aus Community-Projekten (ha-anker-solix). Anker bietet
+// keine offizielle/lokale API an. Der Login verwendet ECDH(SECP256R1) +
+// AES-256-CBC statt der bei anderen Anbietern ueblichen RSA-Verschluesselung.
+
+static void ankerHexToBytes(const char* hex, uint8_t* out, size_t outLen) {
+  auto hv = [](char c) -> int {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return 0;
+  };
+  for (size_t i = 0; i < outLen; i++) {
+    out[i] = (uint8_t)((hv(hex[i * 2]) << 4) | hv(hex[i * 2 + 1]));
+  }
+}
+
+static String ankerBytesToHex(const uint8_t* data, size_t len) {
+  static const char* hexChars = "0123456789abcdef";
+  String out;
+  out.reserve(len * 2);
+  for (size_t i = 0; i < len; i++) {
+    out += hexChars[(data[i] >> 4) & 0xF];
+    out += hexChars[data[i] & 0xF];
+  }
+  return out;
+}
+
+// Berechnet ein ECDH-Shared-Secret (SECP256R1) mit Ankers fest hinterlegtem
+// Server-Public-Key und liefert zusaetzlich den eigenen (ephemeren)
+// Public-Key als Hex-String, den der Server zur Berechnung desselben
+// Secrets braucht.
+static bool ankerEcdh(String &clientPubHexOut, uint8_t sharedSecretOut[32]) {
+  const char* serverPubHex = "04c5c00c4f8d1197cc7c3167c52bf7acb054d722f0ef08dcd7e0883236e0d72a3868d9750cb47fa4619248f3d83f0f662671dadc6e2d31c2f41db0161651c7c076";
+  size_t serverPubLen = strlen(serverPubHex) / 2;
+  if (serverPubLen == 0 || serverPubLen > 65) return false;
+  uint8_t serverPubBytes[65];
+  ankerHexToBytes(serverPubHex, serverPubBytes, serverPubLen);
+
+  mbedtls_ecp_group grp;
+  mbedtls_ecp_point serverPub, clientPub, sharedPoint;
+  mbedtls_mpi clientPriv;
+  mbedtls_entropy_context entropy;
+  mbedtls_ctr_drbg_context ctrDrbg;
+
+  mbedtls_ecp_group_init(&grp);
+  mbedtls_ecp_point_init(&serverPub);
+  mbedtls_ecp_point_init(&clientPub);
+  mbedtls_ecp_point_init(&sharedPoint);
+  mbedtls_mpi_init(&clientPriv);
+  mbedtls_entropy_init(&entropy);
+  mbedtls_ctr_drbg_init(&ctrDrbg);
+
+  bool ok = true;
+  const char* pers = "anker_ecdh";
+  if (mbedtls_ctr_drbg_seed(&ctrDrbg, mbedtls_entropy_func, &entropy, (const unsigned char*)pers, strlen(pers)) != 0) ok = false;
+  if (ok && mbedtls_ecp_group_load(&grp, MBEDTLS_ECP_DP_SECP256R1) != 0) ok = false;
+  if (ok && mbedtls_ecp_point_read_binary(&grp, &serverPub, serverPubBytes, serverPubLen) != 0) ok = false;
+  if (ok && mbedtls_ecp_gen_keypair(&grp, &clientPriv, &clientPub, mbedtls_ctr_drbg_random, &ctrDrbg) != 0) ok = false;
+  if (ok && mbedtls_ecp_mul(&grp, &sharedPoint, &clientPriv, &serverPub, mbedtls_ctr_drbg_random, &ctrDrbg) != 0) ok = false;
+
+  if (ok) {
+    // X-Koordinate ueber die oeffentliche Export-Funktion holen statt
+    // direkt auf sharedPoint.X zuzugreifen - je nach mbedTLS-Build (z.B.
+    // mit Hardware-Beschleunigung) sind die internen Felder nicht ueberall
+    // gleich benannt/zugreifbar.
+    uint8_t sharedRaw[65];
+    size_t sharedRawLen = 0;
+    if (mbedtls_ecp_point_write_binary(&grp, &sharedPoint, MBEDTLS_ECP_PF_UNCOMPRESSED, &sharedRawLen, sharedRaw, sizeof(sharedRaw)) != 0 || sharedRawLen != 65) {
+      ok = false;
+    } else {
+      memcpy(sharedSecretOut, sharedRaw + 1, 32); // Byte 0 = 0x04-Praefix, dann X (32) + Y (32)
+    }
+  }
+
+  if (ok) {
+    uint8_t clientPubBytes[65];
+    size_t outLen = 0;
+    if (mbedtls_ecp_point_write_binary(&grp, &clientPub, MBEDTLS_ECP_PF_UNCOMPRESSED, &outLen, clientPubBytes, sizeof(clientPubBytes)) != 0) {
+      ok = false;
+    } else {
+      clientPubHexOut = ankerBytesToHex(clientPubBytes, outLen);
+    }
+  }
+
+  mbedtls_ecp_group_free(&grp);
+  mbedtls_ecp_point_free(&serverPub);
+  mbedtls_ecp_point_free(&clientPub);
+  mbedtls_ecp_point_free(&sharedPoint);
+  mbedtls_mpi_free(&clientPriv);
+  mbedtls_ctr_drbg_free(&ctrDrbg);
+  mbedtls_entropy_free(&entropy);
+  return ok;
+}
+
+// AES-256-CBC mit PKCS7-Padding, Ergebnis Base64-kodiert. key=32 Byte, iv=16 Byte.
+static String ankerAesEncryptB64(const uint8_t key[32], const uint8_t ivIn[16], const String &plain) {
+  int plainLen = plain.length();
+  int padLen = 16 - (plainLen % 16);
+  int totalLen = plainLen + padLen;
+
+  uint8_t *buf = (uint8_t*)malloc(totalLen);
+  uint8_t *outBuf = (uint8_t*)malloc(totalLen);
+  if (!buf || !outBuf) { if (buf) free(buf); if (outBuf) free(outBuf); return ""; }
+
+  memcpy(buf, plain.c_str(), plainLen);
+  for (int i = plainLen; i < totalLen; i++) buf[i] = (uint8_t)padLen;
+
+  uint8_t ivCopy[16];
+  memcpy(ivCopy, ivIn, 16);
+
+  mbedtls_aes_context aes;
+  mbedtls_aes_init(&aes);
+  mbedtls_aes_setkey_enc(&aes, key, 256);
+  mbedtls_aes_crypt_cbc(&aes, MBEDTLS_AES_ENCRYPT, totalLen, ivCopy, buf, outBuf);
+  mbedtls_aes_free(&aes);
+
+  size_t b64Len = 0;
+  mbedtls_base64_encode(NULL, 0, &b64Len, outBuf, totalLen);
+  uint8_t *b64Buf = (uint8_t*)malloc(b64Len + 1);
+  String result = "";
+  if (b64Buf) {
+    size_t written = 0;
+    mbedtls_base64_encode(b64Buf, b64Len, &written, outBuf, totalLen);
+    b64Buf[written] = 0;
+    result = String((char*)b64Buf);
+    free(b64Buf);
+  }
+
+  free(buf);
+  free(outBuf);
+  return result;
+}
+
+// Meldet sich bei der Anker-Cloud an und speichert auth_token/user_id/gtoken
+// im RAM (nicht in Preferences - Token sind kurzlebig, bei Bedarf Re-Login).
+bool ankerLogin() {
+  if (ankerEmail.length() == 0 || ankerPassword.length() == 0) {
+    ankerLastError = "Keine Anker-Zugangsdaten hinterlegt";
+    return false;
+  }
+  if (apMode || WiFi.status() != WL_CONNECTED) {
+    ankerLastError = "Kein Internet / AP-Modus";
+    return false;
+  }
+
+  String clientPubHex;
+  uint8_t sharedSecret[32];
+  if (!ankerEcdh(clientPubHex, sharedSecret)) {
+    ankerLastError = "ECDH-Schluesselaustausch fehlgeschlagen";
+    return false;
+  }
+
+  uint8_t iv[16];
+  memcpy(iv, sharedSecret, 16);
+  String encPassB64 = ankerAesEncryptB64(sharedSecret, iv, ankerPassword);
+  if (encPassB64.length() == 0) {
+    ankerLastError = "Passwort-Verschluesselung fehlgeschlagen";
+    return false;
+  }
+
+  time_t nowSec = time(nullptr);
+  unsigned long long transactionMs = (unsigned long long)nowSec * 1000ULL;
+  long tzOffsetMs = 3600000L; // Fallback: CET (UTC+1)
+  {
+    struct tm utcTm, localTm;
+    gmtime_r(&nowSec, &utcTm);
+    localtime_r(&nowSec, &localTm);
+    time_t utcAsTime = mktime(&utcTm);
+    time_t localAsTime = mktime(&localTm);
+    tzOffsetMs = (long)difftime(localAsTime, utcAsTime) * 1000L;
+  }
+
+  WiFiClientSecure client;
+  client.setInsecure();
+  HTTPClient http;
+  http.begin(client, "https://ankerpower-api-eu.anker.com/passport/login");
+  http.addHeader("content-type", "application/json");
+  http.addHeader("model-type", "DESKTOP");
+  http.addHeader("app-name", "anker_power");
+  http.addHeader("os-type", "android");
+  http.addHeader("country", "DE");
+  http.addHeader("timezone", "Europe/Berlin");
+
+  DynamicJsonDocument reqDoc(1024);
+  reqDoc["ab"] = "DE";
+  reqDoc["client_secret_info"]["public_key"] = clientPubHex;
+  reqDoc["enc"] = 0;
+  reqDoc["email"] = ankerEmail;
+  reqDoc["password"] = encPassB64;
+  reqDoc["time_zone"] = tzOffsetMs;
+  reqDoc["transaction"] = String((unsigned long)transactionMs);
+  String reqBody;
+  serializeJson(reqDoc, reqBody);
+
+  int code = http.POST(reqBody);
+  if (code != 200) {
+    ankerLastError = "Login HTTP-Fehler " + String(code);
+    http.end();
+    return false;
+  }
+
+  String resp = http.getString();
+  http.end();
+
+  DynamicJsonDocument respDoc(2048);
+  if (deserializeJson(respDoc, resp)) {
+    ankerLastError = "Login: ungueltige Antwort";
+    return false;
+  }
+
+  int retCode = respDoc["code"] | -1;
+  if (retCode != 0) {
+    ankerLastError = "Login fehlgeschlagen: " + respDoc["msg"].as<String>();
+    return false;
+  }
+
+  ankerAuthToken = respDoc["data"]["auth_token"].as<String>();
+  ankerUserId = respDoc["data"]["user_id"].as<String>();
+  if (ankerAuthToken.length() == 0 || ankerUserId.length() == 0) {
+    ankerLastError = "Login: Token fehlt in Antwort";
+    return false;
+  }
+
+  uint8_t md5Out[16];
+  mbedtls_md5((const unsigned char*)ankerUserId.c_str(), ankerUserId.length(), md5Out);
+  ankerGtoken = ankerBytesToHex(md5Out, 16);
+
+  ankerTokenObtainedMs = millis();
+  ankerLastError = "";
+  return true;
+}
+
+// Fuehrt einen authentifizierten POST gegen die Anker-Cloud aus (mit
+// x-auth-token/gtoken-Headern). Loggt bei Bedarf automatisch neu ein bzw.
+// bei 401 einmal erneut.
+static bool ankerAuthedPost(const String &path, const String &bodyJson, DynamicJsonDocument &outDoc) {
+  bool needLogin = (ankerAuthToken.length() == 0) || (millis() - ankerTokenObtainedMs > ANKER_TOKEN_LIFETIME_MS);
+  if (needLogin && !ankerLogin()) return false;
+
+  String url = "https://ankerpower-api-eu.anker.com/" + path;
+  WiFiClientSecure client;
+  client.setInsecure();
+  HTTPClient http;
+  http.begin(client, url);
+  http.addHeader("content-type", "application/json");
+  http.addHeader("x-auth-token", ankerAuthToken);
+  http.addHeader("gtoken", ankerGtoken);
+  int code = http.POST(bodyJson);
+
+  if (code == 401) {
+    http.end();
+    if (!ankerLogin()) return false;
+    http.begin(client, url);
+    http.addHeader("content-type", "application/json");
+    http.addHeader("x-auth-token", ankerAuthToken);
+    http.addHeader("gtoken", ankerGtoken);
+    code = http.POST(bodyJson);
+  }
+
+  if (code != 200) {
+    ankerLastError = path + " HTTP-Fehler " + String(code);
+    http.end();
+    return false;
+  }
+
+  String resp = http.getString();
+  http.end();
+
+  if (deserializeJson(outDoc, resp)) {
+    ankerLastError = path + ": ungueltige Antwort";
+    return false;
+  }
+  int retCode = outDoc["code"] | -1;
+  if (retCode != 0) {
+    ankerLastError = path + " fehlgeschlagen: " + outDoc["msg"].as<String>();
+    return false;
+  }
+  return true;
+}
+
+static bool ankerFetchSiteId() {
+  DynamicJsonDocument doc(4096);
+  if (!ankerAuthedPost("power_service/v1/site/get_site_list", "{}", doc)) return false;
+
+  JsonArray sites = doc["data"]["site_list"].as<JsonArray>();
+  if (sites.isNull() || sites.size() == 0) {
+    ankerLastError = "Kein Standort im Anker-Konto gefunden";
+    return false;
+  }
+  ankerSiteId = sites[0]["site_id"].as<String>();
+  if (ankerSiteId.length() == 0) {
+    ankerLastError = "site_id fehlt in Antwort";
+    return false;
+  }
+  prefs.putString("ankerSite", ankerSiteId);
+  return true;
+}
+
+// Fragt PV-Erzeugung, Batterie- und Ausgangsleistung sowie den
+// Gesamt-Hausverbrauch ab. Wird alle ANKER_POLL_INTERVAL_MS aus loop()
+// aufgerufen (siehe unten).
+void updateAnkerSolarData() {
+  if (!ankerConfigured) return;
+  if (apMode || WiFi.status() != WL_CONNECTED) return;
+
+  if (ankerSiteId.length() == 0 && !ankerFetchSiteId()) return;
+
+  DynamicJsonDocument reqDoc(256);
+  reqDoc["site_id"] = ankerSiteId;
+  String reqBody;
+  serializeJson(reqDoc, reqBody);
+
+  DynamicJsonDocument doc(6144);
+  if (!ankerAuthedPost("power_service/v1/site/get_scen_info", reqBody, doc)) return;
+
+  JsonObject data = doc["data"];
+  ankerPvW = data["total_photovoltaic_power"].as<String>().toFloat();
+  ankerBatteryW = data["total_battery_power"].as<String>().toFloat();
+  ankerOutputW = data["total_output_power"].as<String>().toFloat();
+  ankerHomeLoadW = data["home_load_power"].as<String>().toFloat();
+  ankerLastError = "";
 }
 
 bool performGithubUpdate(String url) {
@@ -4228,6 +4601,32 @@ void handleAccountPage() {
   html += "</form>";
   html += "</div></section>";
 
+  html += "<section class='card'><div class='panelTitle'><h2>Anker Solarbank (PV-Erzeugung)</h2><span class='badge ";
+  html += ankerConfigured ? "okb'>Eingerichtet" : "errb'>Nicht eingerichtet";
+  html += "</span></div>";
+  html += "<p class='small'>Fuer die Energiefluss-Anzeige (Tablet-Modus 2) werden PV-Erzeugung, Batterie und Hausverbrauch ueber deinen Anker-Account abgefragt. Es handelt sich um eine inoffizielle Schnittstelle - Anker kann diese jederzeit aendern.</p>";
+  html += "<form action='/saveaccount' method='post'><div class='formGrid'>";
+  html += "<div class='field'><label>Anker-Konto E-Mail</label><input name='ankerEmail' type='email' maxlength='80' value='" + htmlEscape(ankerEmail) + "'></div>";
+  html += "<div class='field'><label>Anker-Konto Passwort</label><input name='ankerPassword' type='password' maxlength='80' placeholder='Leer lassen = unveraendert'></div>";
+  html += "</div>";
+  html += "<div class='actions'><button type='submit' name='formType' value='anker'>Anker-Zugangsdaten speichern</button></div>";
+  html += "</form>";
+  if (ankerConfigured) {
+    html += "<div class='formSection' style='margin-top:16px'>";
+    html += "<div class='panelTitle'><h4 style='margin:0'>Live-Status</h4><span class='badge ";
+    html += (ankerLastError.length() == 0 && ankerPvW >= 0) ? "okb'>Verbunden" : "errb'>Fehler";
+    html += "</span></div>";
+    if (ankerLastError.length() > 0) {
+      html += "<p class='small' style='color:var(--errb-text)'>" + htmlEscape(ankerLastError) + "</p>";
+    } else if (ankerPvW >= 0) {
+      html += "<p class='small'>PV: " + String(ankerPvW, 0) + " W &middot; Batterie: " + String(ankerBatteryW, 0) + " W &middot; Ausgang: " + String(ankerOutputW, 0) + " W &middot; Hausverbrauch: " + String(ankerHomeLoadW, 0) + " W</p>";
+    } else {
+      html += "<p class='small'>Noch keine Daten abgefragt - erster Poll erfolgt automatisch innerhalb von 60s.</p>";
+    }
+    html += "</div>";
+  }
+  html += "</section>";
+
   html += "<script src='/account-update.js'></script>";
 
   html += htmlFooter();
@@ -4288,6 +4687,34 @@ void handleSaveAccount() {
       if (newToken.length() > 100) newToken = newToken.substring(0, 100);
       githubToken = newToken;
       prefs.putString("ghToken", githubToken);
+    }
+  } else if (formType == "anker") {
+    String newEmail = server.hasArg("ankerEmail") ? server.arg("ankerEmail") : "";
+    newEmail.trim();
+    if (newEmail.length() > 80) newEmail = newEmail.substring(0, 80);
+    bool emailChanged = (newEmail != ankerEmail);
+    ankerEmail = newEmail;
+    prefs.putString("ankerEmail", ankerEmail);
+
+    String newPass = server.hasArg("ankerPassword") ? server.arg("ankerPassword") : "";
+    bool passChanged = false;
+    if (newPass.length() > 0) {
+      if (newPass.length() > 80) newPass = newPass.substring(0, 80);
+      ankerPassword = newPass;
+      prefs.putString("ankerPass", ankerPassword);
+      passChanged = true;
+    }
+
+    ankerConfigured = (ankerEmail.length() > 0 && ankerPassword.length() > 0);
+    if (emailChanged || passChanged) {
+      // Zugangsdaten geaendert -> alten Token/Site verwerfen, naechster Poll loggt neu ein
+      ankerAuthToken = "";
+      ankerUserId = "";
+      ankerGtoken = "";
+      ankerSiteId = "";
+      prefs.putString("ankerSite", "");
+      ankerPvW = -1; ankerBatteryW = -1; ankerOutputW = -1; ankerHomeLoadW = -1;
+      ankerLastError = "";
     }
   } else if (formType == "priceprovider") {
     String newProvider = server.hasArg("priceProvider") ? server.arg("priceProvider") : "tibber";
@@ -4910,6 +5337,9 @@ void handleKioskPage() {
 
   html += "<div class='kiosk-topbar'>";
   html += "<button class='secondary' type='button' onclick='enterKioskFullscreen()'>Vollbild</button>";
+  if (ankerConfigured) {
+    html += "<a href='/kiosk2'><button class='secondary' type='button'>Energie</button></a>";
+  }
   html += "<a href='/'><button class='secondary' type='button'>Dashboard</button></a>";
   html += "</div>";
   html += "<div class='kiosk-wrap'>";
@@ -5213,6 +5643,134 @@ requestKioskWakeLock();
 
   server.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
   server.send(200, "text/html", html);
+}
+
+// Zweite Kiosk-Seite: vereinfachter Energiefluss (PV -> Batterie/Haus -> Netz)
+// auf Basis der Anker-Solarbank-Daten. Gleicher Glass-/Apple-Look wie die
+// Preis-Kiosk-Seite, aber eigenes, festes Layout statt des Grid-Editors.
+void handleKiosk2Page() {
+  if (!checkAuth()) return;
+
+  String html;
+  html.reserve(6000);
+
+  html += "<!DOCTYPE html><html><head>";
+  html += "<meta charset='utf-8'>";
+  html += "<meta name='viewport' content='width=device-width, initial-scale=1'>";
+  html += "<title>" + htmlEscape(webInterfaceName + " - Energiefluss") + "</title>";
+  html += "<script>(function(){try{if(localStorage.getItem('theme')==='dark'){document.documentElement.setAttribute('data-theme','dark');}}catch(e){}})();</script>";
+  html += "<link rel='stylesheet' href='/style.css?v=" ASSET_VERSION "'>";
+  html += "<link rel='icon' type='image/svg+xml' href='/favicon.svg'>";
+  html += "<style>";
+  html += "html,body{height:100%;overflow:hidden;margin:0}";
+  html += "body{padding:0!important;display:flex;align-items:center;justify-content:center;background:#000;position:relative}";
+  html += "@keyframes efPulse{0%,100%{opacity:.7}50%{opacity:1}}";
+  html += "body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellipse 80% 60% at 50% 0%,#00301f,transparent 70%),radial-gradient(ellipse 60% 80% at 20% 100%,#001a12,transparent 70%),#000;animation:efPulse 8s ease-in-out infinite;z-index:0}";
+  html += ".ef-wrap{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;gap:clamp(10px,2.6vh,26px);max-width:96vw;padding:clamp(10px,3vh,24px);box-sizing:border-box}";
+  html += ".ef-node{display:flex;flex-direction:column;align-items:center;gap:4px;background:rgba(255,255,255,.07);backdrop-filter:blur(24px) saturate(160%);-webkit-backdrop-filter:blur(24px) saturate(160%);border:1px solid rgba(255,255,255,.12);border-radius:22px;padding:clamp(12px,2.6vh,24px) clamp(14px,3.2vw,30px);min-width:130px}";
+  html += ".ef-node.ef-house{min-width:170px;border-color:rgba(255,255,255,.22)}";
+  html += ".ef-icon{font-size:clamp(24px,4.6vh,44px);line-height:1}";
+  html += ".ef-label{font-size:clamp(9px,1.4vh,13px);color:rgba(255,255,255,.6);text-transform:uppercase;letter-spacing:.5px;font-weight:600;margin-top:2px}";
+  html += ".ef-value{font-size:clamp(18px,3.6vh,36px);font-weight:700;color:#fff;letter-spacing:-0.5px;font-variant-numeric:tabular-nums}";
+  html += ".ef-sub{font-size:clamp(8px,1.2vh,11px);color:rgba(255,255,255,.4)}";
+  html += ".ef-row{display:flex;align-items:center;justify-content:center;gap:clamp(6px,1.6vw,18px)}";
+  html += ".ef-arrow{font-size:clamp(20px,3.6vh,34px);color:rgba(255,255,255,.25);transition:color .4s var(--ease)}";
+  html += ".ef-arrow.on{color:#34C759;animation:efPulse 1.4s ease-in-out infinite}";
+  html += ".ef-arrow.on.grid{color:#FF9500}";
+  html += ".ef-arrow.on.batt-out{color:#0A84FF}";
+  html += ".ef-error{color:rgba(255,255,255,.6);font-size:clamp(11px,1.6vh,14px);text-align:center;max-width:80vw}";
+  html += "</style>";
+  html += "</head><body>";
+
+  html += "<div class='kiosk-topbar'>";
+  html += "<a href='/kiosk'><button class='secondary' type='button'>Preise</button></a>";
+  html += "<a href='/'><button class='secondary' type='button'>Dashboard</button></a>";
+  html += "</div>";
+
+  html += "<div class='ef-wrap' id='efWrap'>";
+  if (!ankerConfigured) {
+    html += "<p class='ef-error'>Keine Anker-Solarbank eingerichtet. Zugangsdaten auf der Konto-Seite hinterlegen.</p>";
+  } else {
+    html += "<div class='ef-row'><div class='ef-node ef-pv'><div class='ef-icon'>&#9728;&#65039;</div><div class='ef-label'>PV-Erzeugung</div><div class='ef-value' id='efPv'>-- W</div></div></div>";
+    html += "<div class='ef-row'><span class='ef-arrow' id='efArrowPv'>&#8595;</span></div>";
+    html += "<div class='ef-row'>";
+    html += "<div class='ef-node'><div class='ef-icon'>&#128267;</div><div class='ef-label'>Batterie</div><div class='ef-value' id='efBatt'>-- W</div><div class='ef-sub' id='efBattSub'></div></div>";
+    html += "<span class='ef-arrow' id='efArrowBatt'>&#8596;</span>";
+    html += "<div class='ef-node ef-house'><div class='ef-icon'>&#127968;</div><div class='ef-label'>Hausverbrauch</div><div class='ef-value' id='efHouse'>-- W</div></div>";
+    html += "<span class='ef-arrow' id='efArrowGrid'>&#8596;</span>";
+    html += "<div class='ef-node'><div class='ef-icon'>&#9889;</div><div class='ef-label'>Netz</div><div class='ef-value' id='efGrid'>-- W</div><div class='ef-sub' id='efGridSub'></div></div>";
+    html += "</div>";
+    html += "<p class='ef-error' id='efErr' style='display:none'></p>";
+  }
+  html += "</div>";
+
+  html += R"JS(
+<script>
+function efFmt(w){
+  if (w === null || isNaN(w)) return '-- W';
+  var a = Math.abs(w);
+  if (a >= 1000) return (w/1000).toFixed(2).replace('.', ',') + ' kW';
+  return Math.round(w) + ' W';
+}
+function efApply(d){
+  var errEl = document.getElementById('efErr');
+  if (!d.ok) {
+    if (errEl) { errEl.style.display = ''; errEl.innerText = d.error || 'Verbindung zur Anker-Cloud fehlgeschlagen.'; }
+    return;
+  }
+  if (errEl) errEl.style.display = 'none';
+
+  var pv = document.getElementById('efPv'); if (pv) pv.innerText = efFmt(d.pv);
+  var batt = document.getElementById('efBatt'); if (batt) batt.innerText = efFmt(d.batt);
+  var house = document.getElementById('efHouse'); if (house) house.innerText = efFmt(d.house);
+  var grid = document.getElementById('efGrid'); if (grid) grid.innerText = efFmt(d.grid);
+
+  var battSub = document.getElementById('efBattSub');
+  if (battSub) battSub.innerText = d.batt > 5 ? 'Laedt' : (d.batt < -5 ? 'Entlaedt' : 'Im Ruhezustand');
+  var gridSub = document.getElementById('efGridSub');
+  if (gridSub) gridSub.innerText = d.grid > 5 ? 'Bezug' : (d.grid < -5 ? 'Einspeisung' : '');
+
+  var arrPv = document.getElementById('efArrowPv'); if (arrPv) arrPv.className = 'ef-arrow' + (d.pv > 5 ? ' on' : '');
+  var arrBatt = document.getElementById('efArrowBatt'); if (arrBatt) { arrBatt.innerText = d.batt > 5 ? '→' : (d.batt < -5 ? '←' : '↔'); arrBatt.className = 'ef-arrow' + (Math.abs(d.batt) > 5 ? ' on batt-out' : ''); }
+  var arrGrid = document.getElementById('efArrowGrid'); if (arrGrid) { arrGrid.innerText = d.grid > 5 ? '←' : (d.grid < -5 ? '→' : '↔'); arrGrid.className = 'ef-arrow' + (Math.abs(d.grid) > 5 ? ' on grid' : ''); }
+}
+function efPoll(){
+  fetch('/ankerdata').then(function(r){ return r.json(); }).then(efApply).catch(function(e){});
+}
+efPoll();
+setInterval(efPoll, 15000);
+</script>
+)JS";
+
+  html += "</body></html>";
+
+  server.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+  server.send(200, "text/html", html);
+}
+
+// JSON fuer die Energiefluss-Kiosk-Seite (siehe handleKiosk2Page): liefert
+// PV-Erzeugung, Batterieleistung, Hausverbrauch und daraus abgeleiteten
+// Netzbezug (Hausverbrauch - Solarbank-Ausgang, floor 0 falls negativ).
+void handleAnkerData() {
+  if (!checkAuth()) return;
+
+  String json = "{";
+  if (!ankerConfigured) {
+    json += "\"ok\":false,\"error\":\"Keine Anker-Zugangsdaten hinterlegt\"";
+  } else if (ankerLastError.length() > 0 && ankerPvW < 0) {
+    json += "\"ok\":false,\"error\":\"" + jsonEscapeValue(ankerLastError) + "\"";
+  } else {
+    float grid = ankerHomeLoadW - ankerOutputW;
+    json += "\"ok\":true,";
+    json += "\"pv\":" + String(ankerPvW, 1) + ",";
+    json += "\"batt\":" + String(ankerBatteryW, 1) + ",";
+    json += "\"house\":" + String(ankerHomeLoadW, 1) + ",";
+    json += "\"grid\":" + String(grid, 1);
+  }
+  json += "}";
+
+  server.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+  server.send(200, "application/json", json);
 }
 
 // Liefert die Preisdaten fuer den Tablet-Modus als JSON, damit die Seite sie
