@@ -82,7 +82,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "2.6.8"
+#define FIRMWARE_VERSION "2.6.9"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -5785,7 +5785,12 @@ void handleKiosk2Page() {
   html += ".ef-arrow.flow-left{animation:flowLeft 1.1s ease-in-out infinite}";
   html += ".ef-arrow.flow-down{animation:flowDown 1.1s ease-in-out infinite}";
   html += ".ef-error{color:rgba(255,255,255,.6);font-size:clamp(11px,1.6vh,14px);text-align:center;max-width:80vw}";
-  html += ".ef-price{background:rgba(255,255,255,.07);backdrop-filter:blur(24px) saturate(160%);-webkit-backdrop-filter:blur(24px) saturate(160%);border:1px solid rgba(255,255,255,.12);border-radius:22px;padding:clamp(8px,1.6vh,16px) clamp(16px,3.6vw,32px);display:flex;flex-direction:column;align-items:center;gap:2px}";
+  // Preis-Bereich: Gauge (links, gross) + Diagramm (rechts) wie auf Kiosk-Seite 1
+  html += ".ef-top{display:flex;gap:clamp(10px,2vw,24px);width:min(96vw,960px);align-items:stretch;flex-wrap:wrap}";
+  html += ".ef-gauge-card{flex:1 1 260px;background:rgba(255,255,255,.07);backdrop-filter:blur(24px) saturate(160%);-webkit-backdrop-filter:blur(24px) saturate(160%);border:1px solid rgba(255,255,255,.12);border-radius:22px;padding:clamp(10px,2vh,18px);display:flex;align-items:center;justify-content:center}";
+  html += ".ef-gauge-card .priceRing{max-width:280px}";
+  html += ".ef-chart-card{flex:1.6 1 340px;background:rgba(255,255,255,.07);backdrop-filter:blur(24px) saturate(160%);-webkit-backdrop-filter:blur(24px) saturate(160%);border:1px solid rgba(255,255,255,.12);border-radius:22px;padding:clamp(10px,2vh,16px);min-height:220px;display:flex;flex-direction:column}";
+  html += ".ef-chart-card svg{width:100%;height:100%;display:block;background:transparent!important;border:0!important;border-radius:0!important;margin:0!important;box-shadow:none!important}";
   html += ".kiosk-topbar{position:fixed;top:14px;right:14px;display:flex;gap:8px;opacity:.25;transition:opacity .2s var(--ease);z-index:10}";
   html += ".kiosk-topbar:hover{opacity:1}";
   html += "</style>";
@@ -5796,8 +5801,18 @@ void handleKiosk2Page() {
   html += "<a href='/'><button class='secondary' type='button'>Dashboard</button></a>";
   html += "</div>";
 
+  // Zonen-Farbe fuer das Diagramm, identisch zur Logik in handleKioskPage()/handleKioskData()
+  int nc2 = (metricCurrent15 >= 0) ? euroToCentRounded(metricCurrent15) : -1;
+  String chartLine = "#4ade80"; String chartFill = "#22c55e";
+  if (nc2 >= ledRedCent) { chartLine = "#ff6b6b"; chartFill = "#ff3b30"; }
+  else if (nc2 >= ledYellowCent) { chartLine = "#ffb347"; chartFill = "#ff9500"; }
+
   html += "<div class='ef-wrap' id='efWrap'>";
-  html += "<div class='ef-row'><div class='ef-node ef-price'><div class='ef-label'>Aktueller Preis</div><div class='ef-value' id='efPrice'>-- ct/kWh</div><div class='ef-sub' id='efPriceLabel'></div></div></div>";
+  html += "<div class='ef-top'>";
+  html += "<div class='ef-gauge-card' id='efGaugeCard'>" + buildPriceGaugeSvg() + "</div>";
+  html += "<div class='ef-chart-card' id='efChartCard'>" + buildSvgChart(chartLine, chartFill) + "</div>";
+  html += "</div>";
+  html += "<script>var _r=document.querySelector('#efGaugeCard .priceRing');if(_r)_r.classList.add('kiosk');</script>";
   if (!ankerConfigured) {
     html += "<p class='ef-error'>Keine Anker-Solarbank eingerichtet. Zugangsdaten auf der Konto-Seite hinterlegen.</p>";
   } else {
@@ -5823,11 +5838,6 @@ function efFmt(w){
   return Math.round(w) + ' W';
 }
 function efApply(d){
-  var priceEl = document.getElementById('efPrice');
-  var priceLbl = document.getElementById('efPriceLabel');
-  if (priceEl) priceEl.innerText = (typeof d.priceCent === 'number' && d.priceCent >= 0) ? (d.priceCent + ' ct/kWh') : '-- ct/kWh';
-  if (priceLbl) { priceLbl.innerText = d.priceZone || ''; priceLbl.style.color = d.priceColor || 'rgba(255,255,255,.4)'; }
-
   var errEl = document.getElementById('efErr');
   if (!d.ok) {
     if (errEl) { errEl.style.display = ''; errEl.innerText = d.error || 'Verbindung zur Anker-Cloud fehlgeschlagen.'; }
@@ -5872,6 +5882,22 @@ function efPoll(){
 }
 efPoll();
 setInterval(efPoll, 15000);
+
+// Preis-Gauge + Diagramm regelmaessig aus /kioskdata aktualisieren (gleicher
+// Endpunkt wie Kiosk-Seite 1), ohne die ganze Seite neu zu laden.
+function efPriceRefresh(){
+  fetch('/kioskdata').then(function(r){ return r.json(); }).then(function(d){
+    var gc = document.getElementById('efGaugeCard');
+    if (gc && d.gaugeSvg != null) {
+      gc.innerHTML = d.gaugeSvg;
+      var r2 = gc.querySelector('.priceRing');
+      if (r2) r2.classList.add('kiosk');
+    }
+    var cc = document.getElementById('efChartCard');
+    if (cc && d.chartSvg != null) cc.innerHTML = d.chartSvg;
+  }).catch(function(e){});
+}
+setInterval(efPriceRefresh, 30000);
 </script>
 )JS";
 
