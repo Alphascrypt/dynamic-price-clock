@@ -82,7 +82,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "2.6.9"
+#define FIRMWARE_VERSION "2.7.0"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -499,6 +499,36 @@ const KioskWidgetLayout KIOSK_LANDSCAPE_DEFAULTS[KIOSK_WIDGET_COUNT] = {
 KioskWidgetLayout kioskPortrait[KIOSK_WIDGET_COUNT];
 KioskWidgetLayout kioskLandscape[KIOSK_WIDGET_COUNT];
 
+// Energiefluss-Kiosk-Seite (/kiosk2): eigenes Widget-Set, gleiche
+// Grid-Architektur/Groesse (6x12 Portrait, 12x8 Landscape) wie Kiosk-Seite 1,
+// damit derselbe Layout-Editor (Drag/Resize) wiederverwendet werden kann.
+#define KIOSK2_WIDGET_COUNT 6
+const char* KIOSK2_WIDGET_KEYS[KIOSK2_WIDGET_COUNT] = { "pricegauge", "pricechart", "pv", "battery", "house", "grid" };
+const char* KIOSK2_WIDGET_LABELS[KIOSK2_WIDGET_COUNT] = { "Preis-Gauge", "Preis-Diagramm", "PV-Erzeugung", "Batterie", "Hausverbrauch", "Netz" };
+
+// Portrait: 6 Spalten x 12 Reihen
+const KioskWidgetLayout KIOSK2_PORTRAIT_DEFAULTS[KIOSK2_WIDGET_COUNT] = {
+  { 1, 6, 1,  4, true }, // pricegauge: ganze Breite, oben
+  { 1, 6, 5,  3, true }, // pricechart: ganze Breite, darunter
+  { 1, 6, 8,  2, true }, // pv:         ganze Breite, schmal
+  { 1, 2, 10, 3, true }, // battery:    unten links
+  { 3, 2, 10, 3, true }, // house:      unten mittig
+  { 5, 2, 10, 3, true }, // grid:       unten rechts
+};
+
+// Landscape: 12 Spalten x 8 Reihen
+const KioskWidgetLayout KIOSK2_LANDSCAPE_DEFAULTS[KIOSK2_WIDGET_COUNT] = {
+  { 1, 5,  1, 5, true }, // pricegauge: linke Haelfte gross
+  { 6, 7,  1, 5, true }, // pricechart: rechte Haelfte gross
+  { 1, 3,  6, 3, true }, // pv:         unten
+  { 4, 3,  6, 3, true }, // battery:    unten
+  { 7, 3,  6, 3, true }, // house:      unten
+  { 10, 3, 6, 3, true }, // grid:       unten
+};
+
+KioskWidgetLayout kiosk2Portrait[KIOSK2_WIDGET_COUNT];
+KioskWidgetLayout kiosk2Landscape[KIOSK2_WIDGET_COUNT];
+
 // -----------------------------------------------------------------------------
 // Funktions-Prototypen
 // -----------------------------------------------------------------------------
@@ -552,6 +582,7 @@ void saveLayoutItem(int d, int i, LayoutItem item);
 
 void loadKioskLayoutFromPrefs();
 void saveKioskWidget(bool landscape, int i, KioskWidgetLayout item);
+void saveKiosk2Widget(bool landscape, int i, KioskWidgetLayout item);
 void handleKioskLayoutPage();
 void handleSaveKioskLayoutAjax();
 void handleResetKioskLayout();
@@ -660,8 +691,8 @@ String buildChartPointsJson();
 String buildPinoutSvg();
 String buildPriceGaugeSvg();
 void getKioskPriceStatus(String &statusText, String &statusColor);
-String kioskWidgetCss(KioskWidgetLayout arr[]);
-String kioskLayoutJson(KioskWidgetLayout arr[]);
+String kioskWidgetCss(KioskWidgetLayout arr[], const char* const keys[] = KIOSK_WIDGET_KEYS, int count = KIOSK_WIDGET_COUNT);
+String kioskLayoutJson(KioskWidgetLayout arr[], const char* const keys[] = KIOSK_WIDGET_KEYS, const char* const labels[] = KIOSK_WIDGET_LABELS, int count = KIOSK_WIDGET_COUNT);
 String pinoutPinSvg(bool leftSide, int y, String title, String sub, String color);
 
 String htmlHeader(String title);
@@ -3512,16 +3543,39 @@ void loadKioskLayoutFromPrefs() {
     kioskLandscape[i].rowSpan  = prefs.getUChar((lPrefix + "p").c_str(), KIOSK_LANDSCAPE_DEFAULTS[i].rowSpan);
     kioskLandscape[i].visible  = prefs.getBool((lPrefix + "v").c_str(), KIOSK_LANDSCAPE_DEFAULTS[i].visible);
   }
+
+  // Energiefluss-Kiosk (Kiosk 2): eigener Preferences-Praefix (k2P/k2L)
+  for (int i = 0; i < KIOSK2_WIDGET_COUNT; i++) {
+    String pPrefix = "k2P" + String(i);
+    kiosk2Portrait[i].colStart = prefs.getUChar((pPrefix + "c").c_str(), KIOSK2_PORTRAIT_DEFAULTS[i].colStart);
+    kiosk2Portrait[i].colSpan  = prefs.getUChar((pPrefix + "s").c_str(), KIOSK2_PORTRAIT_DEFAULTS[i].colSpan);
+    kiosk2Portrait[i].rowStart = prefs.getUChar((pPrefix + "r").c_str(), KIOSK2_PORTRAIT_DEFAULTS[i].rowStart);
+    kiosk2Portrait[i].rowSpan  = prefs.getUChar((pPrefix + "p").c_str(), KIOSK2_PORTRAIT_DEFAULTS[i].rowSpan);
+    kiosk2Portrait[i].visible  = prefs.getBool((pPrefix + "v").c_str(), KIOSK2_PORTRAIT_DEFAULTS[i].visible);
+
+    String lPrefix2 = "k2L" + String(i);
+    kiosk2Landscape[i].colStart = prefs.getUChar((lPrefix2 + "c").c_str(), KIOSK2_LANDSCAPE_DEFAULTS[i].colStart);
+    kiosk2Landscape[i].colSpan  = prefs.getUChar((lPrefix2 + "s").c_str(), KIOSK2_LANDSCAPE_DEFAULTS[i].colSpan);
+    kiosk2Landscape[i].rowStart = prefs.getUChar((lPrefix2 + "r").c_str(), KIOSK2_LANDSCAPE_DEFAULTS[i].rowStart);
+    kiosk2Landscape[i].rowSpan  = prefs.getUChar((lPrefix2 + "p").c_str(), KIOSK2_LANDSCAPE_DEFAULTS[i].rowSpan);
+    kiosk2Landscape[i].visible  = prefs.getBool((lPrefix2 + "v").c_str(), KIOSK2_LANDSCAPE_DEFAULTS[i].visible);
+  }
 }
 
-void saveKioskWidget(bool landscape, int i, KioskWidgetLayout item) {
-  String prefix = (landscape ? "kgL" : "kgP") + String(i);
-
+static void saveKioskWidgetGeneric(const String &prefix, KioskWidgetLayout item) {
   prefs.putUChar((prefix + "c").c_str(), item.colStart);
   prefs.putUChar((prefix + "s").c_str(), item.colSpan);
   prefs.putUChar((prefix + "r").c_str(), item.rowStart);
   prefs.putUChar((prefix + "p").c_str(), item.rowSpan);
   prefs.putBool((prefix + "v").c_str(), item.visible);
+}
+
+void saveKioskWidget(bool landscape, int i, KioskWidgetLayout item) {
+  saveKioskWidgetGeneric((landscape ? "kgL" : "kgP") + String(i), item);
+}
+
+void saveKiosk2Widget(bool landscape, int i, KioskWidgetLayout item) {
+  saveKioskWidgetGeneric((landscape ? "k2L" : "k2P") + String(i), item);
 }
 
 // -----------------------------------------------------------------------------
@@ -5751,7 +5805,7 @@ void handleKiosk2Page() {
   if (!checkAuth()) return;
 
   String html;
-  html.reserve(6000);
+  html.reserve(7000);
 
   html += "<!DOCTYPE html><html><head>";
   html += "<meta charset='utf-8'>";
@@ -5765,34 +5819,36 @@ void handleKiosk2Page() {
   html += "body{padding:0!important;display:flex;align-items:center;justify-content:center;background:#000;position:relative}";
   html += "@keyframes efPulse{0%,100%{opacity:.7}50%{opacity:1}}";
   html += "body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellipse 80% 60% at 50% 0%,#00301f,transparent 70%),radial-gradient(ellipse 60% 80% at 20% 100%,#001a12,transparent 70%),#000;animation:efPulse 8s ease-in-out infinite;z-index:0}";
-  html += ".ef-wrap{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;gap:clamp(10px,2.6vh,26px);max-width:96vw;padding:clamp(10px,3vh,24px);box-sizing:border-box}";
-  html += ".ef-node{display:flex;flex-direction:column;align-items:center;gap:4px;background:rgba(255,255,255,.07);backdrop-filter:blur(24px) saturate(160%);-webkit-backdrop-filter:blur(24px) saturate(160%);border:1px solid rgba(255,255,255,.12);border-radius:22px;padding:clamp(12px,2.6vh,24px) clamp(14px,3.2vw,30px);min-width:130px}";
-  html += ".ef-node.ef-house{min-width:170px;border-color:rgba(255,255,255,.22)}";
-  html += ".ef-icon{font-size:clamp(24px,4.6vh,44px);line-height:1}";
-  html += ".ef-label{font-size:clamp(9px,1.4vh,13px);color:rgba(255,255,255,.6);text-transform:uppercase;letter-spacing:.5px;font-weight:600;margin-top:2px}";
-  html += ".ef-value{font-size:clamp(18px,3.6vh,36px);font-weight:700;color:#fff;letter-spacing:-0.5px;font-variant-numeric:tabular-nums}";
-  html += ".ef-sub{font-size:clamp(8px,1.2vh,11px);color:rgba(255,255,255,.4)}";
-  html += ".ef-row{display:flex;align-items:center;justify-content:center;gap:clamp(6px,1.6vw,18px)}";
-  html += ".ef-arrow{position:relative;font-size:clamp(20px,3.6vh,34px);color:rgba(255,255,255,.25);transition:color .4s var(--ease);display:inline-block}";
-  html += ".ef-arrow.on{color:#34C759}";
-  html += ".ef-arrow.on.grid{color:#FF9500}";
-  html += ".ef-arrow.on.batt-out{color:#0A84FF}";
-  // Fluss-Animationen: Pfeil bewegt sich sichtbar in Richtung des Energieflusses
-  html += "@keyframes flowRight{0%{transform:translateX(-8px);opacity:.25}50%{opacity:1}100%{transform:translateX(8px);opacity:.25}}";
-  html += "@keyframes flowLeft{0%{transform:translateX(8px);opacity:.25}50%{opacity:1}100%{transform:translateX(-8px);opacity:.25}}";
+  html += ".kiosk-wrap{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;max-height:100vh;padding:clamp(8px,2.2vh,20px);box-sizing:border-box;text-align:center;overflow:hidden}";
+  html += ".kiosk-canvas{display:grid;grid-template-columns:repeat(" + String(KIOSK_GRID_COLS_PORTRAIT) + ",1fr);grid-template-rows:repeat(" + String(KIOSK_GRID_ROWS_PORTRAIT) + ",1fr);gap:clamp(4px,1vh,10px);width:min(97vw,700px);height:min(94vh,1200px);box-sizing:border-box;margin:0 auto}";
+  html += ".kw{overflow:hidden;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;justify-content:center;min-width:0;min-height:0;border-radius:clamp(12px,2vh,24px);background:rgba(255,255,255,.07);backdrop-filter:blur(24px) saturate(160%);-webkit-backdrop-filter:blur(24px) saturate(160%);border:1px solid rgba(255,255,255,.12);padding:clamp(6px,1.4vh,14px);gap:4px}";
+  html += ".kw-pricegauge .priceRing{max-width:100%;padding:0}";
+  html += ".kw-pricechart{padding:clamp(6px,1.4vh,12px)}";
+  html += ".kw-pricechart svg{width:100%;height:100%;display:block;background:transparent!important;border:0!important;border-radius:0!important;margin:0!important;box-shadow:none!important}";
+  html += ".ef-icon{font-size:clamp(18px,4vh,38px);line-height:1}";
+  html += ".ef-label{font-size:clamp(8px,1.3vh,12px);color:rgba(255,255,255,.6);text-transform:uppercase;letter-spacing:.5px;font-weight:600}";
+  html += ".ef-value{font-size:clamp(15px,3.2vh,32px);font-weight:700;color:#fff;letter-spacing:-0.5px;font-variant-numeric:tabular-nums;display:flex;align-items:center;gap:6px}";
+  html += ".ef-sub{font-size:clamp(8px,1.1vh,11px);color:rgba(255,255,255,.4)}";
+  html += ".ef-flow{font-size:.65em;display:inline-block;color:rgba(255,255,255,.25)}";
+  html += ".ef-flow.on{color:#0A84FF}";
+  html += ".ef-flow.on.grid{color:#FF9500}";
+  html += ".ef-flow.on.pv{color:#34C759}";
+  // Fluss-Animation: kleines Pfeil-Icon bewegt sich in Fliessrichtung, statt
+  // (wie zuvor) Verbindungspfeile zwischen zwei festen Knoten zu zeigen -
+  // noetig, weil jedes Widget jetzt frei positionierbar ist und nicht mehr
+  // garantiert neben seinem Partner-Widget liegt.
+  html += "@keyframes flowUp{0%{transform:translateY(6px);opacity:.25}50%{opacity:1}100%{transform:translateY(-6px);opacity:.25}}";
   html += "@keyframes flowDown{0%{transform:translateY(-6px);opacity:.25}50%{opacity:1}100%{transform:translateY(6px);opacity:.25}}";
-  html += ".ef-arrow.flow-right{animation:flowRight 1.1s ease-in-out infinite}";
-  html += ".ef-arrow.flow-left{animation:flowLeft 1.1s ease-in-out infinite}";
-  html += ".ef-arrow.flow-down{animation:flowDown 1.1s ease-in-out infinite}";
-  html += ".ef-error{color:rgba(255,255,255,.6);font-size:clamp(11px,1.6vh,14px);text-align:center;max-width:80vw}";
-  // Preis-Bereich: Gauge (links, gross) + Diagramm (rechts) wie auf Kiosk-Seite 1
-  html += ".ef-top{display:flex;gap:clamp(10px,2vw,24px);width:min(96vw,960px);align-items:stretch;flex-wrap:wrap}";
-  html += ".ef-gauge-card{flex:1 1 260px;background:rgba(255,255,255,.07);backdrop-filter:blur(24px) saturate(160%);-webkit-backdrop-filter:blur(24px) saturate(160%);border:1px solid rgba(255,255,255,.12);border-radius:22px;padding:clamp(10px,2vh,18px);display:flex;align-items:center;justify-content:center}";
-  html += ".ef-gauge-card .priceRing{max-width:280px}";
-  html += ".ef-chart-card{flex:1.6 1 340px;background:rgba(255,255,255,.07);backdrop-filter:blur(24px) saturate(160%);-webkit-backdrop-filter:blur(24px) saturate(160%);border:1px solid rgba(255,255,255,.12);border-radius:22px;padding:clamp(10px,2vh,16px);min-height:220px;display:flex;flex-direction:column}";
-  html += ".ef-chart-card svg{width:100%;height:100%;display:block;background:transparent!important;border:0!important;border-radius:0!important;margin:0!important;box-shadow:none!important}";
+  html += ".ef-flow.flow-up{animation:flowUp 1.1s ease-in-out infinite}";
+  html += ".ef-flow.flow-down{animation:flowDown 1.1s ease-in-out infinite}";
+  html += ".ef-error{color:rgba(255,255,255,.6);font-size:clamp(11px,1.6vh,14px);text-align:center;max-width:80vw;margin-top:10px}";
   html += ".kiosk-topbar{position:fixed;top:14px;right:14px;display:flex;gap:8px;opacity:.25;transition:opacity .2s var(--ease);z-index:10}";
   html += ".kiosk-topbar:hover{opacity:1}";
+  html += kioskWidgetCss(kiosk2Portrait, KIOSK2_WIDGET_KEYS, KIOSK2_WIDGET_COUNT);
+  html += "@media (orientation:landscape){";
+  html += ".kiosk-canvas{grid-template-columns:repeat(" + String(KIOSK_GRID_COLS_LANDSCAPE) + ",1fr);grid-template-rows:repeat(" + String(KIOSK_GRID_ROWS_LANDSCAPE) + ",1fr);width:min(97vw,1400px);height:min(94vh,900px)}";
+  html += kioskWidgetCss(kiosk2Landscape, KIOSK2_WIDGET_KEYS, KIOSK2_WIDGET_COUNT);
+  html += "}";
   html += "</style>";
   html += "</head><body>";
 
@@ -5807,26 +5863,20 @@ void handleKiosk2Page() {
   if (nc2 >= ledRedCent) { chartLine = "#ff6b6b"; chartFill = "#ff3b30"; }
   else if (nc2 >= ledYellowCent) { chartLine = "#ffb347"; chartFill = "#ff9500"; }
 
-  html += "<div class='ef-wrap' id='efWrap'>";
-  html += "<div class='ef-top'>";
-  html += "<div class='ef-gauge-card' id='efGaugeCard'>" + buildPriceGaugeSvg() + "</div>";
-  html += "<div class='ef-chart-card' id='efChartCard'>" + buildSvgChart(chartLine, chartFill) + "</div>";
+  html += "<div class='kiosk-wrap'>";
+  html += "<div class='kiosk-canvas' id='kioskCanvas'>";
+  html += "<div class='kw kw-pricegauge' id='efGaugeCard'>" + buildPriceGaugeSvg() + "</div>";
+  html += "<div class='kw kw-pricechart' id='efChartCard'>" + buildSvgChart(chartLine, chartFill) + "</div>";
+  html += "<div class='kw kw-pv'><div class='ef-icon'>&#9728;&#65039;</div><div class='ef-label'>PV-Erzeugung</div><div class='ef-value'><span id='efPv'>-- W</span><span class='ef-flow pv' id='efFlowPv'>&#8595;</span></div></div>";
+  html += "<div class='kw kw-battery'><div class='ef-icon'>&#128267;</div><div class='ef-label'>Batterie</div><div class='ef-value'><span id='efBatt'>-- W</span><span class='ef-flow' id='efFlowBatt'></span></div><div class='ef-sub' id='efBattSub'></div></div>";
+  html += "<div class='kw kw-house'><div class='ef-icon'>&#127968;</div><div class='ef-label'>Hausverbrauch</div><div class='ef-value' id='efHouse'>-- W</div></div>";
+  html += "<div class='kw kw-grid'><div class='ef-icon'>&#9889;</div><div class='ef-label'>Netz</div><div class='ef-value'><span id='efGrid'>-- W</span><span class='ef-flow grid' id='efFlowGrid'></span></div><div class='ef-sub' id='efGridSub'></div></div>";
   html += "</div>";
   html += "<script>var _r=document.querySelector('#efGaugeCard .priceRing');if(_r)_r.classList.add('kiosk');</script>";
   if (!ankerConfigured) {
     html += "<p class='ef-error'>Keine Anker-Solarbank eingerichtet. Zugangsdaten auf der Konto-Seite hinterlegen.</p>";
-  } else {
-    html += "<div class='ef-row'><div class='ef-node ef-pv'><div class='ef-icon'>&#9728;&#65039;</div><div class='ef-label'>PV-Erzeugung</div><div class='ef-value' id='efPv'>-- W</div></div></div>";
-    html += "<div class='ef-row'><span class='ef-arrow' id='efArrowPv'>&#8595;</span></div>";
-    html += "<div class='ef-row'>";
-    html += "<div class='ef-node'><div class='ef-icon'>&#128267;</div><div class='ef-label'>Batterie</div><div class='ef-value' id='efBatt'>-- W</div><div class='ef-sub' id='efBattSub'></div></div>";
-    html += "<span class='ef-arrow' id='efArrowBatt'>&#8596;</span>";
-    html += "<div class='ef-node ef-house'><div class='ef-icon'>&#127968;</div><div class='ef-label'>Hausverbrauch</div><div class='ef-value' id='efHouse'>-- W</div></div>";
-    html += "<span class='ef-arrow' id='efArrowGrid'>&#8596;</span>";
-    html += "<div class='ef-node'><div class='ef-icon'>&#9889;</div><div class='ef-label'>Netz</div><div class='ef-value' id='efGrid'>-- W</div><div class='ef-sub' id='efGridSub'></div></div>";
-    html += "</div>";
-    html += "<p class='ef-error' id='efErr' style='display:none'></p>";
   }
+  html += "<p class='ef-error' id='efErr' style='display:none'></p>";
   html += "</div>";
 
   html += R"JS(
@@ -5855,26 +5905,24 @@ function efApply(d){
   var gridSub = document.getElementById('efGridSub');
   if (gridSub) gridSub.innerText = d.grid > 5 ? 'Bezug' : (d.grid < -5 ? 'Einspeisung' : '');
 
-  var arrPv = document.getElementById('efArrowPv');
-  if (arrPv) arrPv.className = 'ef-arrow' + (d.pv > 5 ? ' on flow-down' : '');
+  var flowPv = document.getElementById('efFlowPv');
+  if (flowPv) flowPv.className = 'ef-flow pv' + (d.pv > 5 ? ' on flow-down' : '');
 
-  // Batterie-Pfeil: positiv=laedt (Energie fliesst INS Batterie-Symbol, also
-  // nach links), negativ=entlaedt und versorgt damit das Haus (Energie
-  // fliesst nach rechts zum Haus-Symbol).
-  var arrBatt = document.getElementById('efArrowBatt');
-  if (arrBatt) {
-    if (d.batt > 5) { arrBatt.innerText = '←'; arrBatt.className = 'ef-arrow on batt-out flow-left'; }
-    else if (d.batt < -5) { arrBatt.innerText = '→'; arrBatt.className = 'ef-arrow on batt-out flow-right'; }
-    else { arrBatt.innerText = '↔'; arrBatt.className = 'ef-arrow'; }
+  // Batterie: positiv=laedt (Pfeil nach oben, Energie sammelt sich),
+  // negativ=entlaedt und versorgt damit das Haus (Pfeil nach unten, Energie fliesst ab).
+  var flowBatt = document.getElementById('efFlowBatt');
+  if (flowBatt) {
+    if (d.batt > 5) { flowBatt.innerText = '↑'; flowBatt.className = 'ef-flow on flow-up'; }
+    else if (d.batt < -5) { flowBatt.innerText = '↓'; flowBatt.className = 'ef-flow on flow-down'; }
+    else { flowBatt.innerText = ''; flowBatt.className = 'ef-flow'; }
   }
 
-  // Netz-Pfeil: positiv=Bezug (Energie fliesst vom Netz nach links zum Haus),
-  // negativ=Einspeisung (Energie fliesst vom Haus nach rechts ins Netz).
-  var arrGrid = document.getElementById('efArrowGrid');
-  if (arrGrid) {
-    if (d.grid > 5) { arrGrid.innerText = '←'; arrGrid.className = 'ef-arrow on grid flow-left'; }
-    else if (d.grid < -5) { arrGrid.innerText = '→'; arrGrid.className = 'ef-arrow on grid flow-right'; }
-    else { arrGrid.innerText = '↔'; arrGrid.className = 'ef-arrow'; }
+  // Netz: positiv=Bezug (Pfeil nach unten, Energie kommt an), negativ=Einspeisung (Pfeil nach oben, Energie geht raus).
+  var flowGrid = document.getElementById('efFlowGrid');
+  if (flowGrid) {
+    if (d.grid > 5) { flowGrid.innerText = '↓'; flowGrid.className = 'ef-flow grid on flow-down'; }
+    else if (d.grid < -5) { flowGrid.innerText = '↑'; flowGrid.className = 'ef-flow grid on flow-up'; }
+    else { flowGrid.innerText = ''; flowGrid.className = 'ef-flow grid'; }
   }
 }
 function efPoll(){
@@ -6051,8 +6099,10 @@ void handleSaveKioskLayoutAjax() {
 
   int index = server.hasArg("index") ? server.arg("index").toInt() : -1;
   bool landscape = server.hasArg("orientation") && server.arg("orientation") == "landscape";
+  bool isK2 = server.hasArg("target") && server.arg("target") == "k2";
+  int count = isK2 ? KIOSK2_WIDGET_COUNT : KIOSK_WIDGET_COUNT;
 
-  if (index < 0 || index >= KIOSK_WIDGET_COUNT) {
+  if (index < 0 || index >= count) {
     server.send(200, "application/json", "{\"ok\":false,\"error\":\"Ungueltiger Index\"}");
     return;
   }
@@ -6077,12 +6127,13 @@ void handleSaveKioskLayoutAjax() {
   if (item.colStart + item.colSpan - 1 > cols) item.colSpan = cols - item.colStart + 1;
   if (item.rowStart + item.rowSpan - 1 > rows) item.rowSpan = rows - item.rowStart + 1;
 
-  if (landscape) {
-    kioskLandscape[index] = item;
+  if (isK2) {
+    if (landscape) { kiosk2Landscape[index] = item; } else { kiosk2Portrait[index] = item; }
+    saveKiosk2Widget(landscape, index, item);
   } else {
-    kioskPortrait[index] = item;
+    if (landscape) { kioskLandscape[index] = item; } else { kioskPortrait[index] = item; }
+    saveKioskWidget(landscape, index, item);
   }
-  saveKioskWidget(landscape, index, item);
 
   server.send(200, "application/json", "{\"ok\":true}");
 }
@@ -6093,15 +6144,29 @@ void handleResetKioskLayout() {
   String orientation = server.hasArg("orientation") ? server.arg("orientation") : "";
   bool doPortrait = (orientation == "portrait" || orientation.length() == 0);
   bool doLandscape = (orientation == "landscape" || orientation.length() == 0);
+  bool isK2 = server.hasArg("target") && server.arg("target") == "k2";
 
-  for (int i = 0; i < KIOSK_WIDGET_COUNT; i++) {
-    if (doPortrait) {
-      kioskPortrait[i] = KIOSK_PORTRAIT_DEFAULTS[i];
-      saveKioskWidget(false, i, kioskPortrait[i]);
+  if (isK2) {
+    for (int i = 0; i < KIOSK2_WIDGET_COUNT; i++) {
+      if (doPortrait) {
+        kiosk2Portrait[i] = KIOSK2_PORTRAIT_DEFAULTS[i];
+        saveKiosk2Widget(false, i, kiosk2Portrait[i]);
+      }
+      if (doLandscape) {
+        kiosk2Landscape[i] = KIOSK2_LANDSCAPE_DEFAULTS[i];
+        saveKiosk2Widget(true, i, kiosk2Landscape[i]);
+      }
     }
-    if (doLandscape) {
-      kioskLandscape[i] = KIOSK_LANDSCAPE_DEFAULTS[i];
-      saveKioskWidget(true, i, kioskLandscape[i]);
+  } else {
+    for (int i = 0; i < KIOSK_WIDGET_COUNT; i++) {
+      if (doPortrait) {
+        kioskPortrait[i] = KIOSK_PORTRAIT_DEFAULTS[i];
+        saveKioskWidget(false, i, kioskPortrait[i]);
+      }
+      if (doLandscape) {
+        kioskLandscape[i] = KIOSK_LANDSCAPE_DEFAULTS[i];
+        saveKioskWidget(true, i, kioskLandscape[i]);
+      }
     }
   }
 
@@ -6145,7 +6210,10 @@ void handleKioskLayoutPage() {
 </style>)CSS";
 
   html += "<section class='card'>";
-  html += "<div class='panelTitle'><h2>Anordnung</h2><div style='display:flex;gap:8px'>";
+  html += "<div class='panelTitle'><h2>Anordnung</h2><div style='display:flex;gap:8px;flex-wrap:wrap'>";
+  html += "<button type='button' id='klTabK1' onclick=\"klSwitchPage('k1')\">Kiosk 1: Preise</button>";
+  html += "<button type='button' class='secondary' id='klTabK2' onclick=\"klSwitchPage('k2')\">Kiosk 2: Energie</button>";
+  html += "<span style='width:1px;background:var(--line);align-self:stretch;margin:0 2px'></span>";
   html += "<button type='button' id='klTabPortrait' onclick=\"klSwitchOrientation('portrait')\">Hochformat</button>";
   html += "<button type='button' class='secondary' id='klTabLandscape' onclick=\"klSwitchOrientation('landscape')\">Querformat</button>";
   html += "</div></div>";
@@ -6156,7 +6224,7 @@ void handleKioskLayoutPage() {
   html += "<div class='kl-layers' id='klLayers'></div>";
   html += "</div>";
 
-  html += "<div class='actions'><button type='button' class='secondary' onclick='klReset()'>Diese Ausrichtung zuruecksetzen</button><a href='/kiosk' target='_blank'><button type='button' class='secondary'>Tablet-Modus oeffnen</button></a><span id='klSaveState' class='badge warnb'>Bereit</span></div>";
+  html += "<div class='actions'><button type='button' class='secondary' onclick='klReset()'>Diese Ausrichtung zuruecksetzen</button><a href='/kiosk' target='_blank'><button type='button' class='secondary'>Preis-Modus oeffnen</button></a><a href='/kiosk2' target='_blank'><button type='button' class='secondary'>Energie-Modus oeffnen</button></a><span id='klSaveState' class='badge warnb'>Bereit</span></div>";
   html += "</section>";
 
   // Preis-Schwellen fuer Guenstig/Mittel/Teuer
@@ -6206,9 +6274,13 @@ void handleKioskLayoutPage() {
   html += "</form>";
   html += "</section>";
 
-  html += "<script>var klData = {portrait:" + kioskLayoutJson(kioskPortrait) + ",landscape:" + kioskLayoutJson(kioskLandscape) + "};</script>";
+  html += "<script>var klData = {";
+  html += "k1:{portrait:" + kioskLayoutJson(kioskPortrait) + ",landscape:" + kioskLayoutJson(kioskLandscape) + "},";
+  html += "k2:{portrait:" + kioskLayoutJson(kiosk2Portrait, KIOSK2_WIDGET_KEYS, KIOSK2_WIDGET_LABELS, KIOSK2_WIDGET_COUNT) + ",landscape:" + kioskLayoutJson(kiosk2Landscape, KIOSK2_WIDGET_KEYS, KIOSK2_WIDGET_LABELS, KIOSK2_WIDGET_COUNT) + "}";
+  html += "};</script>";
 
   html += R"JS(<script>
+var klPage = 'k1';
 var klOrientation = 'portrait';
 var klSelected = 0;
 var KL_GRID = {
@@ -6233,7 +6305,7 @@ function klRenderCanvas(){
       canvas.appendChild(cell);
     }
   }
-  var items = klData[klOrientation];
+  var items = klData[klPage][klOrientation];
   items.forEach(function(item, i){
     var el = document.createElement('div');
     el.className = 'kl-item' + (i === klSelected ? ' selected' : '') + (!item.visible ? ' kl-hidden' : '');
@@ -6262,7 +6334,7 @@ function klRenderCanvas(){
 function klRenderLayers(){
   var wrap = document.getElementById('klLayers');
   wrap.innerHTML = '';
-  klData[klOrientation].forEach(function(item, i){
+  klData[klPage][klOrientation].forEach(function(item, i){
     var row = document.createElement('div');
     row.className = 'kl-layer-row' + (i === klSelected ? ' selected' : '');
     row.addEventListener('click', function(){ klSelected = i; klRenderCanvas(); });
@@ -6290,7 +6362,7 @@ function klStartDrag(e, i){
   var g = klGrid();
   var cellW = rect.width / g.cols;
   var cellH = rect.height / g.rows;
-  var item = klData[klOrientation][i];
+  var item = klData[klPage][klOrientation][i];
   var startColStart = item.colStart, startRowStart = item.rowStart;
   var startX = e.clientX, startY = e.clientY;
   function onMove(ev){
@@ -6318,7 +6390,7 @@ function klStartResize(e, i){
   var g = klGrid();
   var cellW = rect.width / g.cols;
   var cellH = rect.height / g.rows;
-  var item = klData[klOrientation][i];
+  var item = klData[klPage][klOrientation][i];
   var startColSpan = item.colSpan, startRowSpan = item.rowSpan;
   var startX = e.clientX, startY = e.clientY;
   function onMove(ev){
@@ -6338,10 +6410,11 @@ function klStartResize(e, i){
 }
 
 function klSave(i){
-  var item = klData[klOrientation][i];
+  var item = klData[klPage][klOrientation][i];
   var state = document.getElementById('klSaveState');
   if (state) { state.className = 'badge warnb'; state.textContent = 'Speichere...'; }
   var body = new URLSearchParams();
+  body.set('target', klPage);
   body.set('orientation', klOrientation);
   body.set('index', i);
   body.set('colStart', item.colStart);
@@ -6365,10 +6438,20 @@ function klSwitchOrientation(o){
   klRenderCanvas();
 }
 
+function klSwitchPage(p){
+  klPage = p;
+  klSelected = 0;
+  document.getElementById('klTabK1').className = p === 'k1' ? '' : 'secondary';
+  document.getElementById('klTabK2').className = p === 'k2' ? '' : 'secondary';
+  klRenderCanvas();
+}
+
 function klReset(){
   var name = klOrientation === 'landscape' ? 'Querformat' : 'Hochformat';
-  if (!confirm(name + ' auf Standard zuruecksetzen?')) return;
+  var pageName = klPage === 'k2' ? 'Kiosk 2 (Energie)' : 'Kiosk 1 (Preise)';
+  if (!confirm(pageName + ' - ' + name + ' auf Standard zuruecksetzen?')) return;
   var body = new URLSearchParams();
+  body.set('target', klPage);
   body.set('orientation', klOrientation);
   fetch('/resetkiosklayout', { method: 'POST', headers: {'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'}, body: body.toString() })
     .then(function(){ location.reload(); });
@@ -7915,12 +7998,12 @@ void getKioskPriceStatus(String &statusText, String &statusColor) {
 // Kiosk-Widgets aus einem Layout-Array (Prozentwerte relativ zum
 // .kiosk-canvas-Container). Wird einmal fuer Hochformat (Basis-Styles) und
 // einmal fuer Querformat (innerhalb der Media-Query) aufgerufen.
-String kioskWidgetCss(KioskWidgetLayout arr[]) {
+String kioskWidgetCss(KioskWidgetLayout arr[], const char* const keys[], int count) {
   String css;
   css.reserve(700);
 
-  for (int i = 0; i < KIOSK_WIDGET_COUNT; i++) {
-    css += ".kw-" + String(KIOSK_WIDGET_KEYS[i]) + "{";
+  for (int i = 0; i < count; i++) {
+    css += ".kw-" + String(keys[i]) + "{";
     if (!arr[i].visible) {
       css += "display:none}";
       continue;
@@ -7934,16 +8017,17 @@ String kioskWidgetCss(KioskWidgetLayout arr[]) {
 
 // Serialisiert ein Layout-Array fuer den Kiosk-Layout-Editor (JS-Objekt beim
 // Seitenaufbau), damit der Editor Hoch- und Querformat clientseitig ohne
-// Neuladen umschalten kann.
-String kioskLayoutJson(KioskWidgetLayout arr[]) {
+// Neuladen umschalten kann. keys/labels/count optional, damit dieselbe
+// Funktion auch fuer das Kiosk2-Widget-Set (Energiefluss) genutzt werden kann.
+String kioskLayoutJson(KioskWidgetLayout arr[], const char* const keys[], const char* const labels[], int count) {
   String json = "[";
-  for (int i = 0; i < KIOSK_WIDGET_COUNT; i++) {
+  for (int i = 0; i < count; i++) {
     if (i > 0) json += ",";
     String preview = "";
-    String key = String(KIOSK_WIDGET_KEYS[i]);
+    String key = String(keys[i]);
     if (key == "clock") {
       preview = getDisplayTimeText();
-    } else if (key == "gauge") {
+    } else if (key == "gauge" || key == "pricegauge") {
       preview = (metricCurrent15 >= 0) ? (priceToCentText(metricCurrent15) + " ct/kWh") : "-- ct/kWh";
     } else if (key == "status") {
       String st, sc; getKioskPriceStatus(st, sc);
@@ -7951,16 +8035,24 @@ String kioskLayoutJson(KioskWidgetLayout arr[]) {
     } else if (key == "livepower") {
       String p = formatLivePowerValue();
       preview = (p.length() > 0) ? ("&#9889; " + p) : "&#9889; -- W";
-    } else if (key == "chart") {
+    } else if (key == "chart" || key == "pricechart") {
       preview = "&#128200; Preisverlauf (" + String(quarterCount) + " Slots)";
     } else if (key == "meta") {
       String low = (metricLow15Day >= 0) ? priceToCentText(metricLow15Day) : "--";
       String avg = (metricDayAvg >= 0) ? priceToCentText(metricDayAvg) : "--";
       preview = "Tief " + low + " &middot; Schnitt " + avg;
+    } else if (key == "pv") {
+      preview = (ankerPvW >= 0) ? ("&#9728;&#65039; " + String((int)ankerPvW) + " W") : "&#9728;&#65039; -- W";
+    } else if (key == "battery") {
+      preview = ankerConfigured ? ("&#128267; " + String((int)ankerBatteryW) + " W") : "&#128267; -- W";
+    } else if (key == "house") {
+      preview = (ankerHomeLoadW >= 0) ? ("&#127968; " + String((int)ankerHomeLoadW) + " W") : "&#127968; -- W";
+    } else if (key == "grid") {
+      preview = (ankerHomeLoadW >= 0 && ankerOutputW >= 0) ? ("&#9889; " + String((int)(ankerHomeLoadW - ankerOutputW)) + " W") : "&#9889; -- W";
     }
     json += "{";
     json += "\"key\":\"" + key + "\",";
-    json += "\"label\":\"" + String(KIOSK_WIDGET_LABELS[i]) + "\",";
+    json += "\"label\":\"" + String(labels[i]) + "\",";
     json += "\"preview\":\"" + jsonEscapeValue(preview) + "\",";
     json += "\"colStart\":" + String(arr[i].colStart) + ",";
     json += "\"colSpan\":" + String(arr[i].colSpan) + ",";
