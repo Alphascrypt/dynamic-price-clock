@@ -2,6 +2,7 @@
 #include <esp_wifi.h>
 #include <esp_system.h>
 #include "esp_ota_ops.h"
+#include "esp_task_wdt.h"
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
 #include <HTTPUpdate.h>
@@ -83,7 +84,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "3.4.1"
+#define FIRMWARE_VERSION "4.0.0"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -234,29 +235,72 @@ String tibberRootCaPem = "";
 // der Tibber-API.
 String githubRepo = "Alphascrypt/dynamic-price-clock";
 String githubToken = "";
-String githubLatestVersion = "";
-String githubLatestUrl = "";
 
-// Leiser Hintergrund-Versionscheck fuer das Nav-Badge (alle 10 Minuten vom
-// Browser aus per /versioncheck aufgerufen). Nutzt eigene Fehler-Variable,
-// damit ein fehlgeschlagener Hintergrund-Check NICHT den globalen lastError
-// (und damit den Status-OK/Fehler-Indikator auf der Startseite) verfaelscht.
-String versionCheckError = "";
-String versionCheckLatest = "";
+// -----------------------------------------------------------------------------
+// OTA-Zustandsautomat
+// -----------------------------------------------------------------------------
+// Ersetzt eine fruehere Ansammlung einzelner, lose gekoppelter Variablen
+// (githubLatestVersion/githubLatestUrl/versionCheckLatest/versionCheckError/
+// otaBytesWritten/otaBytesTotal/otaTaskRunning/otaHeartbeatMs/otaTaskDone/
+// otaTaskSuccess/otaTaskError/otaLastDiag/otaManualUploadActive) durch ein
+// einziges Struct mit explizitem Eigentuemer-Konzept. Jeder bisherige Bug in
+// diesem Bereich war eine neue Interaktion zwischen genau diesen Flags (z.B.
+// ein abgebrochener, von vornherein abgewiesener manueller Upload, der den
+// Fehlertext eines fremden, tatsaechlich laufenden GitHub-Updates ueberschrieben
+// hat) - ein Zustandsmodell mit den vier ownerpruefenden Mutatoren weiter unten
+// (otaTryAcquire/otaProgress/otaSetPhase/otaFail/otaFinishSuccess) verhindert
+// falsche Kombinationen strukturell, statt sich auf Kommentar-Disziplin an
+// jeder einzelnen Aufrufstelle zu verlassen.
+enum class OtaPhase : uint8_t {
+  Idle, Checking, CheckFailed, UpdateAvailable, UpToDate,
+  Downloading, // GitHub-Pfad: HTTPUpdate schreibt Bytes
+  Uploading,   // manueller Pfad: Multipart-Body kommt an
+  Flashing,    // manueller Pfad: alle Bytes da, Update.end() steht noch aus
+  Rebooting,
+  Failed
+};
+enum class OtaOwner : uint8_t { None, Github, ManualUpload };
 
-// OTA-Fortschritt: laeuft in einem eigenen FreeRTOS-Task (siehe otaUpdateTask),
-// damit der Webserver waehrend des Downloads weiter auf /otaprogress antworten
-// kann (der Server selbst ist single-threaded und wuerde sonst blockieren).
-volatile int otaBytesWritten = 0;
-volatile int otaBytesTotal = 0;
-volatile bool otaTaskRunning = false;
-volatile unsigned long otaHeartbeatMs = 0; // millis() der letzten Task-Aktivitaet
-volatile bool otaTaskDone = false;
-volatile bool otaTaskSuccess = false;
-String otaTaskError = "";
+struct OtaState {
+  volatile OtaPhase phase = OtaPhase::Idle;
+  volatile OtaOwner owner = OtaOwner::None;
+
+  // Ergebnis des letzten Versions-Checks (GitHub-API) - von otaCheckLatest()
+  // befuellt. "updateAvailable" wird bewusst NICHT hier gespeichert, sondern
+  // wie im Original von den Handlern lokal aus latestVersion vs.
+  // FIRMWARE_VERSION berechnet - vermeidet eine zusaetzliche Quelle, die mit
+  // latestVersion synchron gehalten werden muesste.
+  String latestVersion = "";
+  String latestUrl = "";
+  String checkError = "";
+
+  // Fortschritt/Ergebnis des laufenden oder letzten Updates (GitHub-Download
+  // oder manueller Upload, je nach owner).
+  volatile int bytesWritten = 0;
+  volatile int bytesTotal = 0;
+  String diag = ""; // WLAN-Signal/Heap/DNS-Status des letzten Verbindungsversuchs, siehe otaPreflightDiag()
+  String error = "";
+  volatile bool success = false;
+  volatile unsigned long heartbeatMs = 0; // millis() der letzten Task-Aktivitaet, fuer den loop()-Haenger-Detektor
+  volatile unsigned long startedAtMs = 0;
+};
+OtaState ota;
+
+// Uebergabe-Variable HTTP-Handler -> FreeRTOS-Task: xTaskCreate kann keine
+// Strings direkt per Wert uebergeben, deshalb dieser einfache, unzweideutige
+// Hand-off (kein Teil des Eigentuemer-Modells oben - reine Ein-Schuss-Uebergabe
+// eines Parameters, von handleGithubUpdate() gesetzt bevor otaGithubTask()
+// gestartet wird, danach nur einmal beim Task-Start gelesen).
 String otaPendingUrl = "";
-String otaLastDiag = ""; // WLAN-Signal/Heap/DNS-Status des letzten Verbindungsversuchs, siehe otaPreflightDiag()
-bool otaManualUploadActive = false; // true nur waehrend DIESER Upload otaTaskRunning selbst haelt, siehe handleUploadFirmwareData()
+
+// Beantwortet eine rein anfrage-lokale Frage ("wurde DIESER Upload-Versuch
+// schon VOR Erhalt der Sperre abgelehnt?"), kein Teil des OtaState-Modells:
+// handleUploadFirmwareData() und handleUploadFirmware() werden vom
+// WebServer garantiert nacheinander fuer dieselbe Anfrage aufgerufen, ohne
+// dass etwas anderes dazwischenfunkt (single-threaded) - hier geht es nur
+// um die Weitergabe eines Zwischenergebnisses zwischen zwei Callbacks
+// derselben Anfrage, nicht um geteilten Zustand ueber die Zeit.
+String otaUploadPreflightRejection = "";
 
 String tibberToken = "";
 String selectedHomeId = "";
@@ -568,11 +612,20 @@ void updatePrices();
 void updateTibberLiveMeasurement();
 void handleTibberWsEvent(WStype_t type, uint8_t *payload, size_t length);
 String otaPreflightDiag(const String &host);
-bool checkGithubUpdate();
-bool checkGithubUpdateQuiet();
+enum class OtaPhase : uint8_t;
+enum class OtaOwner : uint8_t;
+String otaTryAcquire(OtaOwner who);
+void otaProgress(OtaOwner who, int written, int total);
+void otaSetPhase(OtaOwner who, OtaPhase p);
+void otaFail(OtaOwner who, const String &msg, bool releaseOwner);
+void otaFinishSuccess(OtaOwner who);
+bool otaCheckLatest(bool withRetryAndDiag);
 void handleVersionCheck();
-bool performGithubUpdate(String url);
-void otaUpdateTask(void *param);
+void otaWdtEnter();
+void otaWdtFeed();
+void otaWdtExit();
+bool otaDownloadAndFlashGithub(String url);
+void otaGithubTask(void *param);
 void calculateMetrics();
 bool ankerLogin();
 void updateAnkerSolarData();
@@ -1770,36 +1823,39 @@ void loop() {
     otaRollbackConfirmed = true;
   }
 
-  // Sicherheitsnetz: Falls otaTaskRunning aus irgendeinem Grund haengen
+  // Sicherheitsnetz: Falls der OTA-Vorgang aus irgendeinem Grund haengen
   // bleibt (z.B. Task haengt in einem Netzwerk-Timeout fest, ohne je den
   // Heartbeat zu aktualisieren), wuerden sonst Preis-/Live-Verbrauchs-/Anker-
   // Updates dauerhaft blockiert bleiben. Nach 3 Minuten ohne Heartbeat gilt
-  // der OTA-Vorgang als haengen geblieben. WICHTIG: otaTaskRunning bleibt
-  // absichtlich TRUE (blockiert weiterhin neue Update-Versuche) - der
-  // eigentliche FreeRTOS-Task wird hier NICHT beendet und koennte noch am
-  // Leben sein; ein zweiter, parallel gestarteter Task wuerde gleichzeitig in
-  // dieselbe OTA-Partition schreiben. Ein haengen gebliebener Task erfordert
-  // einen manuellen Neustart, statt das Risiko eines doppelten Flash-Vorgangs
-  // einzugehen.
-  if (otaTaskRunning && !otaTaskDone && otaHeartbeatMs > 0 && millis() - otaHeartbeatMs > 180000UL) {
-    otaTaskDone = true;
-    otaTaskSuccess = false;
-    otaTaskError = "OTA-Vorgang haengen geblieben (kein Fortschritt seit 3 Minuten) - bitte Geraet manuell neu starten, bevor ein erneuter Versuch gestartet wird";
+  // der OTA-Vorgang als haengen geblieben. WICHTIG: otaFail() wird hier mit
+  // releaseOwner=false aufgerufen - die Sperre bleibt absichtlich bestehen
+  // (blockiert weiterhin neue Update-Versuche), der eigentliche FreeRTOS-Task
+  // wird hier NICHT beendet und koennte noch am Leben sein; ein zweiter,
+  // parallel gestarteter Task wuerde gleichzeitig in dieselbe OTA-Partition
+  // schreiben. Ein haengen gebliebener Task erfordert einen manuellen
+  // Neustart, statt das Risiko eines doppelten Flash-Vorgangs einzugehen.
+  // (Der GitHub-Pfad hat zusaetzlich einen esp_task_wdt-Hardware-Watchdog,
+  // der einen echten Haenger automatisch per Reboot behebt - dieser
+  // Software-Detektor bleibt trotzdem als zweite Ebene UND fuer den
+  // manuellen Upload-Pfad bestehen, der keinen Hardware-Watchdog hat.)
+  if (ota.owner != OtaOwner::None && ota.phase != OtaPhase::Failed && ota.phase != OtaPhase::Rebooting
+      && ota.heartbeatMs > 0 && millis() - ota.heartbeatMs > 180000UL) {
+    otaFail(ota.owner, "OTA-Vorgang haengen geblieben (kein Fortschritt seit 3 Minuten) - bitte Geraet manuell neu starten, bevor ein erneuter Versuch gestartet wird", false);
   }
 
   // Waehrend eines laufenden OTA-Downloads (manuell oder ueber GitHub) keine
   // weiteren TLS-Verbindungen aufbauen: Auf dem ESP32 konkurrieren mehrere
   // gleichzeitige HTTPS-Sitzungen um den knappen Heap, was den OTA-Download
   // mit "Connection refused/lost" abbrechen kann.
-  if (!apMode && !otaTaskRunning && millis() - lastUpdate >= updateInterval) {
+  if (!apMode && ota.owner == OtaOwner::None && millis() - lastUpdate >= updateInterval) {
     updatePrices();
   }
 
-  if (!apMode && !otaTaskRunning) {
+  if (!apMode && ota.owner == OtaOwner::None) {
     updateTibberLiveMeasurement();
   }
 
-  if (!apMode && !otaTaskRunning && ankerConfigured && millis() - lastAnkerPoll >= ANKER_POLL_INTERVAL_MS) {
+  if (!apMode && ota.owner == OtaOwner::None && ankerConfigured && millis() - lastAnkerPoll >= ANKER_POLL_INTERVAL_MS) {
     lastAnkerPoll = millis();
     updateAnkerSolarData();
   }
@@ -1809,21 +1865,21 @@ void loop() {
   // einzige CPU des ESP32-C5 mit dem Update-Task, waehrend Download+Flash
   // laufen.
   #if ENABLE_TFT_DISPLAYS
-  if (!otaTaskRunning && millis() - lastDisplayRefresh >= displayRefreshInterval) {
+  if (ota.owner == OtaOwner::None && millis() - lastDisplayRefresh >= displayRefreshInterval) {
     lastDisplayRefresh = millis();
     showLayoutDisplays();
   }
 #endif
 
   #if ENABLE_WS2812_RING
-  if (!otaTaskRunning && millis() - lastLedRefresh >= ledRefreshInterval) {
+  if (ota.owner == OtaOwner::None && millis() - lastLedRefresh >= ledRefreshInterval) {
     lastLedRefresh = millis();
     updateLedRing();
   }
 #endif
 
   #if ENABLE_MAX7219_MATRIX
-  if (!otaTaskRunning && millis() - lastMatrixRefresh >= matrixRefreshInterval) {
+  if (ota.owner == OtaOwner::None && millis() - lastMatrixRefresh >= matrixRefreshInterval) {
     lastMatrixRefresh = millis();
     updatePriceMatrix();
   }
@@ -2348,29 +2404,124 @@ void updatePrices() {
 // GitHub-Update
 // -----------------------------------------------------------------------------
 
-bool checkGithubUpdate() {
-  githubLatestVersion = "";
-  githubLatestUrl = "";
+// -----------------------------------------------------------------------------
+// OTA-Zustandsautomat: Mutatoren
+// -----------------------------------------------------------------------------
+// Genau diese Funktionen duerfen ota.* nach Abschluss eines Versions-Checks
+// veraendern. Jede prueft die Eigentuemerschaft (ota.owner) als allererstes -
+// ein Aufrufer, der otaTryAcquire() nie erfolgreich aufgerufen hat (oder
+// dessen Owner nicht mehr mit ota.owner uebereinstimmt, weil inzwischen ein
+// anderer Vorgang die Sperre haelt), kann folglich NIE mehr otaFail()/
+// otaProgress()/otaSetPhase()/otaFinishSuccess() fuer sich selbst wirksam
+// aufrufen.
+
+// Versucht die OTA-Sperre fuer `who` zu erhalten. Rueckgabe "" = erhalten;
+// sonst ein fertiger, anzeigbarer Ablehnungsgrund (laeuft bereits ein anderer
+// Vorgang, oder zu wenig freier Heap). Der Heap-Schwellenwert wird hier
+// EINMAL fuer beide Pfade geprueft (frueher zweimal dupliziert, beim
+// GitHub-Pfad sogar erst nach dem Start des FreeRTOS-Tasks).
+String otaTryAcquire(OtaOwner who) {
+  if (ota.owner != OtaOwner::None) {
+    return "Es laeuft bereits ein anderer Update-Vorgang";
+  }
+  if (ESP.getFreeHeap() < 40000) {
+    return "Zu wenig freier Speicher fuer Update (" + String(ESP.getFreeHeap() / 1024) + " KB frei, mind. 40 KB noetig)";
+  }
+  ota.owner = who;
+  ota.bytesWritten = 0;
+  ota.bytesTotal = 0;
+  ota.error = "";
+  ota.success = false;
+  ota.heartbeatMs = millis();
+  ota.startedAtMs = millis();
+  return "";
+}
+
+// Owner-geprueftes Fortschritts-Update; no-op, wenn `who` gerade nicht (mehr)
+// die Sperre haelt.
+void otaProgress(OtaOwner who, int written, int total) {
+  if (ota.owner != who) return;
+  ota.bytesWritten = written;
+  ota.bytesTotal = total;
+  ota.heartbeatMs = millis();
+}
+
+void otaSetPhase(OtaOwner who, OtaPhase p) {
+  if (ota.owner != who) return;
+  ota.phase = p;
+  ota.heartbeatMs = millis();
+}
+
+// Markiert den Vorgang als fehlgeschlagen. `releaseOwner=true` (Normalfall)
+// gibt die Sperre sofort wieder frei, da der aufrufende Task/Handler in
+// diesem Fall garantiert gleich beendet ist. Der loop()-Haenger-Detektor
+// (siehe dort) ruft dagegen mit `releaseOwner=false` auf - dort ist NICHT
+// sicher, ob der zugehoerige FreeRTOS-Task wirklich beendet ist (er koennte
+// noch in einem Netzwerk-Timeout haengen und weiter auf die OTA-Partition
+// schreiben), ein zweiter, parallel gestarteter Vorgang darf deshalb nicht
+// zugelassen werden - das Geraet muss in diesem Fall manuell neugestartet
+// werden. No-op, wenn `who` gar nicht (mehr) der Eigentuemer ist - macht den
+// historischen Bug "abgebrochener, von vornherein abgewiesener Upload
+// ueberschreibt den Fehlertext eines fremden laufenden Updates" dadurch
+// strukturell unmoeglich statt nur per Konvention vermieden.
+void otaFail(OtaOwner who, const String &msg, bool releaseOwner = true) {
+  if (ota.owner != who) return;
+  ota.error = msg;
+  ota.success = false;
+  ota.phase = OtaPhase::Failed;
+  ota.heartbeatMs = millis();
+  if (releaseOwner) ota.owner = OtaOwner::None;
+}
+
+// Markiert Erfolg. Gibt die Sperre bewusst NICHT frei - ein erfolgreicher
+// Vorgang endet immer in ESP.restart(), das Geraet ist ohnehin in wenigen
+// hundert Millisekunden weg; die Sperre soll bis zu diesem Neustart bestehen
+// bleiben, damit in der kurzen Restzeit kein zweiter Vorgang starten kann.
+void otaFinishSuccess(OtaOwner who) {
+  if (ota.owner != who) return;
+  ota.success = true;
+  ota.phase = OtaPhase::Rebooting;
+  ota.heartbeatMs = millis();
+}
+
+// Ersetzt checkGithubUpdate() (laut, 3 Versuche + Diagnose) UND
+// checkGithubUpdateQuiet() (leise, 1 Versuch, kein Diagnose-Overhead fuer
+// den alle-10-Minuten-Hintergrund-Poll, der von JEDER geladenen Seite aus
+// feuert) - beide fragten bisher identischen Code zweimal gepflegt ab.
+// withRetryAndDiag=true fuer den Button-ausgeloesten Check, false fuer den
+// passiven Nav-Badge-Poll. Schreibt ausschliesslich in ota.* - NIE mehr in
+// das allgemeine lastError: das war schon vorher nur ein Trick, damit ein
+// Hintergrund-Fehler nicht den Status-OK/Fehler-Indikator der Startseite
+// verfaelscht, kein Nebenlaeufigkeits-Schutz (WebServer ist single-threaded)
+// - mit dem eigenen ota.checkError-Feld ist der Trick nicht mehr noetig.
+bool otaCheckLatest(bool withRetryAndDiag) {
+  ota.latestVersion = "";
+  ota.latestUrl = "";
 
   if (githubRepo.length() == 0) {
-    lastError = "Kein GitHub-Repository hinterlegt";
+    ota.checkError = "Kein GitHub-Repository hinterlegt";
     return false;
   }
 
   if (apMode || WiFi.status() != WL_CONNECTED) {
-    lastError = "Kein Internet / AP Modus";
+    ota.checkError = "Kein Internet / AP Modus";
     return false;
   }
 
   String url = "https://api.github.com/repos/" + githubRepo + "/releases/latest";
-  otaLastDiag = otaPreflightDiag("api.github.com");
+  if (withRetryAndDiag) {
+    ota.diag = otaPreflightDiag("api.github.com");
+  }
 
   // Der allererste TLS-Verbindungsaufbau auf dem ESP32-C5 schlaegt gelegentlich
   // mit "Connection refused" (HTTPClient-Code -1) fehl, ein sofortiger
   // erneuter Versuch klappt praktisch immer (gleiches Muster wie beim
-  // OTA-Download) - deshalb bis zu 3x versuchen statt sofort aufzugeben.
+  // OTA-Download) - deshalb bei withRetryAndDiag bis zu 3x versuchen statt
+  // sofort aufzugeben; der leise Hintergrund-Poll bekommt beim naechsten
+  // 10-Minuten-Intervall ohnehin einen neuen Versuch, daher dort nur 1
+  // Versuch, um den Overhead fuer den Normalfall klein zu halten.
   int code = -1;
-  const int maxAttempts = 3;
+  const int maxAttempts = withRetryAndDiag ? 3 : 1;
   for (int attempt = 1; attempt <= maxAttempts; attempt++) {
     WiFiClientSecure client;
     // Keine manuelle Root-CA-Pinnung fuer GitHub: der Download laeuft ueber
@@ -2382,10 +2533,10 @@ bool checkGithubUpdate() {
     client.setHandshakeTimeout(12000);
 
     HTTPClient http;
-    http.setTimeout(15000);
+    http.setTimeout(withRetryAndDiag ? 15000 : 10000);
 
     if (!http.begin(client, url)) {
-      lastError = "GitHub HTTP Fehler";
+      ota.checkError = "GitHub HTTP Fehler";
       code = -1;
     } else {
       http.addHeader("User-Agent", "dynamic-price-clock-esp32");
@@ -2423,7 +2574,7 @@ bool checkGithubUpdate() {
         client.stop();
 
         if (jsonErr) {
-          lastError = "GitHub JSON Fehler";
+          ota.checkError = "GitHub JSON Fehler";
           // Diese Schleife existiert genau fuer solche transienten Fehler
           // (siehe Kommentar oben bei getString()) - ein sofortiges
           // return false haette den verbleibenden Wiederholungsversuchen nie
@@ -2455,13 +2606,13 @@ bool checkGithubUpdate() {
         }
 
         if (tag.length() == 0) {
-          lastError = "Kein gueltiges Release gefunden";
+          ota.checkError = "Kein gueltiges Release gefunden";
           return false;
         }
 
-        githubLatestVersion = tag;
-        githubLatestUrl = binUrl;
-        lastError = "";
+        ota.latestVersion = tag;
+        ota.latestUrl = binUrl;
+        ota.checkError = "";
         return true;
       }
 
@@ -2472,81 +2623,8 @@ bool checkGithubUpdate() {
     if (attempt < maxAttempts) delay(1500);
   }
 
-  lastError = "GitHub API Fehler " + String(code);
+  ota.checkError = "GitHub API Fehler " + String(code);
   return false;
-}
-
-// Leiser Zwilling von checkGithubUpdate() fuer den periodischen Hintergrund-
-// Check (Nav-Badge): identische GitHub-Abfrage, aber schreibt NIE in den
-// globalen lastError, damit ein fehlgeschlagener Hintergrund-Check nicht den
-// Status-OK/Fehler-Indikator auf der Startseite verfaelscht.
-bool checkGithubUpdateQuiet() {
-  versionCheckLatest = "";
-
-  if (githubRepo.length() == 0) {
-    versionCheckError = "Kein GitHub-Repository hinterlegt";
-    return false;
-  }
-
-  if (apMode || WiFi.status() != WL_CONNECTED) {
-    versionCheckError = "Kein Internet / AP Modus";
-    return false;
-  }
-
-  WiFiClientSecure client;
-  client.setInsecure();
-
-  HTTPClient http;
-  http.setTimeout(10000);
-
-  String url = "https://api.github.com/repos/" + githubRepo + "/releases/latest";
-
-  if (!http.begin(client, url)) {
-    versionCheckError = "GitHub HTTP Fehler";
-    return false;
-  }
-
-  http.addHeader("User-Agent", "dynamic-price-clock-esp32");
-  http.addHeader("Accept", "application/vnd.github+json");
-  if (githubToken.length() > 0) {
-    http.addHeader("Authorization", "Bearer " + githubToken);
-  }
-
-  int code = http.GET();
-
-  if (code != 200) {
-    versionCheckError = "GitHub API Fehler " + String(code);
-    http.end();
-    return false;
-  }
-
-  // Wachsendes JsonDocument statt fester Kapazitaet, UND vorheriges Puffern
-  // in einen String statt direkt aus http.getStream() zu lesen - siehe
-  // ausfuehrlichen Kommentar in checkGithubUpdate(). Direktes Stream-Lesen
-  // ueber WiFiClientSecure/BearSSL fuehrt in der Praxis intermittierend zu
-  // "GitHub JSON Fehler", obwohl die Antwort vollstaendig gueltig ist.
-  String body = http.getString();
-  JsonDocument doc;
-  DeserializationError jsonErr = deserializeJson(doc, body);
-  http.end();
-
-  if (jsonErr) {
-    versionCheckError = "GitHub JSON Fehler";
-    return false;
-  }
-
-  String tag = String(doc["tag_name"] | "");
-  tag.trim();
-  if (tag.startsWith("v") || tag.startsWith("V")) tag = tag.substring(1);
-
-  if (tag.length() == 0) {
-    versionCheckError = "Kein gueltiges Release gefunden";
-    return false;
-  }
-
-  versionCheckLatest = tag;
-  versionCheckError = "";
-  return true;
 }
 
 // -----------------------------------------------------------------------------
@@ -2995,38 +3073,63 @@ static String resolveGithubDownloadUrl(const String &url) {
   return resolved;
 }
 
-bool performGithubUpdate(String url) {
+#define OTA_WDT_TIMEOUT_MS 240000UL   // 4 Min - grosszuegig ueber DNS+Redirect+TLS-Handshake (~30s worst case) und ueber dem 180s-Software-Haenger-Detektor in loop(), damit dessen Hinweistext im UI zuerst erscheint, bevor der harte Reboot greift
+#define DEFAULT_WDT_TIMEOUT_MS 5000UL // Projekt-Standard (siehe sdkconfig CONFIG_ESP_TASK_WDT_TIMEOUT_S=5), wird nach dem OTA-Versuch wiederhergestellt
+
+// Meldet den GitHub-OTA-Task beim ESP-IDF Task-Watchdog an, mit grosszuegigem
+// Timeout - reagiert der Task minutenlang gar nicht mehr (haengt z.B. in
+// einem Netzwerk-Timeout fest, ohne dass httpUpdate.onProgress() je feuert),
+// loest das automatisch einen Reboot aus, statt wie bisher einen manuellen
+// Stromausfall/Reset zu erfordern. Das ist sicher: Update.begin()/
+// Update.write() schreiben ausschliesslich in die inaktive Partition, der
+// eigentliche Boot-Partitions-Wechsel (esp_ota_set_boot_partition(), intern
+// in Update.end(true)) passiert erst NACH einem vollstaendig erfolgreichen
+// Abschluss - ein Reboot mitten im Download/Flash landet deshalb garantiert
+// wieder auf dem alten, bereits bestaetigten Image (kein Bricking moeglich).
+// WICHTIG: esp_task_wdt_init() darf hier NICHT aufgerufen werden - der
+// Watchdog ist bereits beim Boot durch den Arduino-Core aktiv (sdkconfig:
+// CONFIG_ESP_TASK_WDT_INIT=y), ein erneuter init()-Aufruf wuerde
+// ESP_ERR_INVALID_STATE liefern; esp_task_wdt_reconfigure() ist hier richtig.
+void otaWdtEnter() {
+  esp_task_wdt_config_t cfg = { OTA_WDT_TIMEOUT_MS, 1, true };
+  esp_task_wdt_reconfigure(&cfg);
+  esp_task_wdt_add(NULL);
+}
+void otaWdtFeed() {
+  esp_task_wdt_reset();
+}
+void otaWdtExit() {
+  esp_task_wdt_delete(NULL);
+  esp_task_wdt_config_t cfg = { DEFAULT_WDT_TIMEOUT_MS, 1, true };
+  esp_task_wdt_reconfigure(&cfg);
+}
+
+bool otaDownloadAndFlashGithub(String url) {
   if (url.length() == 0 || url.indexOf("github") < 0) {
-    lastError = "Ungueltige Update-URL";
+    ota.error = "Ungueltige Update-URL";
     return false;
   }
 
   if (apMode || WiFi.status() != WL_CONNECTED) {
-    lastError = "Kein Internet / AP Modus";
+    ota.error = "Kein Internet / AP Modus";
     return false;
   }
 
-  // TLS-Handshake + Update-Puffer brauchen realistisch mehrere zehn KB frei -
-  // ein Start mit zu wenig Heap fuehrt sonst zu einem schwer diagnostizierbaren
-  // Fehlschlag mitten im Download statt eines klaren Fehlers vorab.
-  if (ESP.getFreeHeap() < 40000) {
-    lastError = "Zu wenig freier Speicher fuer Update (" + String(ESP.getFreeHeap() / 1024) + " KB frei, mind. 40 KB noetig)";
-    return false;
-  }
+  // Heap-Schwellenwert wird bereits einmalig in otaTryAcquire() geprueft,
+  // bevor dieser Task ueberhaupt gestartet wird (siehe handleGithubUpdate()).
 
   String host = extractHostFromUrl(url);
-  otaLastDiag = otaPreflightDiag(host);
-  if (otaLastDiag.indexOf("fehlgeschlagen") >= 0) {
-    lastError = "DNS-Aufloesung fehlgeschlagen (" + otaLastDiag + ")";
+  ota.diag = otaPreflightDiag(host);
+  if (ota.diag.indexOf("fehlgeschlagen") >= 0) {
+    ota.error = "DNS-Aufloesung fehlgeschlagen (" + ota.diag + ")";
     return false;
   }
 
   httpUpdate.rebootOnUpdate(false);
   httpUpdate.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
   httpUpdate.onProgress([](int cur, int total) {
-    otaBytesWritten = cur;
-    otaBytesTotal = total;
-    otaHeartbeatMs = millis();
+    otaProgress(OtaOwner::Github, cur, total);
+    otaWdtFeed();
   });
 
   // Der Redirect-Hostwechsel wird jetzt vorab selbst aufgeloest
@@ -3036,6 +3139,7 @@ bool performGithubUpdate(String url) {
   // Zeit, sich von der vorherigen TLS-Sitzung zu erholen.
   const int maxAttempts = 4;
   for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+    otaWdtFeed(); // Watchdog-Reset zu Beginn jedes Versuchs, nicht nur bei onProgress()-Ticks
     {
       // Redirect selbst aufloesen (siehe resolveGithubDownloadUrl()), damit
       // httpUpdate.update() nie den Host wechseln muss - frisch pro Versuch,
@@ -3049,10 +3153,8 @@ bool performGithubUpdate(String url) {
       // vertrauen - verhindert, dass ein einzelner Verbindungsversuch
       // unbegrenzt haengen bleibt und den ganzen OTA-Task blockiert.
       client.setHandshakeTimeout(12000);
-      otaBytesWritten = 0;
-      otaBytesTotal = 0;
-      otaHeartbeatMs = millis();
-      otaLastDiag = otaPreflightDiag(downloadHost) + ", Versuch " + String(attempt) + "/" + String(maxAttempts);
+      otaProgress(OtaOwner::Github, 0, 0);
+      ota.diag = otaPreflightDiag(downloadHost) + ", Versuch " + String(attempt) + "/" + String(maxAttempts);
 
       t_httpUpdate_return ret = httpUpdate.update(client, downloadUrl);
       client.stop();
@@ -3061,7 +3163,7 @@ bool performGithubUpdate(String url) {
         return true;
       }
 
-      lastError = "Update fehlgeschlagen (Versuch " + String(attempt) + "/" + String(maxAttempts) + "): " + httpUpdate.getLastErrorString() + " [" + otaLastDiag + "]";
+      ota.error = "Update fehlgeschlagen (Versuch " + String(attempt) + "/" + String(maxAttempts) + "): " + httpUpdate.getLastErrorString() + " [" + ota.diag + "]";
     }
     // client explizit vor der Pause aus dem Scope laufen lassen, damit der
     // TLS-Speicher (mbedTLS-Puffer, ~40KB je Sitzung) sicher freigegeben ist,
@@ -3078,19 +3180,18 @@ bool performGithubUpdate(String url) {
 // Laeuft in einem eigenen FreeRTOS-Task, damit server.handleClient() im
 // Hauptloop waehrend des Downloads weiterlaeuft und /otaprogress bedienen
 // kann. otaPendingUrl wird von handleGithubUpdate() vor dem Task-Start gesetzt.
-void otaUpdateTask(void *param) {
-  otaHeartbeatMs = millis();
-  bool ok = performGithubUpdate(otaPendingUrl);
-
-  otaTaskSuccess = ok;
-  otaTaskError = lastError;
-  otaHeartbeatMs = millis();
-  otaTaskDone = true;
-  otaTaskRunning = false;
+void otaGithubTask(void *param) {
+  otaWdtEnter();
+  otaSetPhase(OtaOwner::Github, OtaPhase::Downloading);
+  bool ok = otaDownloadAndFlashGithub(otaPendingUrl);
+  otaWdtExit();
 
   if (ok) {
+    otaFinishSuccess(OtaOwner::Github);
     delay(800);
     ESP.restart();
+  } else {
+    otaFail(OtaOwner::Github, ota.error);
   }
 
   vTaskDelete(NULL);
@@ -9258,23 +9359,23 @@ void handleCheckGithubUpdate() {
   // Waehrend ein Update laeuft keine weitere HTTPS-Sitzung zu api.github.com
   // eroeffnen - konkurriert sonst um denselben knappen Heap wie der
   // eigentliche Download (siehe Kommentar in loop()).
-  if (otaTaskRunning) {
+  if (ota.owner != OtaOwner::None) {
     String json = "{\"ok\":false,\"currentVersion\":\"" + jsEscape(String(FIRMWARE_VERSION)) + "\",\"latestVersion\":\"\",\"updateAvailable\":false,\"downloadUrl\":\"\",\"error\":\"Ein Update laeuft bereits\"}";
     server.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
     server.send(200, "application/json", json);
     return;
   }
 
-  bool ok = checkGithubUpdate();
-  bool updateAvailable = ok && githubLatestVersion.length() > 0 && githubLatestVersion != String(FIRMWARE_VERSION);
+  bool ok = otaCheckLatest(/*withRetryAndDiag=*/true);
+  bool updateAvailable = ok && ota.latestVersion.length() > 0 && ota.latestVersion != String(FIRMWARE_VERSION);
 
   String json = "{";
   json += "\"ok\":" + String(ok ? "true" : "false") + ",";
   json += "\"currentVersion\":\"" + jsEscape(String(FIRMWARE_VERSION)) + "\",";
-  json += "\"latestVersion\":\"" + jsEscape(githubLatestVersion) + "\",";
+  json += "\"latestVersion\":\"" + jsEscape(ota.latestVersion) + "\",";
   json += "\"updateAvailable\":" + String(updateAvailable ? "true" : "false") + ",";
-  json += "\"downloadUrl\":\"" + jsEscape(githubLatestUrl) + "\",";
-  json += "\"error\":\"" + jsEscape(lastError) + "\"";
+  json += "\"downloadUrl\":\"" + jsEscape(ota.latestUrl) + "\",";
+  json += "\"error\":\"" + jsEscape(ota.checkError) + "\"";
   json += "}";
 
   server.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
@@ -9288,22 +9389,22 @@ void handleVersionCheck() {
   // zusaetzlich automatisch alle 10 Minuten von JEDER geladenen Seite
   // aufgerufen, koennte also auch unbemerkt waehrend eines laufenden Updates
   // feuern, wenn dieser Schutz fehlen wuerde.
-  if (otaTaskRunning) {
+  if (ota.owner != OtaOwner::None) {
     String json = "{\"ok\":false,\"currentVersion\":\"" + jsEscape(String(FIRMWARE_VERSION)) + "\",\"latestVersion\":\"\",\"updateAvailable\":false,\"error\":\"Ein Update laeuft bereits\"}";
     server.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
     server.send(200, "application/json", json);
     return;
   }
 
-  bool ok = checkGithubUpdateQuiet();
-  bool updateAvailable = ok && versionCheckLatest.length() > 0 && versionCheckLatest != String(FIRMWARE_VERSION);
+  bool ok = otaCheckLatest(/*withRetryAndDiag=*/false);
+  bool updateAvailable = ok && ota.latestVersion.length() > 0 && ota.latestVersion != String(FIRMWARE_VERSION);
 
   String json = "{";
   json += "\"ok\":" + String(ok ? "true" : "false") + ",";
   json += "\"currentVersion\":\"" + jsEscape(String(FIRMWARE_VERSION)) + "\",";
-  json += "\"latestVersion\":\"" + jsEscape(versionCheckLatest) + "\",";
+  json += "\"latestVersion\":\"" + jsEscape(ota.latestVersion) + "\",";
   json += "\"updateAvailable\":" + String(updateAvailable ? "true" : "false") + ",";
-  json += "\"error\":\"" + jsEscape(versionCheckError) + "\"";
+  json += "\"error\":\"" + jsEscape(ota.checkError) + "\"";
   json += "}";
 
   server.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
@@ -9313,7 +9414,7 @@ void handleVersionCheck() {
 void handleGithubUpdate() {
   if (!checkAuth()) return;
 
-  if (otaTaskRunning) {
+  if (ota.owner != OtaOwner::None) {
     server.send(200, "application/json", "{\"ok\":false,\"error\":\"Update laeuft bereits\"}");
     return;
   }
@@ -9321,31 +9422,31 @@ void handleGithubUpdate() {
   // Absichtlich KEINE clientseitig uebergebene URL mehr akzeptieren (frueher
   // server.arg("url") bevorzugt) - ein Client koennte damit eine beliebige
   // URL zum Herunterladen/Flashen vorgeben, nur grob per Teilstring-Pruefung
-  // auf "github" in performGithubUpdate() gefiltert. Stattdessen immer die
-  // servereigene, bereits verifizierte githubLatestUrl verwenden (bei Bedarf
-  // erst per checkGithubUpdate() aktualisieren).
-  if (githubLatestUrl.length() == 0) {
-    checkGithubUpdate();
+  // auf "github" gefiltert. Stattdessen immer die servereigene, bereits
+  // verifizierte ota.latestUrl verwenden (bei Bedarf erst per
+  // otaCheckLatest() aktualisieren).
+  if (ota.latestUrl.length() == 0) {
+    otaCheckLatest(/*withRetryAndDiag=*/true);
   }
-  String url = githubLatestUrl;
+  String url = ota.latestUrl;
 
   if (url.length() == 0) {
     server.send(200, "application/json", "{\"ok\":false,\"error\":\"Keine Update-URL - zuerst auf Updates pruefen\"}");
     return;
   }
 
+  String rejection = otaTryAcquire(OtaOwner::Github);
+  if (rejection.length() > 0) {
+    server.send(200, "application/json", "{\"ok\":false,\"error\":\"" + jsEscape(rejection) + "\"}");
+    return;
+  }
+
   otaPendingUrl = url;
-  otaBytesWritten = 0;
-  otaBytesTotal = 0;
-  otaTaskDone = false;
-  otaTaskSuccess = false;
-  otaTaskError = "";
-  otaTaskRunning = true;
 
   // Eigener Task, damit der Webserver waehrend des Downloads erreichbar
   // bleibt und /otaprogress den Fortschritt live zurueckgeben kann.
   // Prioritaet 5 damit TLS nicht durch andere Tasks unterbrochen wird (max=25)
-  xTaskCreate(otaUpdateTask, "otaUpdateTask", 16384, NULL, 5, NULL);
+  xTaskCreate(otaGithubTask, "otaGithubTask", 16384, NULL, 5, NULL);
 
   server.send(200, "application/json", "{\"ok\":true,\"started\":true}");
 }
@@ -9354,22 +9455,24 @@ void handleOtaProgress() {
   if (!checkAuth()) return;
 
   int percent = -1;
-  if (otaBytesTotal > 0) {
-    percent = (int)(((long)otaBytesWritten * 100L) / otaBytesTotal);
+  if (ota.bytesTotal > 0) {
+    percent = (int)(((long)ota.bytesWritten * 100L) / ota.bytesTotal);
   }
 
-  unsigned long heartbeatAge = (otaHeartbeatMs > 0) ? (millis() - otaHeartbeatMs) / 1000 : 0;
+  bool running = (ota.owner != OtaOwner::None);
+  bool done = (ota.phase == OtaPhase::Failed || ota.phase == OtaPhase::Rebooting);
+  unsigned long heartbeatAge = (ota.heartbeatMs > 0) ? (millis() - ota.heartbeatMs) / 1000 : 0;
 
   String json = "{";
-  json += "\"running\":" + String(otaTaskRunning ? "true" : "false") + ",";
-  json += "\"done\":" + String(otaTaskDone ? "true" : "false") + ",";
-  json += "\"success\":" + String(otaTaskSuccess ? "true" : "false") + ",";
-  json += "\"bytesWritten\":" + String(otaBytesWritten) + ",";
-  json += "\"bytesTotal\":" + String(otaBytesTotal) + ",";
+  json += "\"running\":" + String(running ? "true" : "false") + ",";
+  json += "\"done\":" + String(done ? "true" : "false") + ",";
+  json += "\"success\":" + String(ota.success ? "true" : "false") + ",";
+  json += "\"bytesWritten\":" + String(ota.bytesWritten) + ",";
+  json += "\"bytesTotal\":" + String(ota.bytesTotal) + ",";
   json += "\"percent\":" + String(percent) + ",";
   json += "\"heartbeatAge\":" + String(heartbeatAge) + ",";
-  json += "\"diag\":\"" + jsEscape(otaLastDiag) + "\",";
-  json += "\"error\":\"" + jsEscape(otaTaskError) + "\"";
+  json += "\"diag\":\"" + jsEscape(ota.diag) + "\",";
+  json += "\"error\":\"" + jsEscape(ota.error) + "\"";
   json += "}";
 
   server.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
@@ -9382,69 +9485,56 @@ void handleUploadFirmwareData() {
   HTTPUpload& upload = server.upload();
 
   if (upload.status == UPLOAD_FILE_START) {
-    otaBytesWritten = 0;
-    otaBytesTotal = 0;
-    otaTaskError = "";
-    otaManualUploadActive = false;
-
-    // Denselben otaTaskRunning-Schutz wie der GitHub-OTA-Pfad nutzen, damit
-    // beide Wege sich nicht gegenseitig ins Gehege kommen (sonst koennten
-    // zwei gleichzeitige Update.begin()-Aufrufe dieselbe OTA-Partition
-    // beschreiben).
-    if (otaTaskRunning) {
-      otaTaskError = "Ein anderes Update laeuft bereits - bitte warten";
-      return;
-    }
-    if (ESP.getFreeHeap() < 40000) {
-      otaTaskError = "Zu wenig freier Speicher fuer Update (" + String(ESP.getFreeHeap() / 1024) + " KB frei, mind. 40 KB noetig)";
-      return;
-    }
-
-    otaTaskRunning = true;
-    otaManualUploadActive = true;
-    otaHeartbeatMs = millis();
+    // Denselben Sperren-Mechanismus wie der GitHub-OTA-Pfad nutzen (inkl.
+    // Heap-Schwellenwert, siehe otaTryAcquire()), damit beide Wege sich
+    // nicht gegenseitig ins Gehege kommen (sonst koennten zwei gleichzeitige
+    // Update.begin()-Aufrufe dieselbe OTA-Partition beschreiben).
+    otaUploadPreflightRejection = otaTryAcquire(OtaOwner::ManualUpload);
+    if (otaUploadPreflightRejection.length() > 0) return; // Sperre nicht erhalten - ab hier nichts an ota.* schreiben
+    otaSetPhase(OtaOwner::ManualUpload, OtaPhase::Uploading);
     if (!Update.begin(UPDATE_SIZE_UNKNOWN)) {
-      otaTaskError = "Update.begin fehlgeschlagen: " + String(Update.errorString());
+      otaFail(OtaOwner::ManualUpload, "Update.begin fehlgeschlagen: " + String(Update.errorString()));
     }
   } else if (upload.status == UPLOAD_FILE_WRITE) {
-    if (!otaManualUploadActive || otaTaskError.length() > 0) return;
+    if (ota.owner != OtaOwner::ManualUpload || ota.error.length() > 0) return;
     if (Update.write(upload.buf, upload.currentSize) != upload.currentSize) {
-      otaTaskError = "Update.write fehlgeschlagen: " + String(Update.errorString());
+      otaFail(OtaOwner::ManualUpload, "Update.write fehlgeschlagen: " + String(Update.errorString()));
+    } else {
+      otaProgress(OtaOwner::ManualUpload, ota.bytesWritten + upload.currentSize, ota.bytesWritten + upload.currentSize);
     }
-    otaBytesWritten += upload.currentSize;
-    otaBytesTotal = otaBytesWritten;
-    otaHeartbeatMs = millis();
   } else if (upload.status == UPLOAD_FILE_END) {
-    // Nur die Sperre wieder freigeben, wenn dieser Upload sie selbst gesetzt
-    // hat (nicht ein fremdes, gerade laufendes GitHub-Update).
-    if (otaManualUploadActive) {
-      if (otaTaskError.length() == 0 && !Update.end(true)) {
-        otaTaskError = "Update.end fehlgeschlagen: " + String(Update.errorString());
-      }
-      otaTaskRunning = false;
-      otaManualUploadActive = false;
+    if (ota.owner != OtaOwner::ManualUpload) return;
+    otaSetPhase(OtaOwner::ManualUpload, OtaPhase::Flashing);
+    if (ota.error.length() == 0 && Update.end(true)) {
+      otaFinishSuccess(OtaOwner::ManualUpload);
+    } else {
+      otaFail(OtaOwner::ManualUpload, ota.error.length() > 0 ? ota.error : ("Update.end fehlgeschlagen: " + String(Update.errorString())));
     }
   } else if (upload.status == UPLOAD_FILE_ABORTED) {
-    // otaTaskError ist global/geteilt - darf nur ueberschrieben werden, wenn
-    // DIESER Upload die Sperre tatsaechlich hielt. Sonst wuerde ein abgebrochener,
-    // von vornherein abgewiesener Upload (weil z.B. gerade ein GitHub-Update
-    // lief) dessen echten Fehlerstatus mit "Upload abgebrochen" ueberschreiben.
-    if (otaManualUploadActive) {
+    // Update.abort() nur aufrufen, wenn DIESER Upload die Sperre tatsaechlich
+    // haelt - sonst wuerde ein von vornherein abgewiesener Upload (weil z.B.
+    // gerade ein GitHub-Update lief) in dessen laufende Update-Sitzung
+    // hineinfunken. otaFail() prueft die Eigentuemerschaft selbst und ist
+    // deshalb als einziger der beiden Aufrufe hier unconditional sicher -
+    // der historische Bug (abgebrochener, abgewiesener Upload ueberschreibt
+    // den Fehlertext eines fremden laufenden Updates) ist dadurch strukturell
+    // unmoeglich, nicht nur per Konvention vermieden.
+    if (ota.owner == OtaOwner::ManualUpload) {
       Update.abort();
-      otaTaskRunning = false;
-      otaManualUploadActive = false;
-      otaTaskError = "Upload abgebrochen";
     }
+    otaFail(OtaOwner::ManualUpload, "Upload abgebrochen");
   }
 }
 
 void handleUploadFirmware() {
   if (!checkAuth()) return;
 
-  bool ok = (otaTaskError.length() == 0) && !Update.hasError();
+  bool ok = (otaUploadPreflightRejection.length() == 0) && ota.success;
+  String err = (otaUploadPreflightRejection.length() > 0) ? otaUploadPreflightRejection : ota.error;
+
   String json = "{\"ok\":" + String(ok ? "true" : "false");
   if (!ok) {
-    json += ",\"error\":\"" + jsEscape(otaTaskError.length() > 0 ? otaTaskError : String(Update.errorString())) + "\"";
+    json += ",\"error\":\"" + jsEscape(err) + "\"";
   }
   json += "}";
 
@@ -10193,7 +10283,7 @@ String htmlHeader(String title) {
   // Kein Auto-Reload waehrend ein OTA-Update laeuft, sonst wird die
   // Fortschrittsanzeige (pollGhProgress) durch den Seiten-Neuladevorgang
   // mitten im Update abgebrochen.
-  if (!otaTaskRunning) {
+  if (ota.owner == OtaOwner::None) {
     html += "<meta http-equiv='refresh' content='60'>";
   }
   html += "<title>";
@@ -10729,8 +10819,8 @@ async function startGhUpdate() {
 
 // Falls diese Seite waehrend eines laufenden Updates (neu) geladen wurde -
 // z.B. weil der 60s-Seiten-Auto-Reload (siehe htmlHeader()) mitten in einem
-// Download feuerte, bevor der Server otaTaskRunning=true zurueckmelden
-// konnte, oder weil der Nutzer manuell weg- und zurueck-navigiert ist -
+// Download feuerte, bevor der Server den Update-Vorgang als laufend
+// zurueckmelden konnte, oder weil der Nutzer manuell weg- und zurueck-navigiert ist -
 // Fortschritts-UI direkt wieder anzeigen und Polling fortsetzen, statt einen
 // scheinbar zurueckgesetzten Zustand zu zeigen, waehrend im Hintergrund
 // tatsaechlich noch ein Update laeuft.
