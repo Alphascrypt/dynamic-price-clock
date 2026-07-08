@@ -83,7 +83,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "3.4.0"
+#define FIRMWARE_VERSION "3.4.1"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -4787,7 +4787,13 @@ void handleRoot() {
 .kw-arrange-mode .kw-resize{display:block}
 .kw-gauge .panelTitle{margin-bottom:6px;flex:0 0 auto}
 .kw-gauge .gaugeWrap{flex:1;min-height:0;display:flex;align-items:center;justify-content:center}
-.kw-gauge .gaugeWrap svg{width:100%;max-width:420px;height:auto}
+/* width:100%;height:auto skaliert die SVG NUR anhand der verfuegbaren
+   Breite - wenn die Box (durch feste Reihenhoehen im Grid) nicht genau das
+   Seitenverhaeltnis der SVG hat, ragt die dadurch zu hoch berechnete SVG
+   ueber die Titelzeile hinaus. width:100%;height:100% (wie bei Kiosk 1/2)
+   laesst die SVG stattdessen per eingebautem preserveAspectRatio in BEIDE
+   Richtungen passend einskalieren, ohne zu ueberlappen. */
+.kw-gauge .gaugeWrap svg{width:100%;height:100%;max-width:420px}
 .kw-chart{min-height:180px}
 .kw-chart svg{width:100%;height:100%;display:block;flex:1;min-height:0}
 .hw-chart-wrap{position:relative;flex:1;min-height:0;width:100%;touch-action:none;cursor:crosshair}
@@ -6851,7 +6857,10 @@ void handleLivePower() {
     else if (kw >= livePowerGreenKw) zone = "zm";
   }
 
-  String json = "{\"text\":\"" + jsonEscapeValue(text) + "\",\"pct\":" + String(pct, 1) + ",\"zone\":\"" + zone + "\",\"max\":" + String(livePowerMaxKw, 1) + "}";
+  // "value" liefert den Verbrauchswert OHNE das Blitz-Icon (im Unterschied
+  // zu "text") - wird von der Startseite gebraucht, die Icon und Wert in
+  // getrennten Elementen (pg-label/pg-value) anzeigt statt in einer Zeile.
+  String json = "{\"text\":\"" + jsonEscapeValue(text) + "\",\"value\":\"" + jsonEscapeValue(formatLivePowerValue()) + "\",\"pct\":" + String(pct, 1) + ",\"zone\":\"" + zone + "\",\"max\":" + String(livePowerMaxKw, 1) + "}";
 
   server.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
   server.send(200, "application/json", json);
@@ -9725,9 +9734,21 @@ function toggleTheme() {
 (function(){
   var el = document.getElementById('livePowerBadge');
   if (!el) return;
+  // WICHTIG: dieser Poller darf NICHT einfach data.text als kompletten
+  // innerHTML-Ersatz einsetzen - der Server rendert beim ersten Laden die
+  // volle Karte (Label + grosser Wert + Farbbalken + Skala, siehe
+  // liveHomeText in handleRoot()), ein blosser Text-Dump wuerde das nach
+  // 2.5s durch eine einzelne Zeile ersetzen und den Rest der Box leer
+  // zuruecklassen. Stattdessen dieselbe Struktur wie serverseitig neu
+  // aufbauen.
   function poll(){
     fetch('/livepower').then(function(r){ return r.json(); }).then(function(data){
-      el.innerHTML = data.text || '';
+      if (!data.text) { el.innerHTML = ''; return; }
+      var pct = (typeof data.pct === 'number' && data.pct >= 0) ? data.pct : 0;
+      var zone = (typeof data.zone === 'string') ? data.zone : 'zc';
+      var max = (typeof data.max === 'number' && data.max > 0) ? data.max : 10;
+      var maxStr = (max === Math.floor(max)) ? max.toFixed(0) : max.toFixed(1);
+      el.innerHTML = "<div class='pg-label'>&#9889; Aktueller Verbrauch</div><div class='pg-value'>" + (data.value || '') + "</div><div class='pg-track'><div class='pg-fill " + zone + "' style='width:" + pct.toFixed(1) + "%'></div><div class='pg-marker' style='left:" + pct.toFixed(1) + "%'></div></div><div class='pg-scale'><span>0</span><span>" + maxStr + " kW</span></div>";
     }).catch(function(e){ /* naechster Versuch beim naechsten Intervall */ });
   }
   poll();
