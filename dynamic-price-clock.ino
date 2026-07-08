@@ -82,7 +82,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "3.1.1"
+#define FIRMWARE_VERSION "3.2.0"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -4629,6 +4629,11 @@ void handleRoot() {
 .kw-gauge .gaugeWrap svg{width:100%;max-width:420px;height:auto}
 .kw-chart{min-height:180px}
 .kw-chart svg{width:100%;height:100%;display:block;flex:1;min-height:0}
+.hw-chart-wrap{position:relative;flex:1;min-height:0;width:100%;touch-action:none;cursor:crosshair}
+.hw-chart-wrap svg{width:100%;height:100%;display:block}
+.hw-chart-wrap .kiosk-crosshair-line{stroke:var(--muted);stroke-width:1;stroke-dasharray:4,4;opacity:0;pointer-events:none}
+.hw-chart-wrap .kiosk-crosshair-dot{fill:var(--accent);stroke:var(--card);stroke-width:2;opacity:0;pointer-events:none}
+.hw-chart-tooltip{position:absolute;transform:translate(-50%,-115%);background:var(--card);border:1px solid var(--surface-border);border-radius:12px;padding:6px 12px;font-size:13px;font-weight:600;white-space:nowrap;pointer-events:none;opacity:0;color:var(--text);box-shadow:0 8px 24px var(--shadow-hover)}
 .kw-metrics .gridCards{margin:0;height:100%;grid-template-columns:repeat(auto-fit,minmax(140px,1fr))}
 .kw-livepower{align-items:center;justify-content:center}
 .kw-livepower .live-power{margin:0;padding:0;background:transparent;max-width:none}
@@ -4704,8 +4709,12 @@ void handleRoot() {
   // Widget 2: Preisverlauf-Diagramm
   html += "<div class='kw kw-chart' data-idx='2'>";
   html += "<div class='panelTitle'><h2>Preisverlauf</h2><span class='badge okb'>" + String(quarterCount) + " Slots</span></div>";
+  html += "<div class='hw-chart-wrap' id='hwChartWrap'>";
   html += buildSvgChart();
-  html += "<div style='display:flex;flex-wrap:wrap;gap:14px;margin-top:10px;font-size:12px;color:var(--muted)'>";
+  html += "<div class='hw-chart-tooltip' id='hwChartTooltip'></div>";
+  html += "</div>";
+  html += "<p class='small' style='margin-top:6px'>Mit Finger oder Maus über das Diagramm fahren, um Preise zu sehen.</p>";
+  html += "<div style='display:flex;flex-wrap:wrap;gap:14px;margin-top:4px;font-size:12px;color:var(--muted)'>";
   html += "<span><span style='display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--accent);margin-right:5px'></span>Preis</span>";
   html += "<span><span style='display:inline-block;width:10px;height:10px;border-radius:50%;background:#34C759;margin-right:5px'></span>Jetzt</span>";
   html += "<span><span style='display:inline-block;width:10px;height:10px;border-radius:50%;background:#FFD60A;margin-right:5px'></span>Tiefstpreis (60 Min)</span>";
@@ -4839,6 +4848,8 @@ setInterval(updatePriceBadge,10000);
 
   html += "<script src='/widget-engine.js'></script>";
   html += "<script>var homeData = " + kioskLayoutJson(homeLayout, HOME_WIDGET_KEYS, HOME_WIDGET_LABELS, HOME_WIDGET_COUNT) + ";</script>";
+  html += "<script>var hwChartPoints = " + buildChartPointsJson() + ";";
+  html += "WidgetGridEngine.createChartCrosshair('priceChartSvg', 'hwChartWrap', 'hwChartTooltip', function(){ return hwChartPoints; });</script>";
   html += R"JS(<script>
 var kwArrangeMode = false;
 var kwController = null;
@@ -4865,7 +4876,13 @@ function kwSaveOne(i){
   body.set('rowStart', item.rowStart);
   body.set('rowSpan', item.rowSpan);
   body.set('visible', item.visible ? '1' : '0');
-  return fetch('/savekiosklayoutajax', { method: 'POST', headers: {'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'}, body: body.toString() })
+  // keepalive: true - der Request darf ueberleben, auch wenn der Nutzer direkt
+  // nach dem Ziehen zu einer anderen Seite navigiert (z.B. zur Konto-Seite, um
+  // ein Firmware-Update zu starten) - sonst kann der Browser die noch laufende
+  // Speicher-Anfrage abbrechen, bevor sie den Server erreicht, und die neue
+  // Position geht scheinbar "nach dem Update" verloren (tatsaechlich wurde sie
+  // nie gespeichert).
+  return fetch('/savekiosklayoutajax', { method: 'POST', keepalive: true, headers: {'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'}, body: body.toString() })
     .then(function(r){ return r.json(); })
     .then(function(d){ return !!d.ok; })
     .catch(function(){ return false; });
@@ -5929,7 +5946,13 @@ function kioskArrangeSaveOne(i){
   body.set('rowStart', item.rowStart);
   body.set('rowSpan', item.rowSpan);
   body.set('visible', item.visible ? '1' : '0');
-  return fetch('/savekiosklayoutajax', { method: 'POST', headers: {'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'}, body: body.toString() })
+  // keepalive: true - der Request darf ueberleben, auch wenn der Nutzer direkt
+  // nach dem Ziehen zu einer anderen Seite navigiert (z.B. zur Konto-Seite, um
+  // ein Firmware-Update zu starten) - sonst kann der Browser die noch laufende
+  // Speicher-Anfrage abbrechen, bevor sie den Server erreicht, und die neue
+  // Position geht scheinbar "nach dem Update" verloren (tatsaechlich wurde sie
+  // nie gespeichert).
+  return fetch('/savekiosklayoutajax', { method: 'POST', keepalive: true, headers: {'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'}, body: body.toString() })
     .then(function(r){ return r.json(); }).then(function(d){ return !!d.ok; }).catch(function(){ return false; });
 }
 
@@ -5999,94 +6022,9 @@ function updateKioskClock(){
 updateKioskClock();
 setInterval(updateKioskClock, 1000);
 
-var kioskSvg = null, kioskChartWrapEl = null, kioskTooltipEl = null, kioskVLine = null, kioskDot = null;
-
-// Haengt Fadenkreuz-Linie/-Punkt an das (ggf. gerade per AJAX neu eingesetzte)
-// Diagramm-SVG an. Wird beim ersten Laden und nach jedem refreshKioskData()
-// erneut aufgerufen, weil chartSvg dabei komplett ersetzt wird.
-function attachKioskChartCrosshair(){
-  kioskSvg = document.getElementById('priceChartSvg');
-  kioskTooltipEl = document.getElementById('kioskTooltip');
-  if (!kioskSvg || !kioskTooltipEl) return;
-
-  var svgNs = 'http://www.w3.org/2000/svg';
-  kioskVLine = document.createElementNS(svgNs, 'line');
-  kioskVLine.setAttribute('class', 'kiosk-crosshair-line');
-  kioskVLine.setAttribute('y1', '25');
-  kioskVLine.setAttribute('y2', '265');
-  kioskSvg.appendChild(kioskVLine);
-
-  kioskDot = document.createElementNS(svgNs, 'circle');
-  kioskDot.setAttribute('class', 'kiosk-crosshair-dot');
-  kioskDot.setAttribute('r', '6');
-  kioskSvg.appendChild(kioskDot);
-}
-
-function kioskNearestPoint(svgX){
-  var best = kioskChartPoints[0];
-  var bestDist = Math.abs(best.x - svgX);
-  for (var i = 1; i < kioskChartPoints.length; i++) {
-    var d = Math.abs(kioskChartPoints[i].x - svgX);
-    if (d < bestDist) { bestDist = d; best = kioskChartPoints[i]; }
-  }
-  return best;
-}
-
-// Das Diagramm-Widget kann jetzt frei in Groesse/Seitenverhaeltnis
-// veraendert werden, deshalb passt das SVG (viewBox 760x320) per Default
-// preserveAspectRatio="xMidYMid meet" oft mit Letterboxing rein - die
-// tatsaechliche Inhaltsflaeche ist dann kleiner als die Bounding-Box.
-function getSvgContentRect(svg){
-  var rect = svg.getBoundingClientRect();
-  var vb = svg.viewBox && svg.viewBox.baseVal;
-  if (!vb || !vb.width || !vb.height || !rect.width || !rect.height) return rect;
-  var scale = Math.min(rect.width / vb.width, rect.height / vb.height);
-  var contentW = vb.width * scale;
-  var contentH = vb.height * scale;
-  return {
-    left: rect.left + (rect.width - contentW) / 2,
-    top: rect.top + (rect.height - contentH) / 2,
-    width: contentW,
-    height: contentH
-  };
-}
-
-function kioskShowCrosshairAt(clientX, clientY){
-  if (!kioskSvg || !kioskChartPoints || !kioskChartPoints.length) return;
-  var rect = getSvgContentRect(kioskSvg);
-  var svgX = (clientX - rect.left) / rect.width * 760;
-  var pt = kioskNearestPoint(svgX);
-
-  kioskVLine.setAttribute('x1', pt.x);
-  kioskVLine.setAttribute('x2', pt.x);
-  kioskVLine.style.opacity = '1';
-  kioskDot.setAttribute('cx', pt.x);
-  kioskDot.setAttribute('cy', pt.y);
-  kioskDot.style.opacity = '1';
-
-  var dotClientX = rect.left + (pt.x / 760) * rect.width;
-  var dotClientY = rect.top + (pt.y / 320) * rect.height;
-  var wrapRect = kioskChartWrapEl.getBoundingClientRect();
-  kioskTooltipEl.style.left = (dotClientX - wrapRect.left) + 'px';
-  kioskTooltipEl.style.top = (dotClientY - wrapRect.top) + 'px';
-  kioskTooltipEl.innerText = pt.p + ' ct um ' + pt.t;
-  kioskTooltipEl.style.opacity = '1';
-}
-
-function kioskHideCrosshair(){
-  if (kioskVLine) kioskVLine.style.opacity = '0';
-  if (kioskDot) kioskDot.style.opacity = '0';
-  if (kioskTooltipEl) kioskTooltipEl.style.opacity = '0';
-}
-
-kioskChartWrapEl = document.getElementById('kioskChartWrap');
+var kioskChartWrapEl = document.getElementById('kioskChartWrap');
 var kioskGaugeWrapEl = document.getElementById('kioskGaugeWrap');
-attachKioskChartCrosshair();
-if (kioskChartWrapEl) {
-  kioskChartWrapEl.addEventListener('pointermove', function(e){ kioskShowCrosshairAt(e.clientX, e.clientY); });
-  kioskChartWrapEl.addEventListener('pointerdown', function(e){ kioskShowCrosshairAt(e.clientX, e.clientY); });
-  kioskChartWrapEl.addEventListener('pointerleave', kioskHideCrosshair);
-}
+var kioskCrosshair = WidgetGridEngine.createChartCrosshair('priceChartSvg', 'kioskChartWrap', 'kioskTooltip', function(){ return kioskChartPoints; });
 
 // Statt eines vollen Seiten-Reloads (das den Vollbildmodus beenden wuerde,
 // weil requestFullscreen() eine Nutzer-Geste braucht) werden die Preisdaten
@@ -6101,7 +6039,7 @@ function refreshKioskData(){
     if (kioskChartWrapEl) {
       kioskChartWrapEl.innerHTML = data.chartSvg + "<div class='kiosk-tooltip' id='kioskTooltip'></div>";
       kioskChartPoints = data.chartPoints;
-      attachKioskChartCrosshair();
+      kioskCrosshair.reattach();
     }
 
     var lowEl = document.getElementById('kioskLowText');
@@ -6228,8 +6166,12 @@ void handleKiosk2Page() {
   html += ".kiosk-date{font-size:clamp(8px,4cqi,15px);color:rgba(255,255,255,.65);margin-top:4px;text-transform:capitalize;font-weight:500}";
   html += ".kw-pricegauge .priceRing{max-width:100%;padding:0}";
   html += ".kw-pricegauge svg{background:transparent!important;border:0!important;border-radius:0!important;margin:0!important;box-shadow:none!important}";
-  html += ".kw-pricechart{padding:clamp(6px,3cqi,12px)}";
+  html += ".kw-pricechart{padding:clamp(6px,3cqi,12px);touch-action:none;cursor:crosshair}";
   html += ".kw-pricechart svg{width:100%;height:100%;display:block;background:transparent!important;border:0!important;border-radius:0!important;margin:0!important;box-shadow:none!important}";
+  html += "#efChartCard{position:relative}";
+  html += ".kiosk-crosshair-line{stroke:rgba(255,255,255,.5);stroke-width:1;stroke-dasharray:4,4;opacity:0;pointer-events:none}";
+  html += ".kiosk-crosshair-dot{fill:#fff;stroke:rgba(0,0,0,.4);stroke-width:2;opacity:0;pointer-events:none}";
+  html += ".kiosk-tooltip{position:absolute;transform:translate(-50%,-115%);background:rgba(30,30,40,.9);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,.15);border-radius:12px;padding:6px 12px;font-size:13px;font-weight:600;white-space:nowrap;pointer-events:none;opacity:0;color:#fff;box-shadow:0 8px 24px rgba(0,0,0,.4)}";
   html += ".ef-icon{font-size:clamp(16px,16cqi,38px);line-height:1}";
   html += ".ef-label{font-size:clamp(8px,5cqi,12px);color:rgba(255,255,255,.6);text-transform:uppercase;letter-spacing:.5px;font-weight:600}";
   html += ".ef-value{font-size:clamp(14px,13cqi,32px);font-weight:700;color:#fff;letter-spacing:-0.5px;font-variant-numeric:tabular-nums;display:flex;align-items:center;gap:6px}";
@@ -6273,7 +6215,7 @@ void handleKiosk2Page() {
   html += "<div class='kiosk-canvas' id='kioskCanvas'>";
   html += "<div class='kw kw-clock' data-idx='0'><div class='kiosk-time' id='kioskTime'>--:--</div><div class='kiosk-date' id='kioskDate'></div><span class='kw-resize'></span></div>";
   html += "<div class='kw kw-pricegauge' data-idx='1'><div id='efGaugeCard'>" + buildPriceGaugeSvg() + "</div><span class='kw-resize'></span></div>";
-  html += "<div class='kw kw-pricechart' data-idx='2'><div id='efChartCard'>" + buildSvgChart(chartLine, chartFill) + "</div><span class='kw-resize'></span></div>";
+  html += "<div class='kw kw-pricechart' data-idx='2'><div id='efChartCard'>" + buildSvgChart(chartLine, chartFill) + "<div class='kiosk-tooltip' id='efTooltip'></div></div><span class='kw-resize'></span></div>";
   html += "<div class='kw kw-pv' data-idx='3'><div class='ef-icon'>&#9728;&#65039;</div><div class='ef-label'>PV-Erzeugung</div><div class='ef-value'><span id='efPv'>-- W</span><span class='ef-flow pv' id='efFlowPv'>&#8595;</span></div><span class='kw-resize'></span></div>";
   html += "<div class='kw kw-battery' data-idx='4'><div class='ef-icon'>&#128267;</div><div class='ef-label'>Batterie</div><div class='ef-value'><span id='efBatt'>-- W</span><span class='ef-flow' id='efFlowBatt'></span></div><div class='ef-sub' id='efBattSub'></div><span class='kw-resize'></span></div>";
   html += "<div class='kw kw-house' data-idx='5'><div class='ef-icon'>&#127968;</div><div class='ef-label'>Hausverbrauch</div><div class='ef-value' id='efHouse'>-- W</div><span class='kw-resize'></span></div>";
@@ -6285,6 +6227,9 @@ void handleKiosk2Page() {
   }
   html += "<p class='ef-error' id='efErr' style='display:none'></p>";
   html += "</div>";
+
+  html += "<script src='/widget-engine.js'></script>";
+  html += "<script>var kioskChartPoints = " + buildChartPointsJson() + ";</script>";
 
   html += R"JS(
 <script>
@@ -6356,10 +6301,16 @@ function efPriceRefresh(){
       if (r2) r2.classList.add('kiosk');
     }
     var cc = document.getElementById('efChartCard');
-    if (cc && d.chartSvg != null) cc.innerHTML = d.chartSvg;
+    if (cc && d.chartSvg != null) {
+      cc.innerHTML = d.chartSvg + "<div class='kiosk-tooltip' id='efTooltip'></div>";
+      if (d.chartPoints != null) kioskChartPoints = d.chartPoints;
+      efCrosshair.reattach();
+    }
   }).catch(function(e){});
 }
 setInterval(efPriceRefresh, 30000);
+
+var efCrosshair = WidgetGridEngine.createChartCrosshair('priceChartSvg', 'efChartCard', 'efTooltip', function(){ return kioskChartPoints; });
 
 function updateKioskClock(){
   var timeEl = document.getElementById('kioskTime');
@@ -6374,7 +6325,6 @@ setInterval(updateKioskClock, 1000);
 </script>
 )JS";
 
-  html += "<script src='/widget-engine.js'></script>";
   html += "<script>var kioskArrangeData = {";
   html += "portrait:" + kioskLayoutJson(kiosk2Portrait, KIOSK2_WIDGET_KEYS, KIOSK2_WIDGET_LABELS, KIOSK2_WIDGET_COUNT) + ",";
   html += "landscape:" + kioskLayoutJson(kiosk2Landscape, KIOSK2_WIDGET_KEYS, KIOSK2_WIDGET_LABELS, KIOSK2_WIDGET_COUNT);
@@ -6412,7 +6362,13 @@ function kioskArrangeSaveOne(i){
   body.set('rowStart', item.rowStart);
   body.set('rowSpan', item.rowSpan);
   body.set('visible', item.visible ? '1' : '0');
-  return fetch('/savekiosklayoutajax', { method: 'POST', headers: {'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'}, body: body.toString() })
+  // keepalive: true - der Request darf ueberleben, auch wenn der Nutzer direkt
+  // nach dem Ziehen zu einer anderen Seite navigiert (z.B. zur Konto-Seite, um
+  // ein Firmware-Update zu starten) - sonst kann der Browser die noch laufende
+  // Speicher-Anfrage abbrechen, bevor sie den Server erreicht, und die neue
+  // Position geht scheinbar "nach dem Update" verloren (tatsaechlich wurde sie
+  // nie gespeichert).
+  return fetch('/savekiosklayoutajax', { method: 'POST', keepalive: true, headers: {'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'}, body: body.toString() })
     .then(function(r){ return r.json(); }).then(function(d){ return !!d.ok; }).catch(function(){ return false; });
 }
 
@@ -6915,7 +6871,13 @@ function klSaveOne(i){
   body.set('rowStart', item.rowStart);
   body.set('rowSpan', item.rowSpan);
   body.set('visible', item.visible ? '1' : '0');
-  return fetch('/savekiosklayoutajax', { method: 'POST', headers: {'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'}, body: body.toString() })
+  // keepalive: true - der Request darf ueberleben, auch wenn der Nutzer direkt
+  // nach dem Ziehen zu einer anderen Seite navigiert (z.B. zur Konto-Seite, um
+  // ein Firmware-Update zu starten) - sonst kann der Browser die noch laufende
+  // Speicher-Anfrage abbrechen, bevor sie den Server erreicht, und die neue
+  // Position geht scheinbar "nach dem Update" verloren (tatsaechlich wurde sie
+  // nie gespeichert).
+  return fetch('/savekiosklayoutajax', { method: 'POST', keepalive: true, headers: {'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'}, body: body.toString() })
     .then(function(r){ return r.json(); })
     .then(function(d){ return !!d.ok; })
     .catch(function(){ return false; });
@@ -9668,12 +9630,118 @@ function wgCreateGridController(opts) {
   return { startDrag: startDrag, startResize: startResize };
 }
 
+// Fadenkreuz zum "Abfahren" eines Preisdiagramms (buildSvgChart(), immer
+// viewBox 0 0 760 320) mit Finger oder Maus - urspruenglich nur auf Kiosk-
+// Seite 1 vorhanden, hier verallgemeinert fuer Wiederverwendung auf Kiosk 2
+// und der Startseite. svgId/wrapId/tooltipId sind DOM-IDs, getPoints() muss
+// das aktuelle Punkte-Array (aus buildChartPointsJson()) liefern - als
+// Funktion statt fixem Array, da manche Seiten das Diagramm periodisch per
+// AJAX austauschen und dabei neue Punktdaten laden. reattach() muss nach
+// jedem so einem Austausch (innerHTML-Ersetzung des SVG) erneut aufgerufen
+// werden, da das alte SVG-Element inkl. Linie/Punkt dabei verloren geht.
+function wgCreateChartCrosshair(svgId, wrapId, tooltipId, getPoints) {
+  var svg = null, vLine = null, dot = null, tooltip = null;
+  var wrap = document.getElementById(wrapId);
+
+  function attach() {
+    svg = document.getElementById(svgId);
+    // Manche Seiten ersetzen Diagramm-SVG UND Tooltip-Div gemeinsam per
+    // innerHTML (siehe refreshKioskData()/efPriceRefresh()) - die urspruenglich
+    // gefundene tooltip-Referenz waere danach ein verwaistes, nicht mehr im DOM
+    // haengendes Element, deshalb hier bei jedem attach() neu nachschlagen.
+    tooltip = document.getElementById(tooltipId);
+    if (!svg) return;
+    var svgNs = 'http://www.w3.org/2000/svg';
+    vLine = document.createElementNS(svgNs, 'line');
+    vLine.setAttribute('class', 'kiosk-crosshair-line');
+    vLine.setAttribute('y1', '25');
+    vLine.setAttribute('y2', '265');
+    svg.appendChild(vLine);
+    dot = document.createElementNS(svgNs, 'circle');
+    dot.setAttribute('class', 'kiosk-crosshair-dot');
+    dot.setAttribute('r', '6');
+    svg.appendChild(dot);
+  }
+
+  // Das Diagramm-Widget kann frei in Groesse/Seitenverhaeltnis veraendert
+  // werden, deshalb passt das SVG per Default preserveAspectRatio="xMidYMid
+  // meet" oft mit Letterboxing rein - die tatsaechliche Inhaltsflaeche ist
+  // dann kleiner als die Bounding-Box.
+  function getSvgContentRect() {
+    var rect = svg.getBoundingClientRect();
+    var vb = svg.viewBox && svg.viewBox.baseVal;
+    if (!vb || !vb.width || !vb.height || !rect.width || !rect.height) return rect;
+    var scale = Math.min(rect.width / vb.width, rect.height / vb.height);
+    var contentW = vb.width * scale;
+    var contentH = vb.height * scale;
+    return {
+      left: rect.left + (rect.width - contentW) / 2,
+      top: rect.top + (rect.height - contentH) / 2,
+      width: contentW,
+      height: contentH
+    };
+  }
+
+  function nearestPoint(svgX) {
+    var points = getPoints();
+    if (!points || !points.length) return null;
+    var best = points[0];
+    var bestDist = Math.abs(best.x - svgX);
+    for (var i = 1; i < points.length; i++) {
+      var d = Math.abs(points[i].x - svgX);
+      if (d < bestDist) { bestDist = d; best = points[i]; }
+    }
+    return best;
+  }
+
+  function showAt(clientX, clientY) {
+    if (!svg || !vLine || !dot) return;
+    var points = getPoints();
+    if (!points || !points.length) return;
+    var rect = getSvgContentRect();
+    var svgX = (clientX - rect.left) / rect.width * 760;
+    var pt = nearestPoint(svgX);
+    if (!pt) return;
+
+    vLine.setAttribute('x1', pt.x);
+    vLine.setAttribute('x2', pt.x);
+    vLine.style.opacity = '1';
+    dot.setAttribute('cx', pt.x);
+    dot.setAttribute('cy', pt.y);
+    dot.style.opacity = '1';
+
+    var dotClientX = rect.left + (pt.x / 760) * rect.width;
+    var dotClientY = rect.top + (pt.y / 320) * rect.height;
+    var wrapRect = wrap.getBoundingClientRect();
+    tooltip.style.left = (dotClientX - wrapRect.left) + 'px';
+    tooltip.style.top = (dotClientY - wrapRect.top) + 'px';
+    tooltip.innerText = pt.p + ' ct um ' + pt.t;
+    tooltip.style.opacity = '1';
+  }
+
+  function hide() {
+    if (vLine) vLine.style.opacity = '0';
+    if (dot) dot.style.opacity = '0';
+    if (tooltip) tooltip.style.opacity = '0';
+  }
+
+  if (wrap && tooltip) {
+    wrap.addEventListener('pointermove', function(e){ showAt(e.clientX, e.clientY); });
+    wrap.addEventListener('pointerdown', function(e){ showAt(e.clientX, e.clientY); });
+    wrap.addEventListener('pointerleave', hide);
+  }
+  attach();
+
+  return { reattach: attach };
+}
+
 global.WidgetGridEngine = {
   clamp: wgClamp,
   rectsOverlap: wgRectsOverlap,
   resolveCollisions: wgResolveCollisions,
   flipAnimate: wgFlipAnimate,
-  createController: wgCreateGridController
+  createController: wgCreateGridController,
+  createChartCrosshair: wgCreateChartCrosshair
 };
 
 })(window);
