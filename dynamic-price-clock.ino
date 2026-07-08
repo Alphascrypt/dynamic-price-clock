@@ -83,7 +83,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "3.3.3"
+#define FIRMWARE_VERSION "3.3.4"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -4714,8 +4714,13 @@ void updatePriceMatrix() {
 void handleRoot() {
   if (!checkAuth()) return;
 
+  // Siehe ausfuehrlichen Kommentar in handleKioskPage(): live nachgewiesen,
+  // dass auch die Startseite bei 29000 reservierten Bytes reproduzierbar
+  // abgeschnitten wurde - komplett fehlend war dabei ausgerechnet der
+  // gesamte Anordnen-Modus-Skriptblock (kwToggleArrange() etc.), wodurch der
+  // "Anordnen"-Button auf der Startseite nichts tut.
   String html;
-  html.reserve(29000);
+  html.reserve(40000);
 
   html += htmlHeader("Übersicht");
   html += "<section class='hero'><h1>";
@@ -5859,8 +5864,18 @@ void handleKioskPage() {
   String statusText, statusColor;
   getKioskPriceStatus(statusText, statusColor);
 
+  // Live auf dem Geraet nachgewiesen (per direktem Abruf von /kiosk): die
+  // Seite wurde bei genau 24000 reservierten Bytes reproduzierbar mitten in
+  // der Arrange-Mode-Wiring-Ausgabe abgeschnitten - Arduino-Strings
+  // schlucken einen fehlgeschlagenen Nachreallokations-Versuch bei += still
+  // (kein Crash, kein Fehler, der Rest des Aufrufs geht einfach verloren),
+  // und der tatsaechliche Seiteninhalt (CSS + Widget-Markup + beide grossen
+  // Skript-Bloecke) liegt klar ueber den urspruenglich reservierten 24 KB.
+  // Ein einzelnes, ausreichend grosses reserve() gleich zu Beginn (bevor der
+  // Heap durch spaetere Arbeit in dieser Anfrage weiter fragmentiert) ist
+  // deutlich zuverlaessiger als mehrere spaete Nachreallokationen.
   String html;
-  html.reserve(24000);
+  html.reserve(40000);
 
   html += "<!DOCTYPE html><html><head>";
   html += "<meta charset='utf-8'>";
@@ -6279,8 +6294,13 @@ requestKioskWakeLock();
 void handleKiosk2Page() {
   if (!checkAuth()) return;
 
+  // Siehe ausfuehrlichen Kommentar in handleKioskPage(): 11000 reservierte
+  // Bytes waren fuer diese Seite (aehnlich gross, sogar ein Widget mehr) weit
+  // zu wenig - live nachgewiesen, dass die Antwort reproduzierbar mitten in
+  // der Arrange-Mode-Wiring-Ausgabe abbricht (kioskArrangeData blieb leer
+  // "{}", die komplette Skript-Ausgabe danach fehlte komplett).
   String html;
-  html.reserve(11000);
+  html.reserve(40000);
 
   html += "<!DOCTYPE html><html><head>";
   html += "<meta charset='utf-8'>";
@@ -6817,8 +6837,17 @@ void handleResetKioskLayout() {
 void handleKioskLayoutPage() {
   if (!checkAuth()) return;
 
+  // Siehe ausfuehrlichen Kommentar in handleKioskPage(): live nachgewiesen,
+  // dass diese Seite (Layout-Editor mit Canvas/Ebenen/Eigenschaften-Panel
+  // fuer Home+Kiosk1+Kiosk2, per Seiten-/Orientierungs-Umschalter) bei nur
+  // 9500 reservierten Bytes reproduzierbar abgeschnitten wurde - u.a. fehlte
+  // dabei komplett der <script src='/layout-editor.js'>-Tag samt allem
+  // danach, obwohl die Seite mit </body></html> augenscheinlich "sauber"
+  // endete (siehe Kommentar: kleine Anhaenge nach einem fehlgeschlagenen
+  // grossen Anhang koennen weiterhin gelingen, wenn sie in bereits
+  // vorhandene, ungenutzte Pufferkapazitaet passen).
   String html;
-  html.reserve(9500);
+  html.reserve(40000);
 
   html += htmlHeader("Kiosk-Layout");
   html += "<section class='hero'><h1>Kiosk-Layout</h1><p>Anordnung des Tablet-Modus frei per Ziehen/Skalieren gestalten - getrennt fuer Hoch- und Querformat.</p></section>";
