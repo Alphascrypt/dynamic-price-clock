@@ -83,7 +83,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "3.3.2"
+#define FIRMWARE_VERSION "3.3.3"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -2402,13 +2402,33 @@ bool checkGithubUpdate() {
         // Laenge der Notes/Anzahl Assets deutlich groesser werden als ein
         // frueher gewaehltes festes Limit - ein zu kleines Limit fuehrt zu
         // "GitHub JSON Fehler" (NoMemory), obwohl die Antwort valide ist.
+        //
+        // Antwort ERST komplett in einen String puffern (getString()), dann
+        // daraus deserialisieren - NICHT direkt aus http.getStream() lesen.
+        // Bei WiFiClientSecure/BearSSL kann stream.available() zwischen
+        // TLS-Record-Grenzen kurzzeitig 0 zurueckgeben, obwohl noch weitere
+        // Bytes unterwegs sind - deserializeJson() liest dann direkt vom
+        // Stream faelschlich "Incomplete Input", bevor der komplette Body
+        // angekommen ist. In der Praxis reproduzierbar: von 3 aufeinander-
+        // folgenden echten Abfragen gegen die echte GitHub-API schlugen 2
+        // genau mit "GitHub JSON Fehler" fehl, obwohl die Antwort beide Male
+        // identisch und vollstaendig gueltig war. http.getString() wartet
+        // dagegen zuverlaessig auf den kompletten Content-Length-Body, bevor
+        // es zurueckkehrt - alle anderen HTTPS-JSON-Aufrufe in dieser Datei
+        // (Anker, Tibber) nutzen bereits dieses Muster.
+        String body = http.getString();
         JsonDocument doc;
-        DeserializationError jsonErr = deserializeJson(doc, http.getStream());
+        DeserializationError jsonErr = deserializeJson(doc, body);
         http.end();
         client.stop();
 
         if (jsonErr) {
           lastError = "GitHub JSON Fehler";
+          // Diese Schleife existiert genau fuer solche transienten Fehler
+          // (siehe Kommentar oben bei getString()) - ein sofortiges
+          // return false haette den verbleibenden Wiederholungsversuchen nie
+          // eine Chance gegeben, obwohl attempt < maxAttempts war.
+          if (attempt < maxAttempts) { delay(1500); continue; }
           return false;
         }
 
@@ -2500,11 +2520,14 @@ bool checkGithubUpdateQuiet() {
     return false;
   }
 
-  // Wachsendes JsonDocument statt fester Kapazitaet, siehe Kommentar in
-  // checkGithubUpdate() - vermeidet "GitHub JSON Fehler" bei laengeren
-  // Release-Notes oder mehr Assets.
+  // Wachsendes JsonDocument statt fester Kapazitaet, UND vorheriges Puffern
+  // in einen String statt direkt aus http.getStream() zu lesen - siehe
+  // ausfuehrlichen Kommentar in checkGithubUpdate(). Direktes Stream-Lesen
+  // ueber WiFiClientSecure/BearSSL fuehrt in der Praxis intermittierend zu
+  // "GitHub JSON Fehler", obwohl die Antwort vollstaendig gueltig ist.
+  String body = http.getString();
   JsonDocument doc;
-  DeserializationError jsonErr = deserializeJson(doc, http.getStream());
+  DeserializationError jsonErr = deserializeJson(doc, body);
   http.end();
 
   if (jsonErr) {
