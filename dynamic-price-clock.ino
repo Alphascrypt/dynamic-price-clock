@@ -82,7 +82,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "2.7.4"
+#define FIRMWARE_VERSION "2.7.5"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -2813,6 +2813,45 @@ String otaPreflightDiag(const String &host) {
   return diag;
 }
 
+// GitHub-Release-Asset-Links (github.com/.../releases/download/...) antworten
+// immer mit einem 302 auf einen signierten objects.githubusercontent.com-Link.
+// Die ESP32-HTTPClient-Bibliothek behandelt diesen Redirect intern ueber
+// dieselbe WiFiClientSecure-Instanz - deren Keep-Alive-Reuse (Default: an)
+// haelt den alten Socket zum ersten Host faelschlich offen, statt ihn beim
+// Hostwechsel neu zu verbinden, was danach deterministisch "connection
+// refused" auf JEDEN Versuch produziert (kein transientes Problem, siehe
+// HTTPClient::disconnect()/connect() in der ESP32-Arduino-Core-Bibliothek).
+// Umgehung: Redirect hier selbst mit einer eigenen, kurzlebigen Verbindung
+// aufloesen und httpUpdate.update() direkt die finale CDN-URL uebergeben,
+// damit sie nie den Host wechseln muss.
+static String resolveGithubDownloadUrl(const String &url) {
+  WiFiClientSecure client;
+  client.setInsecure();
+  client.setHandshakeTimeout(12000);
+
+  HTTPClient http;
+  http.setFollowRedirects(HTTPC_DISABLE_FOLLOW_REDIRECTS);
+  http.setTimeout(10000);
+  if (!http.begin(client, url)) {
+    return url;
+  }
+  http.addHeader("User-Agent", "dynamic-price-clock-esp32");
+  if (githubToken.length() > 0) {
+    http.addHeader("Authorization", "Bearer " + githubToken);
+  }
+
+  int code = http.GET();
+  String resolved = url;
+  if (code == HTTP_CODE_FOUND || code == HTTP_CODE_MOVED_PERMANENTLY || code == HTTP_CODE_TEMPORARY_REDIRECT || code == 303) {
+    String loc = http.getLocation();
+    if (loc.length() > 0) {
+      resolved = loc;
+    }
+  }
+  http.end();
+  return resolved;
+}
+
 bool performGithubUpdate(String url) {
   if (url.length() == 0 || url.indexOf("github") < 0) {
     lastError = "Ungueltige Update-URL";
@@ -2839,16 +2878,20 @@ bool performGithubUpdate(String url) {
     otaHeartbeatMs = millis();
   });
 
-  // GitHub-Asset-URLs leiten per 302 auf einen anderen Host um
-  // (objects.githubusercontent.com). Der allererste TLS-Handshake zu diesem
-  // neuen Host schlaegt auf dem ESP32 gelegentlich fehl (DNS/TLS-Session-
-  // Aufbau), ein sofortiger erneuter Versuch klappt meistens - deshalb hier
-  // automatisch mehrfach versuchen, statt den Nutzer manuell erneut klicken
-  // zu lassen. Progressive Pausen (3.5s/5s/6.5s) geben dem Heap Zeit, sich
-  // von der vorherigen TLS-Sitzung zu erholen.
+  // Der Redirect-Hostwechsel wird jetzt vorab selbst aufgeloest
+  // (resolveGithubDownloadUrl()), trotzdem hier mehrfach versuchen fuer
+  // echte transiente Netzwerkfehler, statt den Nutzer manuell erneut
+  // klicken zu lassen. Progressive Pausen (3.5s/5s/6.5s) geben dem Heap
+  // Zeit, sich von der vorherigen TLS-Sitzung zu erholen.
   const int maxAttempts = 4;
   for (int attempt = 1; attempt <= maxAttempts; attempt++) {
     {
+      // Redirect selbst aufloesen (siehe resolveGithubDownloadUrl()), damit
+      // httpUpdate.update() nie den Host wechseln muss - frisch pro Versuch,
+      // da signierte CDN-Links von GitHub nur kurz gueltig sind.
+      String downloadUrl = resolveGithubDownloadUrl(url);
+      String downloadHost = extractHostFromUrl(downloadUrl);
+
       WiFiClientSecure client;
       client.setInsecure();
       // Explizites Handshake-Limit statt auf Bibliotheks-Default zu
@@ -2858,9 +2901,9 @@ bool performGithubUpdate(String url) {
       otaBytesWritten = 0;
       otaBytesTotal = 0;
       otaHeartbeatMs = millis();
-      otaLastDiag = otaPreflightDiag(host) + ", Versuch " + String(attempt) + "/" + String(maxAttempts);
+      otaLastDiag = otaPreflightDiag(downloadHost) + ", Versuch " + String(attempt) + "/" + String(maxAttempts);
 
-      t_httpUpdate_return ret = httpUpdate.update(client, url);
+      t_httpUpdate_return ret = httpUpdate.update(client, downloadUrl);
       client.stop();
 
       if (ret == HTTP_UPDATE_OK) {
