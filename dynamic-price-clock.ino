@@ -82,7 +82,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "2.7.5"
+#define FIRMWARE_VERSION "2.7.6"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -2299,7 +2299,12 @@ bool checkGithubUpdate() {
       code = http.GET();
 
       if (code == 200) {
-        DynamicJsonDocument doc(8192);
+        // Wachsendes JsonDocument statt fester Kapazitaet: die Release-JSON
+        // (inkl. Release-Notes-Text und allen Asset-Eintraegen) kann je nach
+        // Laenge der Notes/Anzahl Assets deutlich groesser werden als ein
+        // frueher gewaehltes festes Limit - ein zu kleines Limit fuehrt zu
+        // "GitHub JSON Fehler" (NoMemory), obwohl die Antwort valide ist.
+        JsonDocument doc;
         DeserializationError jsonErr = deserializeJson(doc, http.getStream());
         http.end();
         client.stop();
@@ -2397,7 +2402,10 @@ bool checkGithubUpdateQuiet() {
     return false;
   }
 
-  DynamicJsonDocument doc(4096);
+  // Wachsendes JsonDocument statt fester Kapazitaet, siehe Kommentar in
+  // checkGithubUpdate() - vermeidet "GitHub JSON Fehler" bei laengeren
+  // Release-Notes oder mehr Assets.
+  JsonDocument doc;
   DeserializationError jsonErr = deserializeJson(doc, http.getStream());
   http.end();
 
