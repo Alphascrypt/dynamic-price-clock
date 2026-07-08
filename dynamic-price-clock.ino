@@ -83,7 +83,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "3.3.1"
+#define FIRMWARE_VERSION "3.3.2"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -4744,11 +4744,22 @@ void handleRoot() {
 .hw-chart-wrap .kiosk-crosshair-dot{fill:var(--accent);stroke:var(--card);stroke-width:2;opacity:0;pointer-events:none}
 .hw-chart-tooltip{position:absolute;transform:translate(-50%,-115%);background:var(--card);border:1px solid var(--surface-border);border-radius:12px;padding:6px 12px;font-size:13px;font-weight:600;white-space:nowrap;pointer-events:none;opacity:0;color:var(--text);box-shadow:0 8px 24px var(--shadow-hover)}
 .kw-metrics .gridCards{margin:0;height:100%;grid-template-columns:repeat(auto-fit,minmax(140px,1fr))}
+/* .metric .value/.label/.sub kommen aus dem globalen style.css und nutzen dort
+   vw-basiertes clamp() (fuer die statischen Info-Karten auf /pinout, /wifi etc.
+   gedacht) - ohne diese cqi-Overrides wuerden die Zahlen im Metriken-Widget
+   NICHT mit der Widget-Groesse mitskalieren, sondern nur mit der Fensterbreite,
+   obwohl das Widget selbst per Drag/Resize beliebig verkleinert/vergroessert
+   werden kann. */
+.kw-metrics .metric .value{font-size:clamp(14px,3.2cqi,30px)}
+.kw-metrics .metric .label{font-size:clamp(7px,1.2cqi,11px)}
+.kw-metrics .metric .sub{font-size:clamp(7px,1.3cqi,12px)}
 .kw-livepower{align-items:center;justify-content:center}
 .kw-livepower .live-power{margin:0;padding:0;background:transparent;max-width:none}
 .kw-livepower .pg-value{font-size:clamp(28px,14cqi,72px)}
 .kw-livepower .pg-label{font-size:clamp(11px,3.4cqi,15px)}
 .kw-livepower .pg-scale{font-size:clamp(9px,2.6cqi,12px)}
+.kw-livepower .pg-track{height:clamp(4px,1.4cqi,12px)}
+.kw-livepower .pg-marker{width:clamp(10px,3.6cqi,20px);height:clamp(10px,3.6cqi,20px)}
 @container (max-width: 220px){
   .kw-metrics .gridCards{grid-template-columns:1fr}
   .kw-metrics .metric .sub{display:none}
@@ -9442,6 +9453,12 @@ svg{background:var(--overlay-faint);border:1px solid var(--line);border-radius:1
 :root[data-theme="dark"] .priceRing{--pr-track:rgba(255,255,255,.12)}
 .priceRing.kiosk{--pr-track:rgba(255,255,255,.15)}
 .pr-time{font-size:clamp(11px,1.2vh,13px);color:var(--muted);font-weight:500;margin-bottom:4px;font-variant-numeric:tabular-nums}
+/* .pr-time sitzt auf allen drei Seiten (Startseite, Kiosk 1, Kiosk 2) im
+   Preis-Gauge-Widget, das per Drag/Resize seine Groesse aendern kann - die
+   vh-Regel oben skaliert nur mit der Fensterhoehe, nicht mit der eigenen
+   Widget-Breite. .kw traegt ueberall container-type:inline-size, daher reicht
+   ein einziger, ueberall gueltiger cqi-Override statt drei Seiten-Kopien. */
+.kw .pr-time{font-size:clamp(9px,2.8cqi,13px)}
 .priceRing svg{width:100%;height:auto;max-width:280px}
 /* Live-Power Bar bleibt mit pg-* Klassen */
 .priceGauge{width:100%;max-width:420px;margin:0 auto;padding:8px 4px;text-align:center;font-variant-numeric:tabular-nums}
