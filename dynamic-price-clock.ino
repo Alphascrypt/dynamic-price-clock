@@ -2313,11 +2313,19 @@ bool checkGithubUpdate() {
         tag.trim();
         if (tag.startsWith("v") || tag.startsWith("V")) tag = tag.substring(1);
 
+        // Nur das App-only-.bin ist fuer Update.begin()/OTA geeignet - das
+        // volle Flash-Abbild (Bootloader+Partitionstabelle+App, z.B. fuer
+        // einen einmaligen USB-Reflash bei geaendertem Partitionsschema)
+        // waere als OTA-Payload falsch dimensioniert und wuerde die
+        // App-Partition mit falschem Byte-Offset ueberschreiben - deshalb
+        // beide bekannten Namensmuster explizit ausschliessen, nicht nur
+        // "merged" (der interne Build-Dateiname), da beim Hochladen auf
+        // GitHub bisher "fullflash" statt "merged" im Namen verwendet wurde.
         String binUrl = "";
         JsonArray assets = doc["assets"];
         for (JsonObject asset : assets) {
           String name = String(asset["name"] | "");
-          if (name.endsWith(".bin") && name.indexOf("merged") < 0) {
+          if (name.endsWith(".bin") && name.indexOf("merged") < 0 && name.indexOf("fullflash") < 0) {
             binUrl = String(asset["browser_download_url"] | "");
             break;
           }
