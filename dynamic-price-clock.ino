@@ -1,6 +1,7 @@
 #include <WiFi.h>
 #include <esp_wifi.h>
 #include <esp_system.h>
+#include "esp_ota_ops.h"
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
 #include <HTTPUpdate.h>
@@ -82,7 +83,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "3.2.0"
+#define FIRMWARE_VERSION "3.3.0"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -255,6 +256,7 @@ volatile bool otaTaskSuccess = false;
 String otaTaskError = "";
 String otaPendingUrl = "";
 String otaLastDiag = ""; // WLAN-Signal/Heap/DNS-Status des letzten Verbindungsversuchs, siehe otaPreflightDiag()
+bool otaManualUploadActive = false; // true nur waehrend DIESER Upload otaTaskRunning selbst haelt, siehe handleUploadFirmwareData()
 
 String tibberToken = "";
 String selectedHomeId = "";
@@ -1341,6 +1343,33 @@ bool checkAuth() {
   return true;
 }
 
+// -----------------------------------------------------------------------------
+// OTA-Rollback-Absicherung
+// -----------------------------------------------------------------------------
+//
+// Der ESP32-Bootloader kann ein frisch geflashtes Firmware-Image automatisch
+// wieder auf die vorherige (funktionierende) Partition zurueckrollen, wenn das
+// neue Image abstuerzt, bevor es sich selbst als "gut" bestaetigt hat - siehe
+// esp32-hal-misc.c im Arduino-ESP32-Core. Diese Absicherung ist fuer dieses
+// Projekt bereits ueber das Partitionsschema (zwei OTA-App-Slots + otadata)
+// aktiv, ABER die Standard-Implementierung bestaetigt das neue Image als
+// gueltig SOFORT beim Boot, noch bevor setup() ueberhaupt laeuft - ein Absturz
+// waehrend setup() (z.B. durch eine fehlerhafte Display-/Sensor-Initialisierung
+// in einem kaputten Update) wuerde dadurch NICHT zum Rollback fuehren, weil
+// das Image zu diesem Zeitpunkt schon als gueltig markiert wurde. Das
+// verzoegert die Bestaetigung stattdessen auf "hat ein paar Sekunden echten
+// Betrieb ueberstanden" (siehe otaRollbackConfirmed in loop()), damit die
+// Absicherung tatsaechlich etwas bringt, statt nur dekorativ zu sein.
+//
+// WICHTIG: extern "C" ist hier zwingend - der schwache (weak) Hook wird in
+// einer .c-Datei des Cores deklariert; eine C++-Definition ohne extern "C"
+// wuerde per Name-Mangling einen anderen Symbolnamen erzeugen und den Hook
+// stillschweigend NICHT ueberschreiben.
+extern "C" bool verifyRollbackLater() {
+  return true;
+}
+bool otaRollbackConfirmed = false;
+
 void setup() {
   Serial.begin(115200);
   delay(200);
@@ -1728,16 +1757,32 @@ void loop() {
   ensureWifiConnected();
 #endif
 
+  // Siehe Kommentar bei verifyRollbackLater() weiter oben: die automatische
+  // Rollback-Bestaetigung wurde bewusst verzoegert, damit ein Absturz waehrend
+  // setup() noch zum Rollback auf die letzte funktionierende Version fuehrt.
+  // Nach dieser Frist gilt die Firmware als stabil genug, um sie endgueltig
+  // zu bestaetigen (kein Abwarten auf WLAN-Verbindung o.ae. - ein zeitweise
+  // nicht erreichbarer Router soll keinen falschen Rollback ausloesen).
+  if (!otaRollbackConfirmed && millis() > 45000UL) {
+    esp_ota_mark_app_valid_cancel_rollback();
+    otaRollbackConfirmed = true;
+  }
+
   // Sicherheitsnetz: Falls otaTaskRunning aus irgendeinem Grund haengen
   // bleibt (z.B. Task haengt in einem Netzwerk-Timeout fest, ohne je den
   // Heartbeat zu aktualisieren), wuerden sonst Preis-/Live-Verbrauchs-/Anker-
   // Updates dauerhaft blockiert bleiben. Nach 3 Minuten ohne Heartbeat gilt
-  // der OTA-Vorgang als haengen geblieben und wird verworfen.
-  if (otaTaskRunning && otaHeartbeatMs > 0 && millis() - otaHeartbeatMs > 180000UL) {
-    otaTaskRunning = false;
+  // der OTA-Vorgang als haengen geblieben. WICHTIG: otaTaskRunning bleibt
+  // absichtlich TRUE (blockiert weiterhin neue Update-Versuche) - der
+  // eigentliche FreeRTOS-Task wird hier NICHT beendet und koennte noch am
+  // Leben sein; ein zweiter, parallel gestarteter Task wuerde gleichzeitig in
+  // dieselbe OTA-Partition schreiben. Ein haengen gebliebener Task erfordert
+  // einen manuellen Neustart, statt das Risiko eines doppelten Flash-Vorgangs
+  // einzugehen.
+  if (otaTaskRunning && !otaTaskDone && otaHeartbeatMs > 0 && millis() - otaHeartbeatMs > 180000UL) {
     otaTaskDone = true;
     otaTaskSuccess = false;
-    otaTaskError = "OTA-Vorgang haengen geblieben (kein Fortschritt seit 3 Minuten) - abgebrochen";
+    otaTaskError = "OTA-Vorgang haengen geblieben (kein Fortschritt seit 3 Minuten) - bitte Geraet manuell neu starten, bevor ein erneuter Versuch gestartet wird";
   }
 
   // Waehrend eines laufenden OTA-Downloads (manuell oder ueber GitHub) keine
@@ -1757,22 +1802,26 @@ void loop() {
     updateAnkerSolarData();
   }
 
+  // SPI-gebundenes Rendering (Displays/LED-Ring/Matrix) pausiert waehrend
+  // eines laufenden OTA-Vorgangs ebenfalls: es konkurriert sonst um die
+  // einzige CPU des ESP32-C5 mit dem Update-Task, waehrend Download+Flash
+  // laufen.
   #if ENABLE_TFT_DISPLAYS
-  if (millis() - lastDisplayRefresh >= displayRefreshInterval) {
+  if (!otaTaskRunning && millis() - lastDisplayRefresh >= displayRefreshInterval) {
     lastDisplayRefresh = millis();
     showLayoutDisplays();
   }
 #endif
 
   #if ENABLE_WS2812_RING
-  if (millis() - lastLedRefresh >= ledRefreshInterval) {
+  if (!otaTaskRunning && millis() - lastLedRefresh >= ledRefreshInterval) {
     lastLedRefresh = millis();
     updateLedRing();
   }
 #endif
 
   #if ENABLE_MAX7219_MATRIX
-  if (millis() - lastMatrixRefresh >= matrixRefreshInterval) {
+  if (!otaTaskRunning && millis() - lastMatrixRefresh >= matrixRefreshInterval) {
     lastMatrixRefresh = millis();
     updatePriceMatrix();
   }
@@ -2900,6 +2949,14 @@ bool performGithubUpdate(String url) {
 
   if (apMode || WiFi.status() != WL_CONNECTED) {
     lastError = "Kein Internet / AP Modus";
+    return false;
+  }
+
+  // TLS-Handshake + Update-Puffer brauchen realistisch mehrere zehn KB frei -
+  // ein Start mit zu wenig Heap fuehrt sonst zu einem schwer diagnostizierbaren
+  // Fehlschlag mitten im Download statt eines klaren Fehlers vorab.
+  if (ESP.getFreeHeap() < 40000) {
+    lastError = "Zu wenig freier Speicher fuer Update (" + String(ESP.getFreeHeap() / 1024) + " KB frei, mind. 40 KB noetig)";
     return false;
   }
 
@@ -8909,6 +8966,16 @@ void handleRestartDevice() {
 void handleCheckGithubUpdate() {
   if (!checkAuth()) return;
 
+  // Waehrend ein Update laeuft keine weitere HTTPS-Sitzung zu api.github.com
+  // eroeffnen - konkurriert sonst um denselben knappen Heap wie der
+  // eigentliche Download (siehe Kommentar in loop()).
+  if (otaTaskRunning) {
+    String json = "{\"ok\":false,\"currentVersion\":\"" + jsEscape(String(FIRMWARE_VERSION)) + "\",\"latestVersion\":\"\",\"updateAvailable\":false,\"downloadUrl\":\"\",\"error\":\"Ein Update laeuft bereits\"}";
+    server.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+    server.send(200, "application/json", json);
+    return;
+  }
+
   bool ok = checkGithubUpdate();
   bool updateAvailable = ok && githubLatestVersion.length() > 0 && githubLatestVersion != String(FIRMWARE_VERSION);
 
@@ -8927,6 +8994,17 @@ void handleCheckGithubUpdate() {
 
 void handleVersionCheck() {
   if (!checkAuth()) return;
+
+  // Siehe Kommentar in handleCheckGithubUpdate() - dieser Endpunkt wird
+  // zusaetzlich automatisch alle 10 Minuten von JEDER geladenen Seite
+  // aufgerufen, koennte also auch unbemerkt waehrend eines laufenden Updates
+  // feuern, wenn dieser Schutz fehlen wuerde.
+  if (otaTaskRunning) {
+    String json = "{\"ok\":false,\"currentVersion\":\"" + jsEscape(String(FIRMWARE_VERSION)) + "\",\"latestVersion\":\"\",\"updateAvailable\":false,\"error\":\"Ein Update laeuft bereits\"}";
+    server.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+    server.send(200, "application/json", json);
+    return;
+  }
 
   bool ok = checkGithubUpdateQuiet();
   bool updateAvailable = ok && versionCheckLatest.length() > 0 && versionCheckLatest != String(FIRMWARE_VERSION);
@@ -8951,10 +9029,19 @@ void handleGithubUpdate() {
     return;
   }
 
-  String url = server.hasArg("url") ? server.arg("url") : githubLatestUrl;
+  // Absichtlich KEINE clientseitig uebergebene URL mehr akzeptieren (frueher
+  // server.arg("url") bevorzugt) - ein Client koennte damit eine beliebige
+  // URL zum Herunterladen/Flashen vorgeben, nur grob per Teilstring-Pruefung
+  // auf "github" in performGithubUpdate() gefiltert. Stattdessen immer die
+  // servereigene, bereits verifizierte githubLatestUrl verwenden (bei Bedarf
+  // erst per checkGithubUpdate() aktualisieren).
+  if (githubLatestUrl.length() == 0) {
+    checkGithubUpdate();
+  }
+  String url = githubLatestUrl;
 
   if (url.length() == 0) {
-    server.send(200, "application/json", "{\"ok\":false,\"error\":\"Keine Update-URL\"}");
+    server.send(200, "application/json", "{\"ok\":false,\"error\":\"Keine Update-URL - zuerst auf Updates pruefen\"}");
     return;
   }
 
@@ -9009,21 +9096,51 @@ void handleUploadFirmwareData() {
     otaBytesWritten = 0;
     otaBytesTotal = 0;
     otaTaskError = "";
+    otaManualUploadActive = false;
+
+    // Denselben otaTaskRunning-Schutz wie der GitHub-OTA-Pfad nutzen, damit
+    // beide Wege sich nicht gegenseitig ins Gehege kommen (sonst koennten
+    // zwei gleichzeitige Update.begin()-Aufrufe dieselbe OTA-Partition
+    // beschreiben).
+    if (otaTaskRunning) {
+      otaTaskError = "Ein anderes Update laeuft bereits - bitte warten";
+      return;
+    }
+    if (ESP.getFreeHeap() < 40000) {
+      otaTaskError = "Zu wenig freier Speicher fuer Update (" + String(ESP.getFreeHeap() / 1024) + " KB frei, mind. 40 KB noetig)";
+      return;
+    }
+
+    otaTaskRunning = true;
+    otaManualUploadActive = true;
+    otaHeartbeatMs = millis();
     if (!Update.begin(UPDATE_SIZE_UNKNOWN)) {
       otaTaskError = "Update.begin fehlgeschlagen: " + String(Update.errorString());
     }
   } else if (upload.status == UPLOAD_FILE_WRITE) {
+    if (!otaManualUploadActive || otaTaskError.length() > 0) return;
     if (Update.write(upload.buf, upload.currentSize) != upload.currentSize) {
       otaTaskError = "Update.write fehlgeschlagen: " + String(Update.errorString());
     }
     otaBytesWritten += upload.currentSize;
     otaBytesTotal = otaBytesWritten;
+    otaHeartbeatMs = millis();
   } else if (upload.status == UPLOAD_FILE_END) {
-    if (!Update.end(true)) {
-      otaTaskError = "Update.end fehlgeschlagen: " + String(Update.errorString());
+    // Nur die Sperre wieder freigeben, wenn dieser Upload sie selbst gesetzt
+    // hat (nicht ein fremdes, gerade laufendes GitHub-Update).
+    if (otaManualUploadActive) {
+      if (otaTaskError.length() == 0 && !Update.end(true)) {
+        otaTaskError = "Update.end fehlgeschlagen: " + String(Update.errorString());
+      }
+      otaTaskRunning = false;
+      otaManualUploadActive = false;
     }
   } else if (upload.status == UPLOAD_FILE_ABORTED) {
-    Update.abort();
+    if (otaManualUploadActive) {
+      Update.abort();
+      otaTaskRunning = false;
+      otaManualUploadActive = false;
+    }
     otaTaskError = "Upload abgebrochen";
   }
 }
@@ -10271,9 +10388,10 @@ async function startGhUpdate() {
   _ghLastBytesTime = 0;
   ghSetPhase('&#8987;', 'Verbinde mit GitHub...', 'GitHub leitet den Download um — das dauert 5-15 Sekunden.');
   try {
-    const body = new URLSearchParams();
-    body.set('url', window.ghUpdateUrl);
-    const r = await fetch('/githubupdate', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' }, body: body.toString() });
+    // Der Server nutzt ohnehin nur noch seine eigene, bereits verifizierte
+    // URL (siehe handleGithubUpdate()) - keine URL mehr mitschicken, die er
+    // sowieso ignoriert.
+    const r = await fetch('/githubupdate', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' }, body: '' });
     const j = await r.json();
     if (j.ok) {
       setTimeout(pollGhProgress, 300);
@@ -10286,6 +10404,31 @@ async function startGhUpdate() {
     msg.innerText = 'Verbindung unterbrochen - das ist beim Neustart normal.';
   }
 }
+
+// Falls diese Seite waehrend eines laufenden Updates (neu) geladen wurde -
+// z.B. weil der 60s-Seiten-Auto-Reload (siehe htmlHeader()) mitten in einem
+// Download feuerte, bevor der Server otaTaskRunning=true zurueckmelden
+// konnte, oder weil der Nutzer manuell weg- und zurueck-navigiert ist -
+// Fortschritts-UI direkt wieder anzeigen und Polling fortsetzen, statt einen
+// scheinbar zurueckgesetzten Zustand zu zeigen, waehrend im Hintergrund
+// tatsaechlich noch ein Update laeuft.
+(function(){
+  fetch('/otaprogress', { cache: 'no-store' }).then(function(r){ return r.json(); }).then(function(j){
+    if (!j || !j.running) return;
+    var wrap = document.getElementById('ghProgressWrap');
+    var bar = document.getElementById('ghProgressBar');
+    var msg = document.getElementById('ghUpdateMsg');
+    if (!wrap || !bar) return;
+    ghBadge('warnb', 'Aktualisiere...');
+    if (msg) msg.innerText = '';
+    wrap.style.display = '';
+    bar.style.width = '0%';
+    _ghPollStart = Date.now();
+    _ghLastBytes = j.bytesWritten || 0;
+    _ghLastBytesTime = Date.now();
+    pollGhProgress();
+  }).catch(function(){});
+})();
 )ACJS";
   server.sendHeader("Cache-Control", "no-store");
   server.send(200, "application/javascript", js);
