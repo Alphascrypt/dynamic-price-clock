@@ -83,7 +83,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "3.3.5"
+#define FIRMWARE_VERSION "3.4.0"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -4768,8 +4768,17 @@ void handleRoot() {
   html = "";
 
   html += R"CSS(<style>
-.kw-toolbar{display:flex;justify-content:flex-end;margin:4px 0 -2px}
-.kw-canvas{position:relative;display:grid;grid-template-columns:repeat(8,1fr);grid-auto-rows:minmax(64px,auto);gap:14px;margin:14px 0}
+.kw-toolbar{display:flex;justify-content:flex-end;gap:8px;margin:4px 0 -2px}
+/* grid-auto-rows:minmax(64px,auto) liess jede Reihe eine andere Hoehe
+   bekommen (je nachdem wie viel Inhalt gerade in ihr steckt) - die Drag/
+   Resize-Mathematik (cellSize.h = Container-Hoehe / Anzahl Reihen, siehe
+   kwGrid()/cellSize() weiter unten) geht dagegen von GLEICH hohen Reihen
+   aus. Bei unterschiedlich hohen Reihen war diese Rechnung falsch, wodurch
+   Widgets beim Ziehen/Skalieren sichtbar "verrutscht" sind (die berechnete
+   Zielreihe passte nicht zur tatsaechlichen Reihe unter dem Mauszeiger).
+   Feste, gleich hohe Reihen beheben das - der Inhalt jedes Widgets skaliert
+   dank Container-Queries (cqi) ohnehin auf die ihm zugewiesene Box. */
+.kw-canvas{position:relative;display:grid;grid-template-columns:repeat(8,1fr);grid-template-rows:repeat(7,90px);grid-auto-rows:90px;gap:14px;margin:14px 0}
 .kw{position:relative;container-type:inline-size;background:var(--card);border:1px solid var(--surface-border);border-radius:22px;padding:clamp(14px,3cqi,26px);box-shadow:0 1px 2px var(--shadow-soft),0 8px 24px rgba(0,0,0,.06);backdrop-filter:blur(20px) saturate(180%);-webkit-backdrop-filter:blur(20px) saturate(180%);box-sizing:border-box;overflow:hidden;display:flex;flex-direction:column;transition:box-shadow .2s var(--ease)}
 .kw.wg-dragging,.kw.wg-resizing{box-shadow:0 20px 44px rgba(0,0,0,.28);z-index:50}
 .kw-arrange-mode .kw{cursor:grab;user-select:none}
@@ -4808,15 +4817,19 @@ void handleRoot() {
   .kw-metrics .metric .sub{display:none}
 }
 @media(max-width:700px){
-  .kw-canvas{grid-template-columns:1fr}
-  .kw{grid-column:1/-1!important;grid-row:auto!important}
+  /* Mobil werden Widgets ohnehin nur uebereinander gestapelt (kein Ziehen
+     noetig) - die feste 90px-Reihenhoehe vom Desktop-Grid soll hier nicht
+     gelten, sonst wuerde jedes Widget auf 90px Hoehe zusammengequetscht
+     statt sich an seinen tatsaechlichen Inhalt anzupassen. */
+  .kw-canvas{grid-template-columns:1fr;grid-template-rows:none;grid-auto-rows:auto}
+  .kw{grid-column:1/-1!important;grid-row:auto!important;min-height:120px}
 }
 </style>)CSS";
 
   server.sendContent(html);
   html = "";
 
-  html += "<div class='kw-toolbar'><button type='button' id='kwArrangeBtn' class='secondary' onclick='kwToggleArrange()'>Anordnen</button></div>";
+  html += "<div class='kw-toolbar'><button type='button' id='kwResetBtn' class='secondary' onclick='kwResetLayout()' style='display:none'>Zuruecksetzen</button><button type='button' id='kwArrangeBtn' class='secondary' onclick='kwToggleArrange()'>Anordnen</button></div>";
   html += "<div class='kw-canvas'>";
 
   // Widget 0: Preis-Gauge
@@ -5101,12 +5114,22 @@ function kwToggleArrange(){
   document.body.classList.toggle('kw-arrange-mode', kwArrangeMode);
   var btn = document.getElementById('kwArrangeBtn');
   if (btn) btn.textContent = kwArrangeMode ? 'Fertig' : 'Anordnen';
+  var resetBtn = document.getElementById('kwResetBtn');
+  if (resetBtn) resetBtn.style.display = kwArrangeMode ? '' : 'none';
   if (kwArrangeMode) {
     // Waehrend des Anordnens darf die Seite nicht per meta-refresh neu laden
     // und dabei eine laufende Geste abbrechen.
     var meta = document.querySelector("meta[http-equiv='refresh' i]");
     if (meta) meta.remove();
   }
+}
+
+function kwResetLayout(){
+  if (!confirm('Anordnung der Startseite auf Standard zuruecksetzen?')) return;
+  var body = new URLSearchParams();
+  body.set('target', 'home');
+  fetch('/resetkiosklayout', { method: 'POST', headers: {'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'}, body: body.toString() })
+    .then(function(){ location.reload(); });
 }
 
 (function(){
