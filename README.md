@@ -19,6 +19,8 @@ Benötigte Teile für den Nachbau: siehe [BOM.md](BOM.md) (Stückliste). Verkabe
 
 ## Web-Dashboard
 
+Die Startseite ist ein frei anordenbares Widget-Grid (Preis-Gauge, Live-Verbrauch, Preisverlauf-Diagramm, Metriken) im Apple-Home-Stil: Button **"Anordnen"** oben rechts aktiviert Drag-and-Drop und Grössenänderung per Ziehpunkt direkt auf der echten Seite - andere Widgets weichen automatisch aus, Positionen/Grössen werden sofort gespeichert. Inhalte (Zahlen, Icons, Diagramm) skalieren dabei live mit der jeweiligen Widget-Grösse.
+
 | Übersicht | Layout Editor |
 |---|---|
 | ![Übersicht](docs/screenshots/overview-light.png) | ![Layout Editor](docs/screenshots/layout-light.png) |

@@ -82,7 +82,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "2.7.6"
+#define FIRMWARE_VERSION "3.0.0"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -532,6 +532,27 @@ const KioskWidgetLayout KIOSK2_LANDSCAPE_DEFAULTS[KIOSK2_WIDGET_COUNT] = {
 KioskWidgetLayout kiosk2Portrait[KIOSK2_WIDGET_COUNT];
 KioskWidgetLayout kiosk2Landscape[KIOSK2_WIDGET_COUNT];
 
+// Startseiten-Dashboard (/): drittes Widget-Set, gleiche KioskWidgetLayout-
+// Struktur und dieselben kioskWidgetCss()/kioskLayoutJson()-Helfer wie oben,
+// aber nur EIN Layout (kein Hoch-/Querformat) - die Startseite ist eine
+// normal scrollbare Seite, keine feste Vollbild-Kiosk-Flaeche. Eine einzelne
+// CSS-Media-Query (siehe .hw-canvas) stapelt die Widgets auf schmalen
+// Bildschirmen, statt ein zweites persistiertes Layout vorzuhalten.
+#define HOME_GRID_COLS 8
+#define HOME_GRID_ROWS 7
+#define HOME_WIDGET_COUNT 4
+const char* HOME_WIDGET_KEYS[HOME_WIDGET_COUNT] = { "gauge", "livepower", "chart", "metrics" };
+const char* HOME_WIDGET_LABELS[HOME_WIDGET_COUNT] = { "Preis-Gauge", "Live-Verbrauch", "Diagramm", "Metriken" };
+
+const KioskWidgetLayout HOME_DEFAULTS[HOME_WIDGET_COUNT] = {
+  { 1, 3, 1, 3, true }, // gauge:     links oben, quadratisch
+  { 1, 3, 4, 2, true }, // livepower: links, unter der Gauge
+  { 4, 5, 1, 5, true }, // chart:     rechts, hoch
+  { 1, 8, 6, 2, true }, // metrics:   ganze Breite, unten
+};
+
+KioskWidgetLayout homeLayout[HOME_WIDGET_COUNT];
+
 // -----------------------------------------------------------------------------
 // Funktions-Prototypen
 // -----------------------------------------------------------------------------
@@ -587,6 +608,7 @@ void saveLayoutItem(int d, int i, LayoutItem item);
 void loadKioskLayoutFromPrefs();
 void saveKioskWidget(bool landscape, int i, KioskWidgetLayout item);
 void saveKiosk2Widget(bool landscape, int i, KioskWidgetLayout item);
+void saveHomeLayoutToPrefs();
 void handleKioskLayoutPage();
 void handleSaveKioskLayoutAjax();
 void handleResetKioskLayout();
@@ -688,6 +710,7 @@ void handleFaviconSvg();
 void handleAppJs();
 void handleLayoutEditorJs();
 void handleAccountUpdateJs();
+void handleWidgetEngineJs();
 void handleLivePower();
 
 String buildSvgChart(String lineColor = "", String fillColor = "");
@@ -1674,6 +1697,7 @@ void setup() {
   server.on("/app.js", handleAppJs);
   server.on("/layout-editor.js", handleLayoutEditorJs);
   server.on("/account-update.js", handleAccountUpdateJs);
+  server.on("/widget-engine.js", handleWidgetEngineJs);
   server.on("/livepower", HTTP_GET, handleLivePower);
   server.begin();
 
@@ -3669,6 +3693,17 @@ void loadKioskLayoutFromPrefs() {
     kiosk2Landscape[i].rowSpan  = prefs.getUChar((lPrefix2 + "p").c_str(), KIOSK2_LANDSCAPE_DEFAULTS[i].rowSpan);
     kiosk2Landscape[i].visible  = prefs.getBool((lPrefix2 + "v").c_str(), KIOSK2_LANDSCAPE_DEFAULTS[i].visible);
   }
+
+  // Startseiten-Dashboard: das ganze Array als EIN Blob-Key statt 5
+  // Sub-Keys pro Widget (siehe Kommentar bei der homeLayout-Deklaration) -
+  // die NVS-Partition ist nur 20KB gross und kiosk1+kiosk2 belegen darin
+  // bereits ueber 100 Eintraege.
+  size_t homeBytes = prefs.getBytesLength("homeLay");
+  if (homeBytes == sizeof(homeLayout)) {
+    prefs.getBytes("homeLay", homeLayout, sizeof(homeLayout));
+  } else {
+    memcpy(homeLayout, HOME_DEFAULTS, sizeof(homeLayout));
+  }
 }
 
 static void saveKioskWidgetGeneric(const String &prefix, KioskWidgetLayout item) {
@@ -3685,6 +3720,10 @@ void saveKioskWidget(bool landscape, int i, KioskWidgetLayout item) {
 
 void saveKiosk2Widget(bool landscape, int i, KioskWidgetLayout item) {
   saveKioskWidgetGeneric((landscape ? "k2L" : "k2P") + String(i), item);
+}
+
+void saveHomeLayoutToPrefs() {
+  prefs.putBytes("homeLay", (uint8_t*)homeLayout, sizeof(homeLayout));
 }
 
 // -----------------------------------------------------------------------------
@@ -4544,7 +4583,7 @@ void handleRoot() {
   if (!checkAuth()) return;
 
   String html;
-  html.reserve(24500);
+  html.reserve(29000);
 
   html += htmlHeader("Übersicht");
   html += "<section class='hero'><h1>";
@@ -4576,7 +4615,42 @@ void handleRoot() {
     }
   }
 
-  html += "<section class='card'><div class='panelTitle'><h2>Aktuelle Werte</h2><div style='display:flex;gap:8px;flex-wrap:wrap'>";
+  html += R"CSS(<style>
+.kw-toolbar{display:flex;justify-content:flex-end;margin:4px 0 -2px}
+.kw-canvas{position:relative;display:grid;grid-template-columns:repeat(8,1fr);grid-auto-rows:minmax(64px,auto);gap:14px;margin:14px 0}
+.kw{position:relative;container-type:inline-size;background:var(--card);border:1px solid var(--surface-border);border-radius:22px;padding:clamp(14px,3cqi,26px);box-shadow:0 1px 2px var(--shadow-soft),0 8px 24px rgba(0,0,0,.06);backdrop-filter:blur(20px) saturate(180%);-webkit-backdrop-filter:blur(20px) saturate(180%);box-sizing:border-box;overflow:hidden;display:flex;flex-direction:column;transition:box-shadow .2s var(--ease)}
+.kw.wg-dragging,.kw.wg-resizing{box-shadow:0 20px 44px rgba(0,0,0,.28);z-index:50}
+.kw-arrange-mode .kw{cursor:grab;user-select:none}
+.kw-arrange-mode .kw.wg-dragging{cursor:grabbing}
+.kw-resize{display:none;position:absolute;right:8px;bottom:8px;width:18px;height:18px;border-radius:50%;background:var(--accent2);border:2px solid var(--card);cursor:nwse-resize;z-index:5}
+.kw-arrange-mode .kw-resize{display:block}
+.kw-gauge .panelTitle{margin-bottom:6px;flex:0 0 auto}
+.kw-gauge .gaugeWrap{flex:1;min-height:0;display:flex;align-items:center;justify-content:center}
+.kw-gauge .gaugeWrap svg{width:100%;max-width:420px;height:auto}
+.kw-chart{min-height:180px}
+.kw-chart svg{width:100%;height:100%;display:block;flex:1;min-height:0}
+.kw-metrics .gridCards{margin:0;height:100%;grid-template-columns:repeat(auto-fit,minmax(140px,1fr))}
+.kw-livepower{align-items:center;justify-content:center}
+.kw-livepower .live-power{margin:0;padding:0;background:transparent;max-width:none}
+.kw-livepower .pg-value{font-size:clamp(28px,14cqi,72px)}
+.kw-livepower .pg-label{font-size:clamp(11px,3.4cqi,15px)}
+.kw-livepower .pg-scale{font-size:clamp(9px,2.6cqi,12px)}
+@container (max-width: 220px){
+  .kw-metrics .gridCards{grid-template-columns:1fr}
+  .kw-metrics .metric .sub{display:none}
+}
+@media(max-width:700px){
+  .kw-canvas{grid-template-columns:1fr}
+  .kw{grid-column:1/-1!important;grid-row:auto!important}
+}
+</style>)CSS";
+
+  html += "<div class='kw-toolbar'><button type='button' id='kwArrangeBtn' class='secondary' onclick='kwToggleArrange()'>Anordnen</button></div>";
+  html += "<div class='kw-canvas'>";
+
+  // Widget 0: Preis-Gauge
+  html += "<div class='kw kw-gauge' data-idx='0'>";
+  html += "<div class='panelTitle'><h2>Aktuelle Werte</h2><div style='display:flex;gap:8px;flex-wrap:wrap'>";
   html += "<span class='badge okb' title='Woher die Preise gerade kommen, aenderbar unter Anbieter'>";
   if (priceProvider == "awattar_de") {
     html += "aWATTar DE";
@@ -4604,6 +4678,10 @@ void handleRoot() {
   html += "<div class='gaugeWrap'>";
   html += buildPriceGaugeSvg();
   html += "</div>";
+  html += "<span class='kw-resize'></span>";
+  html += "</div>";
+
+  // Widget 1: Live-Verbrauch
   String liveHomeText = "";
   if (livePowerW >= 0 && millis() - livePowerUpdatedAtMs < 60000) {
     float kw = livePowerW / 1000.0f;
@@ -4618,7 +4696,26 @@ void handleRoot() {
     liveHomeText += "<div class='pg-track'><div class='pg-fill " + zc + "' style='width:" + String((int)lppct) + "%'></div><div class='pg-marker' style='left:" + String((int)lppct) + "%'></div></div>";
     liveHomeText += "<div class='pg-scale'><span>0</span><span>" + String(livePowerMaxKw, 1) + " kW</span></div>";
   }
+  html += "<div class='kw kw-livepower' data-idx='1'>";
   html += "<div class='live-power priceGauge' id='livePowerBadge'>" + liveHomeText + "</div>";
+  html += "<span class='kw-resize'></span>";
+  html += "</div>";
+
+  // Widget 2: Preisverlauf-Diagramm
+  html += "<div class='kw kw-chart' data-idx='2'>";
+  html += "<div class='panelTitle'><h2>Preisverlauf</h2><span class='badge okb'>" + String(quarterCount) + " Slots</span></div>";
+  html += buildSvgChart();
+  html += "<div style='display:flex;flex-wrap:wrap;gap:14px;margin-top:10px;font-size:12px;color:var(--muted)'>";
+  html += "<span><span style='display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--accent);margin-right:5px'></span>Preis</span>";
+  html += "<span><span style='display:inline-block;width:10px;height:10px;border-radius:50%;background:#34C759;margin-right:5px'></span>Jetzt</span>";
+  html += "<span><span style='display:inline-block;width:10px;height:10px;border-radius:50%;background:#FFD60A;margin-right:5px'></span>Tiefstpreis (60 Min)</span>";
+  html += "<span><span style='display:inline-block;width:10px;height:2px;background:var(--muted);margin-right:5px;vertical-align:middle'></span>Tagesschnitt</span>";
+  html += "</div>";
+  html += "<span class='kw-resize'></span>";
+  html += "</div>";
+
+  // Widget 3: Metriken
+  html += "<div class='kw kw-metrics' data-idx='3'>";
   html += "<div class='gridCards'>";
 
   html += "<div class='metric'><div class='label'>15-Minuten-Preis</div><div class='value'>";
@@ -4676,8 +4773,15 @@ void handleRoot() {
   }
 
   html += "</div>";
+  html += "<span class='kw-resize'></span>";
+  html += "</div>";
 
-  html += "<div class='small' style='display:flex;flex-wrap:wrap;gap:6px 16px;margin-top:16px'>";
+  html += "</div>"; // .kw-canvas
+
+  html += "<style>" + kioskWidgetCss(homeLayout, HOME_WIDGET_KEYS, HOME_WIDGET_COUNT) + "</style>";
+
+  html += "<section class='card'>";
+  html += "<div class='small' style='display:flex;flex-wrap:wrap;gap:6px 16px'>";
   html += "<span>";
   html += (priceProvider == "tibber") ? "Tibber" : "aWATTar";
   html += " aktuell ab: " + htmlEscape(currentStartsAt) + "</span>";
@@ -4704,18 +4808,6 @@ void handleRoot() {
 
   html += "<div class='actions'><a href='/refresh'><button>Jetzt aktualisieren</button></a><a href='/kiosk'><button type='button' class='secondary'>Tablet-Modus</button></a></div>";
   html += "</section>";
-
-  html += "<section class='card'><div class='panelTitle'><h2>Preisverlauf</h2><span class='badge okb'>";
-  html += String(quarterCount);
-  html += " Slots</span></div>";
-  html += buildSvgChart();
-  html += "<div style='display:flex;flex-wrap:wrap;gap:14px;margin-top:10px;font-size:12px;color:var(--muted)'>";
-  html += "<span><span style='display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--accent);margin-right:5px'></span>Preis</span>";
-  html += "<span><span style='display:inline-block;width:10px;height:10px;border-radius:50%;background:#34C759;margin-right:5px'></span>Jetzt</span>";
-  html += "<span><span style='display:inline-block;width:10px;height:10px;border-radius:50%;background:#FFD60A;margin-right:5px'></span>Tiefstpreis (60 Min)</span>";
-  html += "<span><span style='display:inline-block;width:10px;height:2px;background:var(--muted);margin-right:5px;vertical-align:middle'></span>Tagesschnitt</span>";
-  html += "</div></section>";
-
 
   if (quarterCount > 0) {
     html += "<details class='card'><summary><h2 style='display:inline'>Geladene Preise heute/morgen (";
@@ -4744,6 +4836,97 @@ function updatePriceBadge(){fetch('/gaugestatus',{cache:'no-store'}).then(functi
 }).catch(function(){});}
 setInterval(updatePriceBadge,10000);
 })();</script>)JS";
+
+  html += "<script src='/widget-engine.js'></script>";
+  html += "<script>var homeData = " + kioskLayoutJson(homeLayout, HOME_WIDGET_KEYS, HOME_WIDGET_LABELS, HOME_WIDGET_COUNT) + ";</script>";
+  html += R"JS(<script>
+var kwArrangeMode = false;
+var kwController = null;
+
+function kwGrid(){ return { cols: 8, rows: 7 }; }
+function kwGetEl(i){ return document.querySelector('.kw-canvas .kw[data-idx="' + i + '"]'); }
+
+function kwApplyLayout(i){
+  var el = kwGetEl(i);
+  var item = homeData[i];
+  if (el) {
+    el.style.gridColumn = item.colStart + '/span ' + item.colSpan;
+    el.style.gridRow = item.rowStart + '/span ' + item.rowSpan;
+  }
+}
+
+function kwSaveOne(i){
+  var item = homeData[i];
+  var body = new URLSearchParams();
+  body.set('target', 'home');
+  body.set('index', i);
+  body.set('colStart', item.colStart);
+  body.set('colSpan', item.colSpan);
+  body.set('rowStart', item.rowStart);
+  body.set('rowSpan', item.rowSpan);
+  body.set('visible', item.visible ? '1' : '0');
+  return fetch('/savekiosklayoutajax', { method: 'POST', headers: {'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'}, body: body.toString() })
+    .then(function(r){ return r.json(); })
+    .then(function(d){ return !!d.ok; })
+    .catch(function(){ return false; });
+}
+
+function kwCommit(indexes){
+  var allOk = true;
+  var chain = Promise.resolve();
+  indexes.forEach(function(i){
+    chain = chain.then(function(){ return kwSaveOne(i); }).then(function(ok){ if (!ok) allOk = false; });
+  });
+  chain.then(function(){
+    if (typeof showToast === 'function') showToast(allOk ? 'Anordnung gespeichert' : 'Fehler beim Speichern', allOk ? 'ok' : 'err');
+  });
+}
+
+function kwToggleArrange(){
+  kwArrangeMode = !kwArrangeMode;
+  document.body.classList.toggle('kw-arrange-mode', kwArrangeMode);
+  var btn = document.getElementById('kwArrangeBtn');
+  if (btn) btn.textContent = kwArrangeMode ? 'Fertig' : 'Anordnen';
+  if (kwArrangeMode) {
+    // Waehrend des Anordnens darf die Seite nicht per meta-refresh neu laden
+    // und dabei eine laufende Geste abbrechen.
+    var meta = document.querySelector("meta[http-equiv='refresh' i]");
+    if (meta) meta.remove();
+  }
+}
+
+(function(){
+  kwController = WidgetGridEngine.createController({
+    getEl: kwGetEl,
+    getItems: function(){ return homeData; },
+    getGrid: kwGrid,
+    cellSize: function(){
+      var canvas = document.querySelector('.kw-canvas');
+      var r = canvas.getBoundingClientRect();
+      var g = kwGrid();
+      return { w: r.width / g.cols, h: r.height / g.rows };
+    },
+    applyLayout: kwApplyLayout,
+    onCommit: kwCommit
+  });
+  document.querySelectorAll('.kw-canvas .kw').forEach(function(el){
+    var idx = parseInt(el.getAttribute('data-idx'), 10);
+    el.addEventListener('pointerdown', function(e){
+      if (!kwArrangeMode) return;
+      if (e.target.closest('.kw-resize')) return;
+      kwController.startDrag(e, idx);
+    });
+    var handle = el.querySelector('.kw-resize');
+    if (handle) {
+      handle.addEventListener('pointerdown', function(e){
+        if (!kwArrangeMode) return;
+        kwController.startResize(e, idx);
+      });
+    }
+  });
+})();
+</script>)JS";
+
   html += htmlFooter();
 
   server.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
@@ -6231,16 +6414,19 @@ void handleSaveKioskLayoutAjax() {
 
   int index = server.hasArg("index") ? server.arg("index").toInt() : -1;
   bool landscape = server.hasArg("orientation") && server.arg("orientation") == "landscape";
-  bool isK2 = server.hasArg("target") && server.arg("target") == "k2";
-  int count = isK2 ? KIOSK2_WIDGET_COUNT : KIOSK_WIDGET_COUNT;
+  String target = server.hasArg("target") ? server.arg("target") : "";
+  bool isK2 = target == "k2";
+  bool isHome = target == "home";
+  int count = isHome ? HOME_WIDGET_COUNT : (isK2 ? KIOSK2_WIDGET_COUNT : KIOSK_WIDGET_COUNT);
 
   if (index < 0 || index >= count) {
     server.send(200, "application/json", "{\"ok\":false,\"error\":\"Ungueltiger Index\"}");
     return;
   }
 
-  uint8_t cols = landscape ? KIOSK_GRID_COLS_LANDSCAPE : KIOSK_GRID_COLS_PORTRAIT;
-  uint8_t rows = landscape ? KIOSK_GRID_ROWS_LANDSCAPE : KIOSK_GRID_ROWS_PORTRAIT;
+  // Die Startseite hat kein Hoch-/Querformat - immer ihr eigenes, einzelnes Grid.
+  uint8_t cols = isHome ? HOME_GRID_COLS : (landscape ? KIOSK_GRID_COLS_LANDSCAPE : KIOSK_GRID_COLS_PORTRAIT);
+  uint8_t rows = isHome ? HOME_GRID_ROWS : (landscape ? KIOSK_GRID_ROWS_LANDSCAPE : KIOSK_GRID_ROWS_PORTRAIT);
 
   KioskWidgetLayout item;
   item.colStart = server.hasArg("colStart") ? server.arg("colStart").toInt() : 1;
@@ -6259,7 +6445,10 @@ void handleSaveKioskLayoutAjax() {
   if (item.colStart + item.colSpan - 1 > cols) item.colSpan = cols - item.colStart + 1;
   if (item.rowStart + item.rowSpan - 1 > rows) item.rowSpan = rows - item.rowStart + 1;
 
-  if (isK2) {
+  if (isHome) {
+    homeLayout[index] = item;
+    saveHomeLayoutToPrefs();
+  } else if (isK2) {
     if (landscape) { kiosk2Landscape[index] = item; } else { kiosk2Portrait[index] = item; }
     saveKiosk2Widget(landscape, index, item);
   } else {
@@ -6276,9 +6465,16 @@ void handleResetKioskLayout() {
   String orientation = server.hasArg("orientation") ? server.arg("orientation") : "";
   bool doPortrait = (orientation == "portrait" || orientation.length() == 0);
   bool doLandscape = (orientation == "landscape" || orientation.length() == 0);
-  bool isK2 = server.hasArg("target") && server.arg("target") == "k2";
+  String target = server.hasArg("target") ? server.arg("target") : "";
+  bool isK2 = target == "k2";
+  bool isHome = target == "home";
 
-  if (isK2) {
+  if (isHome) {
+    for (int i = 0; i < HOME_WIDGET_COUNT; i++) {
+      homeLayout[i] = HOME_DEFAULTS[i];
+    }
+    saveHomeLayoutToPrefs();
+  } else if (isK2) {
     for (int i = 0; i < KIOSK2_WIDGET_COUNT; i++) {
       if (doPortrait) {
         kiosk2Portrait[i] = KIOSK2_PORTRAIT_DEFAULTS[i];
@@ -6327,9 +6523,10 @@ void handleKioskLayoutPage() {
 .kl-canvas{position:relative;width:min(360px,90vw);aspect-ratio:9/16;display:grid;grid-template-columns:repeat(6,1fr);grid-template-rows:repeat(12,1fr);gap:2px;padding:6px;background:var(--overlay-faint);border:1px solid var(--line);border-radius:12px;overflow:hidden;touch-action:none;box-sizing:border-box}
 .kl-canvas.landscape{width:min(560px,90vw);aspect-ratio:16/9;grid-template-columns:repeat(12,1fr);grid-template-rows:repeat(8,1fr)}
 .kl-cell{background:rgba(96,165,250,.06);border-radius:2px;pointer-events:none}
-.kl-item{position:relative;border:2px dashed var(--accent2);background:rgba(96,165,250,.14);border-radius:6px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:4px;cursor:move;box-sizing:border-box;user-select:none;overflow:visible;text-align:center;min-width:0;min-height:0;z-index:2}
+.kl-item{position:relative;border:2px dashed var(--accent2);background:rgba(96,165,250,.14);border-radius:6px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:4px;cursor:move;box-sizing:border-box;user-select:none;overflow:visible;text-align:center;min-width:0;min-height:0;z-index:2;transition:box-shadow .2s var(--ease)}
 .kl-item.selected{border-style:solid;background:rgba(96,165,250,.24)}
 .kl-item.kl-hidden{opacity:.32;border-style:dotted}
+.kl-item.wg-dragging,.kl-item.wg-resizing{cursor:grabbing;box-shadow:0 14px 34px rgba(0,0,0,.38);z-index:50;transition:none}
 .kl-item-caption{font-size:9px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;pointer-events:none;line-height:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
 .kl-item-preview{font-size:12px;font-weight:800;color:var(--text);pointer-events:none;line-height:1.1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
 .kl-resize{position:absolute;right:-7px;bottom:-7px;width:16px;height:16px;background:var(--accent2);border:2px solid var(--panel);border-radius:50%;cursor:nwse-resize}
@@ -6406,6 +6603,7 @@ void handleKioskLayoutPage() {
   html += "</form>";
   html += "</section>";
 
+  html += "<script src='/widget-engine.js'></script>";
   html += "<script>var klData = {";
   html += "k1:{portrait:" + kioskLayoutJson(kioskPortrait) + ",landscape:" + kioskLayoutJson(kioskLandscape) + "},";
   html += "k2:{portrait:" + kioskLayoutJson(kiosk2Portrait, KIOSK2_WIDGET_KEYS, KIOSK2_WIDGET_LABELS, KIOSK2_WIDGET_COUNT) + ",landscape:" + kioskLayoutJson(kiosk2Landscape, KIOSK2_WIDGET_KEYS, KIOSK2_WIDGET_LABELS, KIOSK2_WIDGET_COUNT) + "}";
@@ -6415,12 +6613,12 @@ void handleKioskLayoutPage() {
 var klPage = 'k1';
 var klOrientation = 'portrait';
 var klSelected = 0;
+var klController = null;
 var KL_GRID = {
   portrait:  { cols: 6,  rows: 12 },
   landscape: { cols: 12, rows: 8  }
 };
 function klGrid(){ return KL_GRID[klOrientation]; }
-function klClamp(v, lo, hi){ return Math.max(lo, Math.min(hi, v)); }
 
 function klRenderCanvas(){
   var canvas = document.getElementById('klCanvas');
@@ -6441,6 +6639,7 @@ function klRenderCanvas(){
   items.forEach(function(item, i){
     var el = document.createElement('div');
     el.className = 'kl-item' + (i === klSelected ? ' selected' : '') + (!item.visible ? ' kl-hidden' : '');
+    el.setAttribute('data-idx', i);
     el.style.gridColumn = item.colStart + '/span ' + item.colSpan;
     el.style.gridRow = item.rowStart + '/span ' + item.rowSpan;
     var caption = document.createElement('span');
@@ -6455,10 +6654,29 @@ function klRenderCanvas(){
     }
     var handle = document.createElement('span');
     handle.className = 'kl-resize';
-    handle.addEventListener('pointerdown', function(e){ klStartResize(e, i); });
+    handle.addEventListener('pointerdown', function(e){ klController.startResize(e, i); });
     el.appendChild(handle);
-    el.addEventListener('pointerdown', function(e){ klStartDrag(e, i); });
+    el.addEventListener('pointerdown', function(e){ klSelected = i; klController.startDrag(e, i); });
     canvas.appendChild(el);
+  });
+  klController = WidgetGridEngine.createController({
+    getEl: function(i){ return canvas.querySelector('.kl-item[data-idx="' + i + '"]'); },
+    getItems: function(){ return klData[klPage][klOrientation]; },
+    getGrid: klGrid,
+    cellSize: function(){
+      var r = canvas.getBoundingClientRect();
+      var gr = klGrid();
+      return { w: r.width / gr.cols, h: r.height / gr.rows };
+    },
+    applyLayout: function(i){
+      var el = canvas.querySelector('.kl-item[data-idx="' + i + '"]');
+      var item = klData[klPage][klOrientation][i];
+      if (el) {
+        el.style.gridColumn = item.colStart + '/span ' + item.colSpan;
+        el.style.gridRow = item.rowStart + '/span ' + item.rowSpan;
+      }
+    },
+    onCommit: klCommit
   });
   klRenderLayers();
 }
@@ -6477,74 +6695,16 @@ function klRenderLayers(){
     vis.className = 'secondary';
     vis.textContent = item.visible ? '●' : '○';
     vis.title = item.visible ? 'Ausblenden' : 'Einblenden';
-    vis.addEventListener('click', function(e){ e.stopPropagation(); item.visible = !item.visible; klSave(i); klRenderCanvas(); });
+    vis.addEventListener('click', function(e){ e.stopPropagation(); item.visible = !item.visible; klCommit([i]); });
     row.appendChild(label);
     row.appendChild(vis);
     wrap.appendChild(row);
   });
 }
 
-// Drag: verschiebt das Widget um ganze Zellen. Snap ist automatisch, weil
-// Ziel-Koordinaten immer ganzzahlig sind.
-function klStartDrag(e, i){
-  e.preventDefault();
-  klSelected = i;
-  var canvas = document.getElementById('klCanvas');
-  var rect = canvas.getBoundingClientRect();
-  var g = klGrid();
-  var cellW = rect.width / g.cols;
-  var cellH = rect.height / g.rows;
+// Speichert ein einzelnes Widget; Rueckgabewert ist ein Promise<boolean>.
+function klSaveOne(i){
   var item = klData[klPage][klOrientation][i];
-  var startColStart = item.colStart, startRowStart = item.rowStart;
-  var startX = e.clientX, startY = e.clientY;
-  function onMove(ev){
-    var dc = Math.round((ev.clientX - startX) / cellW);
-    var dr = Math.round((ev.clientY - startY) / cellH);
-    item.colStart = klClamp(startColStart + dc, 1, g.cols - item.colSpan + 1);
-    item.rowStart = klClamp(startRowStart + dr, 1, g.rows - item.rowSpan + 1);
-    klRenderCanvas();
-  }
-  function onUp(){
-    document.removeEventListener('pointermove', onMove);
-    document.removeEventListener('pointerup', onUp);
-    klSave(i);
-  }
-  document.addEventListener('pointermove', onMove);
-  document.addEventListener('pointerup', onUp);
-}
-
-function klStartResize(e, i){
-  e.preventDefault();
-  e.stopPropagation();
-  klSelected = i;
-  var canvas = document.getElementById('klCanvas');
-  var rect = canvas.getBoundingClientRect();
-  var g = klGrid();
-  var cellW = rect.width / g.cols;
-  var cellH = rect.height / g.rows;
-  var item = klData[klPage][klOrientation][i];
-  var startColSpan = item.colSpan, startRowSpan = item.rowSpan;
-  var startX = e.clientX, startY = e.clientY;
-  function onMove(ev){
-    var dc = Math.round((ev.clientX - startX) / cellW);
-    var dr = Math.round((ev.clientY - startY) / cellH);
-    item.colSpan = klClamp(startColSpan + dc, 1, g.cols - item.colStart + 1);
-    item.rowSpan = klClamp(startRowSpan + dr, 1, g.rows - item.rowStart + 1);
-    klRenderCanvas();
-  }
-  function onUp(){
-    document.removeEventListener('pointermove', onMove);
-    document.removeEventListener('pointerup', onUp);
-    klSave(i);
-  }
-  document.addEventListener('pointermove', onMove);
-  document.addEventListener('pointerup', onUp);
-}
-
-function klSave(i){
-  var item = klData[klPage][klOrientation][i];
-  var state = document.getElementById('klSaveState');
-  if (state) { state.className = 'badge warnb'; state.textContent = 'Speichere...'; }
   var body = new URLSearchParams();
   body.set('target', klPage);
   body.set('orientation', klOrientation);
@@ -6554,12 +6714,28 @@ function klSave(i){
   body.set('rowStart', item.rowStart);
   body.set('rowSpan', item.rowSpan);
   body.set('visible', item.visible ? '1' : '0');
-  fetch('/savekiosklayoutajax', { method: 'POST', headers: {'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'}, body: body.toString() })
+  return fetch('/savekiosklayoutajax', { method: 'POST', headers: {'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'}, body: body.toString() })
     .then(function(r){ return r.json(); })
-    .then(function(d){
-      if (state) { state.className = d.ok ? 'badge okb' : 'badge errb'; state.textContent = d.ok ? 'Gespeichert' : 'Fehler'; }
-    })
-    .catch(function(){ if (state) { state.className = 'badge errb'; state.textContent = 'Fehler'; } });
+    .then(function(d){ return !!d.ok; })
+    .catch(function(){ return false; });
+}
+
+// Wird einmal pro Geste (Drag/Resize/Sichtbarkeits-Umschalten) mit ALLEN
+// veraenderten Indizes aufgerufen - inkl. per Kollisions-Schubs verschobener
+// Nachbarn. Speichert nacheinander (nicht parallel), da der ESP32-WebServer
+// einzelne Requests sequentiell abarbeitet.
+function klCommit(indexes){
+  var state = document.getElementById('klSaveState');
+  if (state) { state.className = 'badge warnb'; state.textContent = 'Speichere...'; }
+  var allOk = true;
+  var chain = Promise.resolve();
+  indexes.forEach(function(i){
+    chain = chain.then(function(){ return klSaveOne(i); }).then(function(ok){ if (!ok) allOk = false; });
+  });
+  chain.then(function(){
+    if (state) { state.className = allOk ? 'badge okb' : 'badge errb'; state.textContent = allOk ? 'Gespeichert' : 'Fehler'; }
+    klRenderLayers();
+  });
 }
 
 function klSwitchOrientation(o){
@@ -9076,6 +9252,230 @@ setInterval(function(){ checkFirmwareVersion(false); }, 10 * 60 * 1000);
     b.addEventListener('click', function(){ checkFirmwareVersion(true); });
   }
 })();
+)JS";
+
+  server.sendHeader("Cache-Control", "public, max-age=86400");
+  server.send(200, "application/javascript", js);
+}
+
+// Gemeinsame Drag/Resize/Auto-Reflow-Engine fuer alle Widget-Grids (Kiosk-
+// Layout-Editor und spaeter die Startseite) - EINE Datei statt mehrfach
+// inline eingebetteter Kopien, damit der Flash-Speicher nicht mehrfach
+// belastet wird. Design: Widgets bleiben waehrend des normalen Betriebs
+// stinknormale CSS-Grid-Items (grid-column/grid-row). Nur waehrend einer
+// aktiven Drag/Resize-Geste weicht das jeweilige Element davon ab:
+//  - Drag: bekommt zusaetzlich ein `transform: translate3d(...)` fuer die
+//    Bewegung (rein visuell, loest kein Reflow der Nachbarn aus), die
+//    tatsaechliche Grid-Position wird erst beim Loslassen uebernommen.
+//  - Resize: wechselt kurzzeitig auf `position:absolute` mit expliziten
+//    Pixel-Massen (statt eines `transform:scale`), damit der Browser das
+//    Element wirklich neu layoutet und Container-Query-basierte Inhalte
+//    (siehe .hw-* Widgets) waehrend des Ziehens live mitskalieren - ein
+//    reines `scale()` wuerde nur das gerenderte Bild verzerren, keine echte
+//    Container-Groessenaenderung ausloesen.
+// Beim Loslassen: einfacher "Schubs"-Kollisions-Resolver verschiebt
+// ueberlappende Nachbarn, die per FLIP-Technik (Rect vorher/nachher, dann
+// inverses Transform auf 0 animiert) sanft an ihre neue Position gleiten.
+void handleWidgetEngineJs() {
+  String js = R"JS(
+(function(global){
+
+function wgClamp(v, lo, hi){ return Math.max(lo, Math.min(hi, v)); }
+
+function wgRectsOverlap(a, b) {
+  return a.colStart < b.colStart + b.colSpan &&
+         a.colStart + a.colSpan > b.colStart &&
+         a.rowStart < b.rowStart + b.rowSpan &&
+         a.rowStart + a.rowSpan > b.rowStart;
+}
+
+// Verschiebt ueberlappende Nachbarn von `moving` aus dem Weg (max. 3 Durchlaeufe
+// wegen Kettenreaktionen). Bevorzugt ein Verschieben nach unten; nur wenn das
+// nicht in das Grid passt, wird stattdessen nach rechts verschoben. Mutiert
+// `items` direkt, gibt die Indizes der tatsaechlich veraenderten Eintraege zurueck.
+function wgResolveCollisions(items, movingIndex, cols, rows) {
+  var changed = {};
+  var moving = items[movingIndex];
+  for (var pass = 0; pass < 3; pass++) {
+    var any = false;
+    for (var i = 0; i < items.length; i++) {
+      if (i === movingIndex) continue;
+      var it = items[i];
+      if (!wgRectsOverlap(moving, it)) continue;
+      var newRowStart = moving.rowStart + moving.rowSpan;
+      if (newRowStart + it.rowSpan - 1 <= rows) {
+        it.rowStart = newRowStart;
+      } else {
+        it.colStart = wgClamp(moving.colStart + moving.colSpan, 1, cols - it.colSpan + 1);
+      }
+      changed[i] = true;
+      any = true;
+    }
+    if (!any) break;
+  }
+  return Object.keys(changed).map(Number);
+}
+
+// FLIP-Animation: `beforeRects` (vom Aufrufer VOR der Grid-Aenderung erfasst,
+// je Index ein getBoundingClientRect()) wird gegen die aktuelle (neue)
+// Position verglichen; die Differenz wird als Transform aufgebracht und dann
+// auf 0 animiert, damit das Element sichtbar an seinen neuen Platz gleitet.
+function wgFlipAnimate(getEl, indexes, beforeRects) {
+  indexes.forEach(function(i){
+    var el = getEl(i);
+    var before = beforeRects[i];
+    if (!el || !before) return;
+    var after = el.getBoundingClientRect();
+    var dx = before.left - after.left;
+    var dy = before.top - after.top;
+    if (!dx && !dy) return;
+    el.style.transition = 'none';
+    el.style.transform = 'translate3d(' + dx + 'px,' + dy + 'px,0)';
+    requestAnimationFrame(function(){
+      el.style.transition = 'transform .28s cubic-bezier(.22,.61,.36,1)';
+      el.style.transform = '';
+    });
+  });
+}
+
+// Verdrahtet Drag+Resize fuer eine Grid-Instanz. opts:
+//  getEl(i)          -> DOM-Element von Widget i (muss bereits im DOM stehen)
+//  getItems()        -> lebendes Array {colStart,colSpan,rowStart,rowSpan,...}
+//  getGrid()         -> {cols, rows}
+//  cellSize()        -> {w,h} einer Zelle in px, jedes Mal frisch gemessen
+//  applyLayout(i)    -> Aufrufer setzt grid-column/grid-row von Element i neu
+//  onCommit(indexes) -> einmalig am Gestenende mit allen veraenderten Indizes
+//                       (inkl. weggeschubster Nachbarn) - Aufrufer speichert
+function wgCreateGridController(opts) {
+
+  function finishGesture(i) {
+    var items = opts.getItems();
+    var grid = opts.getGrid();
+
+    var beforeRects = {};
+    items.forEach(function(_, idx){
+      var e2 = opts.getEl(idx);
+      if (e2) beforeRects[idx] = e2.getBoundingClientRect();
+    });
+
+    var shoved = wgResolveCollisions(items, i, grid.cols, grid.rows);
+    var changed = [i].concat(shoved);
+    changed.forEach(function(idx){ opts.applyLayout(idx); });
+
+    // Nur die weggeschubsten Nachbarn brauchen die FLIP-Animation - das
+    // gezogene/skalierte Element selbst kommt schon animiert von seiner
+    // eigenen Drag/Resize-Geste an seiner finalen Position an.
+    wgFlipAnimate(opts.getEl, shoved, beforeRects);
+
+    if (opts.onCommit) opts.onCommit(changed);
+  }
+
+  function startDrag(e, i) {
+    e.preventDefault();
+    var el = opts.getEl(i);
+    var item = opts.getItems()[i];
+    var grid = opts.getGrid();
+    var cell = opts.cellSize();
+    var startColStart = item.colStart, startRowStart = item.rowStart;
+    var startX = e.clientX, startY = e.clientY;
+    var latestDx = 0, latestDy = 0, rafId = null;
+
+    el.classList.add('wg-dragging');
+    el.style.willChange = 'transform';
+
+    function tick() {
+      el.style.transform = 'translate3d(' + latestDx + 'px,' + latestDy + 'px,0)';
+      rafId = null;
+    }
+    function onMove(ev) {
+      latestDx = ev.clientX - startX;
+      latestDy = ev.clientY - startY;
+      if (rafId === null) rafId = requestAnimationFrame(tick);
+      var dc = Math.round(latestDx / cell.w);
+      var dr = Math.round(latestDy / cell.h);
+      item.colStart = wgClamp(startColStart + dc, 1, grid.cols - item.colSpan + 1);
+      item.rowStart = wgClamp(startRowStart + dr, 1, grid.rows - item.rowSpan + 1);
+    }
+    function onUp() {
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+      if (rafId !== null) cancelAnimationFrame(rafId);
+      el.classList.remove('wg-dragging');
+      el.style.willChange = '';
+      el.style.transform = '';
+      finishGesture(i);
+    }
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+  }
+
+  function startResize(e, i) {
+    e.preventDefault();
+    e.stopPropagation();
+    var el = opts.getEl(i);
+    var item = opts.getItems()[i];
+    var grid = opts.getGrid();
+    var cell = opts.cellSize();
+    var rect = el.getBoundingClientRect();
+    var canvasRect = el.offsetParent.getBoundingClientRect();
+    var startColSpan = item.colSpan, startRowSpan = item.rowSpan;
+    var startX = e.clientX, startY = e.clientY;
+    var latestW = rect.width, latestH = rect.height, rafId = null;
+
+    el.classList.add('wg-resizing');
+    el.style.gridColumn = 'unset';
+    el.style.gridRow = 'unset';
+    el.style.position = 'absolute';
+    el.style.left = (rect.left - canvasRect.left) + 'px';
+    el.style.top = (rect.top - canvasRect.top) + 'px';
+    el.style.width = rect.width + 'px';
+    el.style.height = rect.height + 'px';
+    el.style.willChange = 'width, height';
+
+    function tick() {
+      el.style.width = latestW + 'px';
+      el.style.height = latestH + 'px';
+      rafId = null;
+    }
+    function onMove(ev) {
+      var dx = ev.clientX - startX, dy = ev.clientY - startY;
+      latestW = Math.max(cell.w * 0.6, rect.width + dx);
+      latestH = Math.max(cell.h * 0.6, rect.height + dy);
+      if (rafId === null) rafId = requestAnimationFrame(tick);
+      var dc = Math.round(dx / cell.w);
+      var dr = Math.round(dy / cell.h);
+      item.colSpan = wgClamp(startColSpan + dc, 1, grid.cols - item.colStart + 1);
+      item.rowSpan = wgClamp(startRowSpan + dr, 1, grid.rows - item.rowStart + 1);
+    }
+    function onUp() {
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+      if (rafId !== null) cancelAnimationFrame(rafId);
+      el.classList.remove('wg-resizing');
+      el.style.position = '';
+      el.style.left = '';
+      el.style.top = '';
+      el.style.width = '';
+      el.style.height = '';
+      el.style.willChange = '';
+      finishGesture(i);
+    }
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+  }
+
+  return { startDrag: startDrag, startResize: startResize };
+}
+
+global.WidgetGridEngine = {
+  clamp: wgClamp,
+  rectsOverlap: wgRectsOverlap,
+  resolveCollisions: wgResolveCollisions,
+  flipAnimate: wgFlipAnimate,
+  createController: wgCreateGridController
+};
+
+})(window);
 )JS";
 
   server.sendHeader("Cache-Control", "public, max-age=86400");
