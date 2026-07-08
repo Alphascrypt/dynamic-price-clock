@@ -82,7 +82,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "3.0.0"
+#define FIRMWARE_VERSION "3.1.0"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -5700,7 +5700,7 @@ void handleKioskPage() {
   getKioskPriceStatus(statusText, statusColor);
 
   String html;
-  html.reserve(19500);
+  html.reserve(24000);
 
   html += "<!DOCTYPE html><html><head>";
   html += "<meta charset='utf-8'>";
@@ -5729,9 +5729,14 @@ void handleKioskPage() {
   // Schicht 2: bewegter Farb-Orb
   html += "body::after{content:'';position:fixed;width:60vmax;height:60vmax;left:50%;top:50%;transform:translate(-50%,-50%);background:radial-gradient(circle," + zoneColor1 + " 0%,transparent 70%);animation:bgRotate 20s ease infinite,bgPulse 12s ease-in-out infinite 4s;background-size:200% 200%;border-radius:50%;z-index:0;filter:blur(40px);opacity:.5}";
   html += ".kiosk-wrap{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;max-height:100vh;padding:clamp(8px,2.2vh,20px);box-sizing:border-box;text-align:center;overflow:hidden}";
-  html += ".kiosk-canvas{display:grid;grid-template-columns:repeat(" + String(KIOSK_GRID_COLS_PORTRAIT) + ",1fr);grid-template-rows:repeat(" + String(KIOSK_GRID_ROWS_PORTRAIT) + ",1fr);gap:clamp(4px,1vh,10px);width:min(97vw,600px);height:min(94vh,1200px);box-sizing:border-box;margin:0 auto}";
+  html += ".kiosk-canvas{position:relative;display:grid;grid-template-columns:repeat(" + String(KIOSK_GRID_COLS_PORTRAIT) + ",1fr);grid-template-rows:repeat(" + String(KIOSK_GRID_ROWS_PORTRAIT) + ",1fr);gap:clamp(4px,1vh,10px);width:min(97vw,600px);height:min(94vh,1200px);box-sizing:border-box;margin:0 auto}";
   // Widget-Grundklasse: Glassmorphism
-  html += ".kw{overflow:hidden;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;justify-content:center;min-width:0;min-height:0;border-radius:clamp(12px,2vh,24px);background:rgba(255,255,255,.07);backdrop-filter:blur(24px) saturate(160%);-webkit-backdrop-filter:blur(24px) saturate(160%);border:1px solid rgba(255,255,255,.12)}";
+  html += ".kw{position:relative;overflow:hidden;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;justify-content:center;min-width:0;min-height:0;border-radius:clamp(12px,2vh,24px);background:rgba(255,255,255,.07);backdrop-filter:blur(24px) saturate(160%);-webkit-backdrop-filter:blur(24px) saturate(160%);border:1px solid rgba(255,255,255,.12);transition:box-shadow .2s ease}";
+  html += ".kw.wg-dragging,.kw.wg-resizing{box-shadow:0 20px 44px rgba(0,0,0,.5);z-index:50}";
+  html += ".kiosk-arrange-mode .kw{cursor:grab;user-select:none}";
+  html += ".kiosk-arrange-mode .kw.wg-dragging{cursor:grabbing}";
+  html += ".kw-resize{display:none;position:absolute;right:6px;bottom:6px;width:18px;height:18px;border-radius:50%;background:#fff;border:2px solid rgba(0,0,0,.4);cursor:nwse-resize;z-index:5}";
+  html += ".kiosk-arrange-mode .kw-resize{display:block}";
   html += ".kiosk-time{font-size:clamp(18px,5vh,56px);font-weight:700;line-height:1;letter-spacing:-1px;color:#fff;font-variant-numeric:tabular-nums}";
   html += ".kiosk-date{font-size:clamp(9px,1.5vh,15px);color:rgba(255,255,255,.65);margin-top:4px;text-transform:capitalize;font-weight:500}";
   html += ".kw-gauge svg{width:100%;height:100%;background:transparent;border:0;margin:0}";
@@ -5781,6 +5786,7 @@ void handleKioskPage() {
   html += "</head><body>";
 
   html += "<div class='kiosk-topbar'>";
+  html += "<button class='secondary' type='button' id='kioskArrangeBtn' onclick='kioskToggleArrange()'>Anordnen</button>";
   html += "<button class='secondary' type='button' onclick='enterKioskFullscreen()'>Vollbild</button>";
   if (ankerConfigured) {
     html += "<a href='/kiosk2'><button class='secondary' type='button'>Energie</button></a>";
@@ -5790,22 +5796,23 @@ void handleKioskPage() {
   html += "<div class='kiosk-wrap'>";
   html += "<div class='kiosk-canvas' id='kioskCanvas'>";
 
-  html += "<div class='kw kw-clock'><div class='kiosk-time' id='kioskTime'>--:--</div><div class='kiosk-date' id='kioskDate'></div></div>";
+  html += "<div class='kw kw-clock' data-idx='0'><div class='kiosk-time' id='kioskTime'>--:--</div><div class='kiosk-date' id='kioskDate'></div><span class='kw-resize'></span></div>";
 
-  html += "<div class='kw kw-gauge' id='kioskGaugeWrap'>";
+  html += "<div class='kw kw-gauge' id='kioskGaugeWrap' data-idx='1'>";
   // Kiosk-Klasse auf priceRing per JS setzen nach dem Render
   html += buildPriceGaugeSvg();
   html += "<script>var _r=document.querySelector('#kioskGaugeWrap .priceRing');if(_r)_r.classList.add('kiosk');</script>";
+  html += "<span class='kw-resize'></span>";
   html += "</div>";
 
-  html += "<div class='kw kw-status kiosk-status' id='kioskStatus' style='color:" + statusColor + "'>" + statusText + "</div>";
+  html += "<div class='kw kw-status kiosk-status' id='kioskStatus' data-idx='2' style='color:" + statusColor + "'>" + statusText + "<span class='kw-resize'></span></div>";
 
   bool livePowerHave = (livePowerW >= 0 && millis() - livePowerUpdatedAtMs < 60000);
   if (kioskLivePowerStyle == "bar") {
     float pct = livePowerHave ? (livePowerW / 1000.0f / livePowerMaxKw * 100.0f) : 0;
     if (pct < 0) pct = 0;
     if (pct > 100) pct = 100;
-    html += "<div class='kw kw-livepower kiosk-live-power bar' id='kioskLivePower'>";
+    html += "<div class='kw kw-livepower kiosk-live-power bar' id='kioskLivePower' data-idx='3'>";
     if (livePowerHave) {
       float kwv = livePowerW / 1000.0f;
       String fillZ = "zc";
@@ -5823,10 +5830,11 @@ void handleKioskPage() {
       }
       html += "</div>";
     }
+    html += "<span class='kw-resize'></span>";
     html += "</div>";
   } else {
     String livePowerText = livePowerHave ? ("&#9889; " + formatLivePowerValue()) : "";
-    html += "<div class='kw kw-livepower kiosk-live-power' id='kioskLivePower'>" + livePowerText + "</div>";
+    html += "<div class='kw kw-livepower kiosk-live-power' id='kioskLivePower' data-idx='3'>" + livePowerText + "<span class='kw-resize'></span></div>";
   }
 
   // Zonen-Farbe fuer Chart: Linie + Fill passend zum Hintergrund-Glow
@@ -5835,12 +5843,13 @@ void handleKioskPage() {
   if (nc2 >= ledRedCent) { chartLine = "#ff6b6b"; chartFill = "#ff3b30"; }
   else if (nc2 >= ledYellowCent) { chartLine = "#ffb347"; chartFill = "#ff9500"; }
 
-  html += "<div class='kw kw-chart'>";
+  html += "<div class='kw kw-chart' data-idx='4'>";
   html += "<div class='kiosk-chart' id='kioskChartWrap'>";
   html += buildSvgChart(chartLine, chartFill);
   html += "<div class='kiosk-tooltip' id='kioskTooltip'></div>";
   html += "</div>";
   html += "<p class='small kiosk-chart-hint'>Mit Finger oder Maus über das Diagramm fahren, um Preise zu sehen.</p>";
+  html += "<span class='kw-resize'></span>";
   html += "</div>";
 
   String lowText = "--";
@@ -5863,13 +5872,13 @@ void handleKioskPage() {
     }
   }
 
-  html += "<div class='kw kw-meta'><div class='kiosk-meta'>";
+  html += "<div class='kw kw-meta' data-idx='5'><div class='kiosk-meta'>";
   html += "<span id='kioskLowText'>Tief heute: " + lowText + "</span>";
   html += "<span id='kioskAvgText'>Tagesdurchschnitt: " + avgText + "</span>";
   html += "<span id='kioskMonthCost'>" + monthCostText + "</span>";
   html += "<span id='kioskMonthEstimate'>" + monthEstimateText + "</span>";
   html += "<span id='kioskStandText'>Stand: " + getCurrentIsoPrefix().substring(11) + " Uhr</span>";
-  html += "</div></div>";
+  html += "</div><span class='kw-resize'></span></div>";
 
   html += "</div>"; // kiosk-canvas
 
@@ -5878,6 +5887,96 @@ void handleKioskPage() {
   html += "</div>";
 
   html += "<script>var kioskChartPoints = " + buildChartPointsJson() + ";</script>";
+
+  html += "<script src='/widget-engine.js'></script>";
+  html += "<script>var kioskArrangeData = {";
+  html += "portrait:" + kioskLayoutJson(kioskPortrait) + ",";
+  html += "landscape:" + kioskLayoutJson(kioskLandscape);
+  html += "};</script>";
+
+  html += R"JS(<script>
+var kioskArrangeMode = false;
+var kioskArrangeController = null;
+var KIOSK_ARRANGE_GRID = { portrait: { cols: 6, rows: 12 }, landscape: { cols: 12, rows: 8 } };
+
+function kioskArrangeOrientation(){
+  return window.matchMedia('(orientation: landscape)').matches ? 'landscape' : 'portrait';
+}
+function kioskArrangeGrid(){ return KIOSK_ARRANGE_GRID[kioskArrangeOrientation()]; }
+function kioskArrangeItems(){ return kioskArrangeData[kioskArrangeOrientation()]; }
+function kioskArrangeEl(i){ return document.querySelector('#kioskCanvas .kw[data-idx="' + i + '"]'); }
+
+function kioskArrangeApplyLayout(i){
+  var el = kioskArrangeEl(i);
+  var item = kioskArrangeItems()[i];
+  if (el) {
+    el.style.gridColumn = item.colStart + '/span ' + item.colSpan;
+    el.style.gridRow = item.rowStart + '/span ' + item.rowSpan;
+  }
+}
+
+function kioskArrangeSaveOne(i){
+  var item = kioskArrangeItems()[i];
+  var body = new URLSearchParams();
+  body.set('target', 'k1');
+  body.set('orientation', kioskArrangeOrientation());
+  body.set('index', i);
+  body.set('colStart', item.colStart);
+  body.set('colSpan', item.colSpan);
+  body.set('rowStart', item.rowStart);
+  body.set('rowSpan', item.rowSpan);
+  body.set('visible', item.visible ? '1' : '0');
+  return fetch('/savekiosklayoutajax', { method: 'POST', headers: {'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'}, body: body.toString() })
+    .then(function(r){ return r.json(); }).then(function(d){ return !!d.ok; }).catch(function(){ return false; });
+}
+
+function kioskArrangeCommit(indexes){
+  var chain = Promise.resolve();
+  indexes.forEach(function(i){ chain = chain.then(function(){ return kioskArrangeSaveOne(i); }); });
+}
+
+function kioskInitArrangeController(){
+  kioskArrangeController = WidgetGridEngine.createController({
+    getEl: kioskArrangeEl,
+    getItems: kioskArrangeItems,
+    getGrid: kioskArrangeGrid,
+    cellSize: function(){
+      var canvas = document.getElementById('kioskCanvas');
+      var r = canvas.getBoundingClientRect();
+      var g = kioskArrangeGrid();
+      return { w: r.width / g.cols, h: r.height / g.rows };
+    },
+    applyLayout: kioskArrangeApplyLayout,
+    onCommit: kioskArrangeCommit
+  });
+}
+
+function kioskToggleArrange(){
+  kioskArrangeMode = !kioskArrangeMode;
+  document.body.classList.toggle('kiosk-arrange-mode', kioskArrangeMode);
+  var btn = document.getElementById('kioskArrangeBtn');
+  if (btn) btn.textContent = kioskArrangeMode ? 'Fertig' : 'Anordnen';
+}
+
+(function(){
+  kioskInitArrangeController();
+  document.querySelectorAll('#kioskCanvas .kw').forEach(function(el){
+    var idx = parseInt(el.getAttribute('data-idx'), 10);
+    el.addEventListener('pointerdown', function(e){
+      if (!kioskArrangeMode) return;
+      if (e.target.closest('.kw-resize')) return;
+      kioskArrangeController.startDrag(e, idx);
+    });
+    var handle = el.querySelector('.kw-resize');
+    if (handle) {
+      handle.addEventListener('pointerdown', function(e){
+        if (!kioskArrangeMode) return;
+        kioskArrangeController.startResize(e, idx);
+      });
+    }
+  });
+})();
+</script>)JS";
 
   html += R"JS(
 <script>
@@ -6097,7 +6196,7 @@ void handleKiosk2Page() {
   if (!checkAuth()) return;
 
   String html;
-  html.reserve(7000);
+  html.reserve(11000);
 
   html += "<!DOCTYPE html><html><head>";
   html += "<meta charset='utf-8'>";
@@ -6112,8 +6211,14 @@ void handleKiosk2Page() {
   html += "@keyframes efPulse{0%,100%{opacity:.7}50%{opacity:1}}";
   html += "body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellipse 80% 60% at 50% 0%,#00301f,transparent 70%),radial-gradient(ellipse 60% 80% at 20% 100%,#001a12,transparent 70%),#000;animation:efPulse 8s ease-in-out infinite;z-index:0}";
   html += ".kiosk-wrap{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;max-height:100vh;padding:clamp(8px,2.2vh,20px);box-sizing:border-box;text-align:center;overflow:hidden}";
-  html += ".kiosk-canvas{display:grid;grid-template-columns:repeat(" + String(KIOSK_GRID_COLS_PORTRAIT) + ",1fr);grid-template-rows:repeat(" + String(KIOSK_GRID_ROWS_PORTRAIT) + ",1fr);gap:clamp(4px,1vh,10px);width:min(97vw,700px);height:min(94vh,1200px);box-sizing:border-box;margin:0 auto}";
-  html += ".kw{overflow:hidden;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;justify-content:center;min-width:0;min-height:0;border-radius:clamp(12px,2vh,24px);background:rgba(255,255,255,.07);backdrop-filter:blur(24px) saturate(160%);-webkit-backdrop-filter:blur(24px) saturate(160%);border:1px solid rgba(255,255,255,.12);padding:clamp(6px,1.4vh,14px);gap:4px}";
+  html += ".kiosk-canvas{position:relative;display:grid;grid-template-columns:repeat(" + String(KIOSK_GRID_COLS_PORTRAIT) + ",1fr);grid-template-rows:repeat(" + String(KIOSK_GRID_ROWS_PORTRAIT) + ",1fr);gap:clamp(4px,1vh,10px);width:min(97vw,700px);height:min(94vh,1200px);box-sizing:border-box;margin:0 auto}";
+  html += ".kw{position:relative;overflow:hidden;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;justify-content:center;min-width:0;min-height:0;border-radius:clamp(12px,2vh,24px);background:rgba(255,255,255,.07);backdrop-filter:blur(24px) saturate(160%);-webkit-backdrop-filter:blur(24px) saturate(160%);border:1px solid rgba(255,255,255,.12);padding:clamp(6px,1.4vh,14px);gap:4px;transition:box-shadow .2s ease}";
+  html += ".kw.wg-dragging,.kw.wg-resizing{box-shadow:0 20px 44px rgba(0,0,0,.5);z-index:50}";
+  html += ".kiosk-arrange-mode .kw{cursor:grab;user-select:none}";
+  html += ".kiosk-arrange-mode .kw.wg-dragging{cursor:grabbing}";
+  html += ".kw-resize{display:none;position:absolute;right:6px;bottom:6px;width:18px;height:18px;border-radius:50%;background:#fff;border:2px solid rgba(0,0,0,.4);cursor:nwse-resize;z-index:5}";
+  html += ".kiosk-arrange-mode .kw-resize{display:block}";
+  html += "#efGaugeCard,#efChartCard{width:100%;height:100%}";
   html += ".kiosk-time{font-size:clamp(18px,5vh,56px);font-weight:700;line-height:1;letter-spacing:-1px;color:#fff;font-variant-numeric:tabular-nums}";
   html += ".kiosk-date{font-size:clamp(9px,1.5vh,15px);color:rgba(255,255,255,.65);margin-top:4px;text-transform:capitalize;font-weight:500}";
   html += ".kw-pricegauge .priceRing{max-width:100%;padding:0}";
@@ -6148,6 +6253,7 @@ void handleKiosk2Page() {
   html += "</head><body>";
 
   html += "<div class='kiosk-topbar'>";
+  html += "<button class='secondary' type='button' id='kioskArrangeBtn' onclick='kioskToggleArrange()'>Anordnen</button>";
   html += "<a href='/kiosk'><button class='secondary' type='button'>Preise</button></a>";
   html += "<a href='/'><button class='secondary' type='button'>Dashboard</button></a>";
   html += "</div>";
@@ -6160,13 +6266,13 @@ void handleKiosk2Page() {
 
   html += "<div class='kiosk-wrap'>";
   html += "<div class='kiosk-canvas' id='kioskCanvas'>";
-  html += "<div class='kw kw-clock'><div class='kiosk-time' id='kioskTime'>--:--</div><div class='kiosk-date' id='kioskDate'></div></div>";
-  html += "<div class='kw kw-pricegauge' id='efGaugeCard'>" + buildPriceGaugeSvg() + "</div>";
-  html += "<div class='kw kw-pricechart' id='efChartCard'>" + buildSvgChart(chartLine, chartFill) + "</div>";
-  html += "<div class='kw kw-pv'><div class='ef-icon'>&#9728;&#65039;</div><div class='ef-label'>PV-Erzeugung</div><div class='ef-value'><span id='efPv'>-- W</span><span class='ef-flow pv' id='efFlowPv'>&#8595;</span></div></div>";
-  html += "<div class='kw kw-battery'><div class='ef-icon'>&#128267;</div><div class='ef-label'>Batterie</div><div class='ef-value'><span id='efBatt'>-- W</span><span class='ef-flow' id='efFlowBatt'></span></div><div class='ef-sub' id='efBattSub'></div></div>";
-  html += "<div class='kw kw-house'><div class='ef-icon'>&#127968;</div><div class='ef-label'>Hausverbrauch</div><div class='ef-value' id='efHouse'>-- W</div></div>";
-  html += "<div class='kw kw-grid'><div class='ef-icon'>&#9889;</div><div class='ef-label'>Netz</div><div class='ef-value'><span id='efGrid'>-- W</span><span class='ef-flow grid' id='efFlowGrid'></span></div><div class='ef-sub' id='efGridSub'></div></div>";
+  html += "<div class='kw kw-clock' data-idx='0'><div class='kiosk-time' id='kioskTime'>--:--</div><div class='kiosk-date' id='kioskDate'></div><span class='kw-resize'></span></div>";
+  html += "<div class='kw kw-pricegauge' data-idx='1'><div id='efGaugeCard'>" + buildPriceGaugeSvg() + "</div><span class='kw-resize'></span></div>";
+  html += "<div class='kw kw-pricechart' data-idx='2'><div id='efChartCard'>" + buildSvgChart(chartLine, chartFill) + "</div><span class='kw-resize'></span></div>";
+  html += "<div class='kw kw-pv' data-idx='3'><div class='ef-icon'>&#9728;&#65039;</div><div class='ef-label'>PV-Erzeugung</div><div class='ef-value'><span id='efPv'>-- W</span><span class='ef-flow pv' id='efFlowPv'>&#8595;</span></div><span class='kw-resize'></span></div>";
+  html += "<div class='kw kw-battery' data-idx='4'><div class='ef-icon'>&#128267;</div><div class='ef-label'>Batterie</div><div class='ef-value'><span id='efBatt'>-- W</span><span class='ef-flow' id='efFlowBatt'></span></div><div class='ef-sub' id='efBattSub'></div><span class='kw-resize'></span></div>";
+  html += "<div class='kw kw-house' data-idx='5'><div class='ef-icon'>&#127968;</div><div class='ef-label'>Hausverbrauch</div><div class='ef-value' id='efHouse'>-- W</div><span class='kw-resize'></span></div>";
+  html += "<div class='kw kw-grid' data-idx='6'><div class='ef-icon'>&#9889;</div><div class='ef-label'>Netz</div><div class='ef-value'><span id='efGrid'>-- W</span><span class='ef-flow grid' id='efFlowGrid'></span></div><div class='ef-sub' id='efGridSub'></div><span class='kw-resize'></span></div>";
   html += "</div>";
   html += "<script>var _r=document.querySelector('#efGaugeCard .priceRing');if(_r)_r.classList.add('kiosk');</script>";
   if (!ankerConfigured) {
@@ -6262,6 +6368,96 @@ updateKioskClock();
 setInterval(updateKioskClock, 1000);
 </script>
 )JS";
+
+  html += "<script src='/widget-engine.js'></script>";
+  html += "<script>var kioskArrangeData = {";
+  html += "portrait:" + kioskLayoutJson(kiosk2Portrait, KIOSK2_WIDGET_KEYS, KIOSK2_WIDGET_LABELS, KIOSK2_WIDGET_COUNT) + ",";
+  html += "landscape:" + kioskLayoutJson(kiosk2Landscape, KIOSK2_WIDGET_KEYS, KIOSK2_WIDGET_LABELS, KIOSK2_WIDGET_COUNT);
+  html += "};</script>";
+
+  html += R"JS(<script>
+var kioskArrangeMode = false;
+var kioskArrangeController = null;
+var KIOSK_ARRANGE_GRID = { portrait: { cols: 6, rows: 12 }, landscape: { cols: 12, rows: 8 } };
+
+function kioskArrangeOrientation(){
+  return window.matchMedia('(orientation: landscape)').matches ? 'landscape' : 'portrait';
+}
+function kioskArrangeGrid(){ return KIOSK_ARRANGE_GRID[kioskArrangeOrientation()]; }
+function kioskArrangeItems(){ return kioskArrangeData[kioskArrangeOrientation()]; }
+function kioskArrangeEl(i){ return document.querySelector('#kioskCanvas .kw[data-idx="' + i + '"]'); }
+
+function kioskArrangeApplyLayout(i){
+  var el = kioskArrangeEl(i);
+  var item = kioskArrangeItems()[i];
+  if (el) {
+    el.style.gridColumn = item.colStart + '/span ' + item.colSpan;
+    el.style.gridRow = item.rowStart + '/span ' + item.rowSpan;
+  }
+}
+
+function kioskArrangeSaveOne(i){
+  var item = kioskArrangeItems()[i];
+  var body = new URLSearchParams();
+  body.set('target', 'k2');
+  body.set('orientation', kioskArrangeOrientation());
+  body.set('index', i);
+  body.set('colStart', item.colStart);
+  body.set('colSpan', item.colSpan);
+  body.set('rowStart', item.rowStart);
+  body.set('rowSpan', item.rowSpan);
+  body.set('visible', item.visible ? '1' : '0');
+  return fetch('/savekiosklayoutajax', { method: 'POST', headers: {'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'}, body: body.toString() })
+    .then(function(r){ return r.json(); }).then(function(d){ return !!d.ok; }).catch(function(){ return false; });
+}
+
+function kioskArrangeCommit(indexes){
+  var chain = Promise.resolve();
+  indexes.forEach(function(i){ chain = chain.then(function(){ return kioskArrangeSaveOne(i); }); });
+}
+
+function kioskInitArrangeController(){
+  kioskArrangeController = WidgetGridEngine.createController({
+    getEl: kioskArrangeEl,
+    getItems: kioskArrangeItems,
+    getGrid: kioskArrangeGrid,
+    cellSize: function(){
+      var canvas = document.getElementById('kioskCanvas');
+      var r = canvas.getBoundingClientRect();
+      var g = kioskArrangeGrid();
+      return { w: r.width / g.cols, h: r.height / g.rows };
+    },
+    applyLayout: kioskArrangeApplyLayout,
+    onCommit: kioskArrangeCommit
+  });
+}
+
+function kioskToggleArrange(){
+  kioskArrangeMode = !kioskArrangeMode;
+  document.body.classList.toggle('kiosk-arrange-mode', kioskArrangeMode);
+  var btn = document.getElementById('kioskArrangeBtn');
+  if (btn) btn.textContent = kioskArrangeMode ? 'Fertig' : 'Anordnen';
+}
+
+(function(){
+  kioskInitArrangeController();
+  document.querySelectorAll('#kioskCanvas .kw').forEach(function(el){
+    var idx = parseInt(el.getAttribute('data-idx'), 10);
+    el.addEventListener('pointerdown', function(e){
+      if (!kioskArrangeMode) return;
+      if (e.target.closest('.kw-resize')) return;
+      kioskArrangeController.startDrag(e, idx);
+    });
+    var handle = el.querySelector('.kw-resize');
+    if (handle) {
+      handle.addEventListener('pointerdown', function(e){
+        if (!kioskArrangeMode) return;
+        kioskArrangeController.startResize(e, idx);
+      });
+    }
+  });
+})();
+</script>)JS";
 
   html += "</body></html>";
 
