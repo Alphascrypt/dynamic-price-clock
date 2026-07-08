@@ -83,7 +83,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "3.3.0"
+#define FIRMWARE_VERSION "3.3.1"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -560,6 +560,7 @@ KioskWidgetLayout homeLayout[HOME_WIDGET_COUNT];
 // -----------------------------------------------------------------------------
 
 void ensureWifiConnected();
+void retryWifiFromPermanentApMode();
 
 void updateTibber();
 void updateAwattarPrices();
@@ -1755,6 +1756,7 @@ void loop() {
 
   #if ENABLE_WIFI_STARTUP
   ensureWifiConnected();
+  retryWifiFromPermanentApMode();
 #endif
 
   // Siehe Kommentar bei verifyRollbackLater() weiter oben: die automatische
@@ -1883,6 +1885,29 @@ void ensureWifiConnected() {
 
   wifiSoftReconnectActive = true;
   wifiSoftReconnectStartedAt = millis();
+}
+
+// ensureWifiConnected() gibt sich sofort auf, sobald apMode aktiv ist (siehe
+// dortiger fruehzeitiger return) - das Geraet landet dauerhaft im Setup-AP,
+// wenn die gespeicherten Zugangsdaten beim Boot einmal fehlschlagen (z.B.
+// Router war gerade neu gestartet), und versucht von selbst NIE wieder, sich
+// mit ihnen zu verbinden, obwohl der Router laengst wieder erreichbar sein
+// koennte - erfordert bisher immer manuelles Eingreifen ueber die Setup-Seite.
+// Dieser Hintergrund-Retry probiert alle 5 Minuten erneut, aber nur wenn
+// gerade niemand aktiv am Setup-AP konfiguriert (WiFi.softAPgetStationNum()
+// == 0), damit ein laufender Konfigurationsvorgang nicht unterbrochen wird.
+void retryWifiFromPermanentApMode() {
+  static unsigned long lastPermanentApRetry = 0;
+
+  if (!apMode || !setupApPermanent) return;
+  if (wifiConnectActive) return;
+  if (wifiSsid.length() == 0) return;
+  if (millis() - lastPermanentApRetry < 300000UL) return;
+  if (WiFi.softAPgetStationNum() > 0) return;
+
+  lastPermanentApRetry = millis();
+  Serial.println("Dauerhafter Setup-AP-Modus: automatischer Verbindungsversuch mit gespeicherten Zugangsdaten.");
+  wifiConnectStart(wifiSsid, wifiPassword, 15000UL);
 }
 
 // -----------------------------------------------------------------------------
@@ -2721,7 +2746,13 @@ bool ankerLogin() {
   reqDoc["email"] = ankerEmail;
   reqDoc["password"] = encPassB64;
   reqDoc["time_zone"] = tzOffsetMs;
-  reqDoc["transaction"] = String((unsigned long)transactionMs);
+  // transactionMs ist ein 64-Bit-Millisekunden-Zeitstempel - String((unsigned
+  // long)transactionMs) wuerde ihn auf 32 Bit kappen (unsigned long ist auf
+  // dem ESP32 32-Bit) und damit einen sinnlosen, umgelaufenen Wert erzeugen,
+  // der nichts mehr mit der tatsaechlichen Uhrzeit zu tun hat.
+  char transactionBuf[24];
+  snprintf(transactionBuf, sizeof(transactionBuf), "%llu", transactionMs);
+  reqDoc["transaction"] = String(transactionBuf);
   String reqBody;
   serializeJson(reqDoc, reqBody);
 
@@ -3125,6 +3156,9 @@ void calculateMetrics() {
     metricDayAvg = sum / count;
   }
 
+  // Erster Durchlauf: das guenstigste 60-Minuten-Fenster (4 aufeinanderfolgende
+  // 15-Minuten-Slots) finden.
+  int low60Index = -1;
   for (int i = 0; i <= quarterCount - 4; i++) {
     if (!isTodaySlot(quarterTimes[i])) continue;
     if (!isTodaySlot(quarterTimes[i + 1])) continue;
@@ -3138,16 +3172,34 @@ void calculateMetrics() {
        quarterPrices[i + 3]) / 4.0;
 
     if (metricLow60Day < 0 || avg < metricLow60Day) {
-      metricSecondLow60Day = metricLow60Day;
-      metricSecondLow60DayTime = metricLow60DayTime;
-
       metricLow60Day = avg;
       metricLow60DayTime = quarterTimes[i];
-    } else if (metricSecondLow60Day < 0 || avg < metricSecondLow60Day) {
-      if (quarterTimes[i] != metricLow60DayTime) {
-        metricSecondLow60Day = avg;
-        metricSecondLow60DayTime = quarterTimes[i];
-      }
+      low60Index = i;
+    }
+  }
+
+  // Zweiter Durchlauf: bestes 60-Minuten-Fenster suchen, das sich NICHT mit dem
+  // eben gefundenen guenstigsten Fenster ueberschneidet. Fenster sind 4 Slots
+  // lang, ueberschneiden sich also bei |i - low60Index| < 4 - der fruehere
+  // Vergleich per exaktem Start-Zeitstempel liess fast identische, nur um
+  // 15/30/45 Minuten verschobene Fenster faelschlich als "zweitguenstigstes"
+  // Fenster durch.
+  for (int i = 0; i <= quarterCount - 4; i++) {
+    if (!isTodaySlot(quarterTimes[i])) continue;
+    if (!isTodaySlot(quarterTimes[i + 1])) continue;
+    if (!isTodaySlot(quarterTimes[i + 2])) continue;
+    if (!isTodaySlot(quarterTimes[i + 3])) continue;
+    if (low60Index >= 0 && abs(i - low60Index) < 4) continue;
+
+    float avg =
+      (quarterPrices[i] +
+       quarterPrices[i + 1] +
+       quarterPrices[i + 2] +
+       quarterPrices[i + 3]) / 4.0;
+
+    if (metricSecondLow60Day < 0 || avg < metricSecondLow60Day) {
+      metricSecondLow60Day = avg;
+      metricSecondLow60DayTime = quarterTimes[i];
     }
   }
 
@@ -6502,7 +6554,14 @@ void handleAnkerData() {
   json += "\"priceColor\":\"" + jsonEscapeValue(zoneColor) + "\",";
   if (!ankerConfigured) {
     json += "\"ok\":false,\"error\":\"Keine Anker-Zugangsdaten hinterlegt\"";
-  } else if (ankerLastError.length() > 0 && ankerPvW < 0) {
+  } else if (ankerLastError.length() > 0) {
+    // ankerLastError wird bei jedem Poll entweder auf "" gesetzt (Erfolg) oder
+    // auf die aktuelle Fehlermeldung (siehe updateAnkerSolarData()/ankerAuthedPost())
+    // - spiegelt also immer den Status des LETZTEN Polls wider. Die fruehere
+    // Zusatzbedingung "&& ankerPvW < 0" maskierte jeden Poll-Fehler nach dem
+    // ersten erfolgreichen Poll, weil ankerPvW seinen letzten guten Wert
+    // dauerhaft behaelt und nie zurueckgesetzt wird - /kiosk2 haette dann
+    // veraltete Werte als "ok" angezeigt, obwohl die Verbindung gerade steht.
     json += "\"ok\":false,\"error\":\"" + jsonEscapeValue(ankerLastError) + "\"";
   } else {
     float grid = ankerHomeLoadW - ankerOutputW;
@@ -6909,7 +6968,11 @@ function klRenderLayers(){
     vis.className = 'secondary';
     vis.textContent = item.visible ? '●' : '○';
     vis.title = item.visible ? 'Ausblenden' : 'Einblenden';
-    vis.addEventListener('click', function(e){ e.stopPropagation(); item.visible = !item.visible; klCommit([i]); });
+    // klCommit() ruft am Ende nur klRenderLayers() auf, nicht klRenderCanvas() -
+    // ohne den direkten klRenderCanvas()-Aufruf hier wuerde das Canvas-Element
+    // (kl-hidden-Klasse fuer Transparenz/Rahmen) erst nach Abschluss des
+    // Speicher-Requests optisch aktualisiert, statt sofort beim Klick.
+    vis.addEventListener('click', function(e){ e.stopPropagation(); item.visible = !item.visible; klRenderCanvas(); klCommit([i]); });
     row.appendChild(label);
     row.appendChild(vis);
     wrap.appendChild(row);
@@ -8796,7 +8859,13 @@ void handleSave() {
   if (server.hasArg("gaugeMin") || server.hasArg("gaugeMax")) {
     if (server.hasArg("gaugeMin")) { int v=server.arg("gaugeMin").toInt(); gaugeMinCent=(v<0)?0:(v>200?200:v); }
     if (server.hasArg("gaugeMax")) { int v=server.arg("gaugeMax").toInt(); gaugeMaxCent=(v<1)?1:(v>200?200:v); }
-    if (gaugeMaxCent <= gaugeMinCent) gaugeMaxCent = gaugeMinCent + 1;
+    if (gaugeMaxCent <= gaugeMinCent) {
+      gaugeMaxCent = gaugeMinCent + 1;
+      // gaugeMinCent=200 (das erlaubte Maximum) wuerde hier gaugeMaxCent auf
+      // 201 setzen - ausserhalb des dokumentierten 1-200-Bereichs. Erneut
+      // klemmen und im seltenen Fall stattdessen gaugeMinCent nachgeben.
+      if (gaugeMaxCent > 200) { gaugeMaxCent = 200; gaugeMinCent = 199; }
+    }
     prefs.putInt("gaugeMin", gaugeMinCent);
     prefs.putInt("gaugeMax", gaugeMaxCent);
   }
@@ -9136,12 +9205,16 @@ void handleUploadFirmwareData() {
       otaManualUploadActive = false;
     }
   } else if (upload.status == UPLOAD_FILE_ABORTED) {
+    // otaTaskError ist global/geteilt - darf nur ueberschrieben werden, wenn
+    // DIESER Upload die Sperre tatsaechlich hielt. Sonst wuerde ein abgebrochener,
+    // von vornherein abgewiesener Upload (weil z.B. gerade ein GitHub-Update
+    // lief) dessen echten Fehlerstatus mit "Upload abgebrochen" ueberschreiben.
     if (otaManualUploadActive) {
       Update.abort();
       otaTaskRunning = false;
       otaManualUploadActive = false;
+      otaTaskError = "Upload abgebrochen";
     }
-    otaTaskError = "Upload abgebrochen";
   }
 }
 
@@ -9206,7 +9279,7 @@ void handleJson() {
   json += "{";
 
   json += "\"webInterfaceName\":\"";
-  json += htmlEscape(webInterfaceName);
+  json += jsonEscapeValue(webInterfaceName);
   json += "\",";
   json += "\"todayTomorrowMode\":true,";
   json += "\"current15\":\"" + priceToCentText(metricCurrent15) + "\",";
@@ -9238,9 +9311,9 @@ void handleJson() {
   json += "\"ledActiveCount\":" + String(ledActiveCount) + ",";
   json += "\"ledYellowCent\":" + String(ledYellowCent) + ",";
   json += "\"ledRedCent\":" + String(ledRedCent) + ",";
-  json += "\"selectedHomeId\":\"" + selectedHomeId + "\",";
+  json += "\"selectedHomeId\":\"" + jsonEscapeValue(selectedHomeId) + "\",";
   json += "\"homeCount\":" + String(homeCount) + ",";
-  json += "\"wifiSsid\":\"" + wifiSsid + "\",";
+  json += "\"wifiSsid\":\"" + jsonEscapeValue(wifiSsid) + "\",";
   json += "\"apMode\":" + String(apMode ? "true" : "false") + ",";
   json += "\"tlsVerified\":" + String(tibberRootCaPem.length() > 0 ? "true" : "false") + ",";
 
@@ -9252,7 +9325,7 @@ void handleJson() {
   }
   json += "\",";
 
-  json += "\"error\":\"" + lastError + "\"";
+  json += "\"error\":\"" + jsonEscapeValue(lastError) + "\"";
 
   json += "}";
 
@@ -9842,12 +9915,16 @@ function wgCreateChartCrosshair(svgId, wrapId, tooltipId, getPoints) {
     if (tooltip) tooltip.style.opacity = '0';
   }
 
+  // WICHTIG: attach() muss VOR der Listener-Registrierung laufen - es setzt
+  // `tooltip` erst (siehe Kommentar in attach()); wuerde die Pruefung unten
+  // vor attach() stehen, waere `tooltip` immer noch null und die Listener
+  // wuerden nie registriert.
+  attach();
   if (wrap && tooltip) {
     wrap.addEventListener('pointermove', function(e){ showAt(e.clientX, e.clientY); });
     wrap.addEventListener('pointerdown', function(e){ showAt(e.clientX, e.clientY); });
     wrap.addEventListener('pointerleave', hide);
   }
-  attach();
 
   return { reattach: attach };
 }
@@ -10025,7 +10102,14 @@ String getDisplayTimeText() {
 bool isTodaySlot(String isoTime) {
   String today = getLocalDatePrefix();
 
-  if (today.length() == 0) return true;
+  // Ohne NTP-Sync ist "heute" fuer das Geraet unbekannt - vorher wurde hier
+  // pauschal true zurueckgegeben, wodurch ALLE Slots (auch die von morgen)
+  // faelschlich als "heutig" in Tagesstatistiken (Tagesdurchschnitt,
+  // Tagestief 15/60 Min) einflossen. Sicherer Fallback: keinen Slot als
+  // "heute" werten, bis die Uhrzeit synchronisiert ist - der bestehende
+  // count==0-Zweig in calculateMetrics() faengt diesen Fall bereits mit
+  // einer klaren Fehlermeldung ab, statt still falsche Werte zu zeigen.
+  if (today.length() == 0) return false;
   if (isoTime.length() < 10) return false;
 
   return isoTime.substring(0, 10) == today;
