@@ -83,7 +83,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "3.3.4"
+#define FIRMWARE_VERSION "3.3.5"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -4714,13 +4714,25 @@ void updatePriceMatrix() {
 void handleRoot() {
   if (!checkAuth()) return;
 
-  // Siehe ausfuehrlichen Kommentar in handleKioskPage(): live nachgewiesen,
-  // dass auch die Startseite bei 29000 reservierten Bytes reproduzierbar
-  // abgeschnitten wurde - komplett fehlend war dabei ausgerechnet der
-  // gesamte Anordnen-Modus-Skriptblock (kwToggleArrange() etc.), wodurch der
-  // "Anordnen"-Button auf der Startseite nichts tut.
+  // Live auf dem Geraet nachgewiesen: der Arduino-String-Typ verwirft beim
+  // Anhaengen (+=) still und leise Daten, wenn dafuer eine Speichererweiterung
+  // noetig ist und der Heap gerade keinen ausreichend grossen zusammen-
+  // haengenden Block frei hat - kein Absturz, keine Fehlermeldung, der Rest
+  // des Aufrufs geht einfach verloren. Ein groesseres html.reserve() allein
+  // loest das NICHT zuverlaessig (auf diesem Geraet reproduzierbar sogar
+  // fruehere Abschneidung bei reserve(40000) als bei reserve(29000), weil ein
+  // einzelner grosser reserve()-Aufruf bei fragmentiertem Heap komplett
+  // fehlschlagen kann). Stattdessen wird die Antwort jetzt in mehreren
+  // kleinen Chunks per server.sendContent() gesendet (HTTP Chunked Transfer
+  // Encoding) - jeder einzelne Chunk braucht nur ein kleines, viel eher
+  // verfuegbares zusammenhaengendes Speicherstueck, statt eines einzigen
+  // Blocks fuer die komplette Seite.
+  server.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+  server.setContentLength(CONTENT_LENGTH_UNKNOWN);
+  server.send(200, "text/html", "");
+
   String html;
-  html.reserve(40000);
+  html.reserve(6000);
 
   html += htmlHeader("Übersicht");
   html += "<section class='hero'><h1>";
@@ -4751,6 +4763,9 @@ void handleRoot() {
       html += "</div></section>";
     }
   }
+
+  server.sendContent(html);
+  html = "";
 
   html += R"CSS(<style>
 .kw-toolbar{display:flex;justify-content:flex-end;margin:4px 0 -2px}
@@ -4798,6 +4813,9 @@ void handleRoot() {
 }
 </style>)CSS";
 
+  server.sendContent(html);
+  html = "";
+
   html += "<div class='kw-toolbar'><button type='button' id='kwArrangeBtn' class='secondary' onclick='kwToggleArrange()'>Anordnen</button></div>";
   html += "<div class='kw-canvas'>";
 
@@ -4834,6 +4852,9 @@ void handleRoot() {
   html += "<span class='kw-resize'></span>";
   html += "</div>";
 
+  server.sendContent(html);
+  html = "";
+
   // Widget 1: Live-Verbrauch
   String liveHomeText = "";
   if (livePowerW >= 0 && millis() - livePowerUpdatedAtMs < 60000) {
@@ -4854,6 +4875,9 @@ void handleRoot() {
   html += "<span class='kw-resize'></span>";
   html += "</div>";
 
+  server.sendContent(html);
+  html = "";
+
   // Widget 2: Preisverlauf-Diagramm
   html += "<div class='kw kw-chart' data-idx='2'>";
   html += "<div class='panelTitle'><h2>Preisverlauf</h2><span class='badge okb'>" + String(quarterCount) + " Slots</span></div>";
@@ -4870,6 +4894,9 @@ void handleRoot() {
   html += "</div>";
   html += "<span class='kw-resize'></span>";
   html += "</div>";
+
+  server.sendContent(html);
+  html = "";
 
   // Widget 3: Metriken
   html += "<div class='kw kw-metrics' data-idx='3'>";
@@ -4937,6 +4964,9 @@ void handleRoot() {
 
   html += "<style>" + kioskWidgetCss(homeLayout, HOME_WIDGET_KEYS, HOME_WIDGET_COUNT) + "</style>";
 
+  server.sendContent(html);
+  html = "";
+
   html += "<section class='card'>";
   html += "<div class='small' style='display:flex;flex-wrap:wrap;gap:6px 16px'>";
   html += "<span>";
@@ -4966,6 +4996,9 @@ void handleRoot() {
   html += "<div class='actions'><a href='/refresh'><button>Jetzt aktualisieren</button></a><a href='/kiosk'><button type='button' class='secondary'>Tablet-Modus</button></a></div>";
   html += "</section>";
 
+  server.sendContent(html);
+  html = "";
+
   if (quarterCount > 0) {
     html += "<details class='card'><summary><h2 style='display:inline'>Geladene Preise heute/morgen (";
     html += String(quarterCount);
@@ -4978,10 +5011,20 @@ void handleRoot() {
       html += "</td><td>";
       html += String(euroToCentRounded(quarterPrices[i]));
       html += "</td></tr>";
+
+      // Periodisch flushen statt die komplette Tabelle (bis zu 192 Zeilen
+      // fuer heute+morgen) in einem Stueck im Speicher zu halten.
+      if ((i + 1) % 40 == 0) {
+        server.sendContent(html);
+        html = "";
+      }
     }
 
     html += "</table></details>";
   }
+
+  server.sendContent(html);
+  html = "";
 
   html += "<p class='small'><a href='/json'>JSON-API (fuer Entwickler/Automatisierung)</a></p>";
   html += R"JS(<script>(function(){
@@ -4994,10 +5037,16 @@ function updatePriceBadge(){fetch('/gaugestatus',{cache:'no-store'}).then(functi
 setInterval(updatePriceBadge,10000);
 })();</script>)JS";
 
+  server.sendContent(html);
+  html = "";
+
   html += "<script src='/widget-engine.js'></script>";
   html += "<script>var homeData = " + kioskLayoutJson(homeLayout, HOME_WIDGET_KEYS, HOME_WIDGET_LABELS, HOME_WIDGET_COUNT) + ";</script>";
   html += "<script>var hwChartPoints = " + buildChartPointsJson() + ";";
   html += "WidgetGridEngine.createChartCrosshair('priceChartSvg', 'hwChartWrap', 'hwChartTooltip', function(){ return hwChartPoints; });</script>";
+
+  server.sendContent(html);
+  html = "";
   html += R"JS(<script>
 var kwArrangeMode = false;
 var kwController = null;
@@ -5094,8 +5143,13 @@ function kwToggleArrange(){
 
   html += htmlFooter();
 
-  server.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
-  server.send(200, "text/html", html);
+  // Letzter Inhalts-Chunk, dann ein leerer Chunk zum Abschluss der Chunked
+  // Transfer Encoding (siehe WebServer::sendContent() - ein Aufruf mit
+  // Laenge 0 sendet den abschliessenden "0\r\n\r\n"-Marker). sendHeader()
+  // waere hier zu spaet, die Kopfzeilen wurden bereits ganz am Anfang der
+  // Funktion mit dem ersten server.send() verschickt.
+  server.sendContent(html);
+  server.sendContent("");
 }
 
 // -----------------------------------------------------------------------------
@@ -5864,18 +5918,22 @@ void handleKioskPage() {
   String statusText, statusColor;
   getKioskPriceStatus(statusText, statusColor);
 
-  // Live auf dem Geraet nachgewiesen (per direktem Abruf von /kiosk): die
-  // Seite wurde bei genau 24000 reservierten Bytes reproduzierbar mitten in
-  // der Arrange-Mode-Wiring-Ausgabe abgeschnitten - Arduino-Strings
-  // schlucken einen fehlgeschlagenen Nachreallokations-Versuch bei += still
-  // (kein Crash, kein Fehler, der Rest des Aufrufs geht einfach verloren),
-  // und der tatsaechliche Seiteninhalt (CSS + Widget-Markup + beide grossen
-  // Skript-Bloecke) liegt klar ueber den urspruenglich reservierten 24 KB.
-  // Ein einzelnes, ausreichend grosses reserve() gleich zu Beginn (bevor der
-  // Heap durch spaetere Arbeit in dieser Anfrage weiter fragmentiert) ist
-  // deutlich zuverlaessiger als mehrere spaete Nachreallokationen.
+  // Ein groesseres html.reserve() allein loest Truncation bei fragmentiertem
+  // Heap NICHT zuverlaessig (siehe ausfuehrlicher Kommentar in handleRoot() -
+  // live nachgewiesen, dass ein einzelner grosser reserve()-Aufruf bei
+  // fragmentiertem Heap komplett fehlschlagen und die Seite dadurch sogar
+  // NOCH frueher abgeschnitten werden kann als mit einem kleineren reserve().
+  // Die Antwort wird deshalb jetzt in mehreren kleinen Chunks per
+  // server.sendContent() gesendet (HTTP Chunked Transfer Encoding) - jeder
+  // einzelne Chunk braucht nur ein kleines, viel eher verfuegbares
+  // zusammenhaengendes Speicherstueck statt eines einzigen Blocks fuer die
+  // komplette Seite.
+  server.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+  server.setContentLength(CONTENT_LENGTH_UNKNOWN);
+  server.send(200, "text/html", "");
+
   String html;
-  html.reserve(40000);
+  html.reserve(6000);
 
   html += "<!DOCTYPE html><html><head>";
   html += "<meta charset='utf-8'>";
@@ -5963,6 +6021,9 @@ void handleKioskPage() {
   html += "</style>";
   html += "</head><body>";
 
+  server.sendContent(html);
+  html = "";
+
   html += "<div class='kiosk-topbar'>";
   html += "<button class='secondary' type='button' id='kioskArrangeBtn' onclick='kioskToggleArrange()'>Anordnen</button>";
   html += "<button class='secondary' type='button' onclick='enterKioskFullscreen()'>Vollbild</button>";
@@ -5982,6 +6043,9 @@ void handleKioskPage() {
   html += "<script>var _r=document.querySelector('#kioskGaugeWrap .priceRing');if(_r)_r.classList.add('kiosk');</script>";
   html += "<span class='kw-resize'></span>";
   html += "</div>";
+
+  server.sendContent(html);
+  html = "";
 
   html += "<div class='kw kw-status kiosk-status' id='kioskStatus' data-idx='2' style='color:" + statusColor + "'>" + statusText + "<span class='kw-resize'></span></div>";
 
@@ -6015,6 +6079,9 @@ void handleKioskPage() {
     html += "<div class='kw kw-livepower kiosk-live-power' id='kioskLivePower' data-idx='3'>" + livePowerText + "<span class='kw-resize'></span></div>";
   }
 
+  server.sendContent(html);
+  html = "";
+
   // Zonen-Farbe fuer Chart: Linie + Fill passend zum Hintergrund-Glow
   int nc2 = (metricCurrent15 >= 0) ? euroToCentRounded(metricCurrent15) : -1;
   String chartLine = "#4ade80"; String chartFill = "#22c55e";
@@ -6029,6 +6096,9 @@ void handleKioskPage() {
   html += "<p class='small kiosk-chart-hint'>Mit Finger oder Maus über das Diagramm fahren, um Preise zu sehen.</p>";
   html += "<span class='kw-resize'></span>";
   html += "</div>";
+
+  server.sendContent(html);
+  html = "";
 
   String lowText = "--";
   if (metricLow15Day >= 0) {
@@ -6064,6 +6134,9 @@ void handleKioskPage() {
 
   html += "</div>";
 
+  server.sendContent(html);
+  html = "";
+
   html += "<script>var kioskChartPoints = " + buildChartPointsJson() + ";</script>";
 
   html += "<script src='/widget-engine.js'></script>";
@@ -6071,6 +6144,9 @@ void handleKioskPage() {
   html += "portrait:" + kioskLayoutJson(kioskPortrait) + ",";
   html += "landscape:" + kioskLayoutJson(kioskLandscape);
   html += "};</script>";
+
+  server.sendContent(html);
+  html = "";
 
   html += R"JS(<script>
 var kioskArrangeMode = false;
@@ -6161,6 +6237,9 @@ function kioskToggleArrange(){
   });
 })();
 </script>)JS";
+
+  server.sendContent(html);
+  html = "";
 
   html += R"JS(
 <script>
@@ -6284,8 +6363,8 @@ requestKioskWakeLock();
 
   html += "</body></html>";
 
-  server.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
-  server.send(200, "text/html", html);
+  server.sendContent(html);
+  server.sendContent("");
 }
 
 // Zweite Kiosk-Seite: vereinfachter Energiefluss (PV -> Batterie/Haus -> Netz)
@@ -6294,13 +6373,16 @@ requestKioskWakeLock();
 void handleKiosk2Page() {
   if (!checkAuth()) return;
 
-  // Siehe ausfuehrlichen Kommentar in handleKioskPage(): 11000 reservierte
-  // Bytes waren fuer diese Seite (aehnlich gross, sogar ein Widget mehr) weit
-  // zu wenig - live nachgewiesen, dass die Antwort reproduzierbar mitten in
-  // der Arrange-Mode-Wiring-Ausgabe abbricht (kioskArrangeData blieb leer
-  // "{}", die komplette Skript-Ausgabe danach fehlte komplett).
+  // Siehe ausfuehrlichen Kommentar in handleRoot()/handleKioskPage(): ein
+  // groesseres reserve() allein loest Truncation bei fragmentiertem Heap
+  // NICHT zuverlaessig. Die Antwort wird deshalb in mehreren kleinen Chunks
+  // per server.sendContent() gesendet (HTTP Chunked Transfer Encoding).
+  server.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+  server.setContentLength(CONTENT_LENGTH_UNKNOWN);
+  server.send(200, "text/html", "");
+
   String html;
-  html.reserve(40000);
+  html.reserve(6000);
 
   html += "<!DOCTYPE html><html><head>";
   html += "<meta charset='utf-8'>";
@@ -6362,6 +6444,9 @@ void handleKiosk2Page() {
   html += "</style>";
   html += "</head><body>";
 
+  server.sendContent(html);
+  html = "";
+
   html += "<div class='kiosk-topbar'>";
   html += "<button class='secondary' type='button' id='kioskArrangeBtn' onclick='kioskToggleArrange()'>Anordnen</button>";
   html += "<a href='/kiosk'><button class='secondary' type='button'>Preise</button></a>";
@@ -6379,6 +6464,10 @@ void handleKiosk2Page() {
   html += "<div class='kw kw-clock' data-idx='0'><div class='kiosk-time' id='kioskTime'>--:--</div><div class='kiosk-date' id='kioskDate'></div><span class='kw-resize'></span></div>";
   html += "<div class='kw kw-pricegauge' data-idx='1'><div id='efGaugeCard'>" + buildPriceGaugeSvg() + "</div><span class='kw-resize'></span></div>";
   html += "<div class='kw kw-pricechart' data-idx='2'><div id='efChartCard'>" + buildSvgChart(chartLine, chartFill) + "<div class='kiosk-tooltip' id='efTooltip'></div></div><span class='kw-resize'></span></div>";
+
+  server.sendContent(html);
+  html = "";
+
   html += "<div class='kw kw-pv' data-idx='3'><div class='ef-icon'>&#9728;&#65039;</div><div class='ef-label'>PV-Erzeugung</div><div class='ef-value'><span id='efPv'>-- W</span><span class='ef-flow pv' id='efFlowPv'>&#8595;</span></div><span class='kw-resize'></span></div>";
   html += "<div class='kw kw-battery' data-idx='4'><div class='ef-icon'>&#128267;</div><div class='ef-label'>Batterie</div><div class='ef-value'><span id='efBatt'>-- W</span><span class='ef-flow' id='efFlowBatt'></span></div><div class='ef-sub' id='efBattSub'></div><span class='kw-resize'></span></div>";
   html += "<div class='kw kw-house' data-idx='5'><div class='ef-icon'>&#127968;</div><div class='ef-label'>Hausverbrauch</div><div class='ef-value' id='efHouse'>-- W</div><span class='kw-resize'></span></div>";
@@ -6391,8 +6480,14 @@ void handleKiosk2Page() {
   html += "<p class='ef-error' id='efErr' style='display:none'></p>";
   html += "</div>";
 
+  server.sendContent(html);
+  html = "";
+
   html += "<script src='/widget-engine.js'></script>";
   html += "<script>var kioskChartPoints = " + buildChartPointsJson() + ";</script>";
+
+  server.sendContent(html);
+  html = "";
 
   html += R"JS(
 <script>
@@ -6488,10 +6583,16 @@ setInterval(updateKioskClock, 1000);
 </script>
 )JS";
 
+  server.sendContent(html);
+  html = "";
+
   html += "<script>var kioskArrangeData = {";
   html += "portrait:" + kioskLayoutJson(kiosk2Portrait, KIOSK2_WIDGET_KEYS, KIOSK2_WIDGET_LABELS, KIOSK2_WIDGET_COUNT) + ",";
   html += "landscape:" + kioskLayoutJson(kiosk2Landscape, KIOSK2_WIDGET_KEYS, KIOSK2_WIDGET_LABELS, KIOSK2_WIDGET_COUNT);
   html += "};</script>";
+
+  server.sendContent(html);
+  html = "";
 
   html += R"JS(<script>
 var kioskArrangeMode = false;
@@ -6585,8 +6686,8 @@ function kioskToggleArrange(){
 
   html += "</body></html>";
 
-  server.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
-  server.send(200, "text/html", html);
+  server.sendContent(html);
+  server.sendContent("");
 }
 
 // JSON fuer die Energiefluss-Kiosk-Seite (siehe handleKiosk2Page): liefert
@@ -6837,17 +6938,16 @@ void handleResetKioskLayout() {
 void handleKioskLayoutPage() {
   if (!checkAuth()) return;
 
-  // Siehe ausfuehrlichen Kommentar in handleKioskPage(): live nachgewiesen,
-  // dass diese Seite (Layout-Editor mit Canvas/Ebenen/Eigenschaften-Panel
-  // fuer Home+Kiosk1+Kiosk2, per Seiten-/Orientierungs-Umschalter) bei nur
-  // 9500 reservierten Bytes reproduzierbar abgeschnitten wurde - u.a. fehlte
-  // dabei komplett der <script src='/layout-editor.js'>-Tag samt allem
-  // danach, obwohl die Seite mit </body></html> augenscheinlich "sauber"
-  // endete (siehe Kommentar: kleine Anhaenge nach einem fehlgeschlagenen
-  // grossen Anhang koennen weiterhin gelingen, wenn sie in bereits
-  // vorhandene, ungenutzte Pufferkapazitaet passen).
+  // Siehe ausfuehrlichen Kommentar in handleRoot()/handleKioskPage(): ein
+  // groesseres reserve() allein loest Truncation bei fragmentiertem Heap
+  // NICHT zuverlaessig. Die Antwort wird deshalb in mehreren kleinen Chunks
+  // per server.sendContent() gesendet (HTTP Chunked Transfer Encoding).
+  server.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+  server.setContentLength(CONTENT_LENGTH_UNKNOWN);
+  server.send(200, "text/html", "");
+
   String html;
-  html.reserve(40000);
+  html.reserve(6000);
 
   html += htmlHeader("Kiosk-Layout");
   html += "<section class='hero'><h1>Kiosk-Layout</h1><p>Anordnung des Tablet-Modus frei per Ziehen/Skalieren gestalten - getrennt fuer Hoch- und Querformat.</p></section>";
@@ -6874,6 +6974,9 @@ void handleKioskLayoutPage() {
 .kl-layer-row button{padding:2px 10px;min-height:30px;font-size:15px}
 </style>)CSS";
 
+  server.sendContent(html);
+  html = "";
+
   html += "<section class='card'>";
   html += "<div class='panelTitle'><h2>Anordnung</h2><div style='display:flex;gap:8px;flex-wrap:wrap'>";
   html += "<button type='button' id='klTabK1' onclick=\"klSwitchPage('k1')\">Kiosk 1: Preise</button>";
@@ -6891,6 +6994,9 @@ void handleKioskLayoutPage() {
 
   html += "<div class='actions'><button type='button' class='secondary' onclick='klReset()'>Diese Ausrichtung zuruecksetzen</button><a href='/kiosk' target='_blank'><button type='button' class='secondary'>Preis-Modus oeffnen</button></a><a href='/kiosk2' target='_blank'><button type='button' class='secondary'>Energie-Modus oeffnen</button></a><span id='klSaveState' class='badge warnb'>Bereit</span></div>";
   html += "</section>";
+
+  server.sendContent(html);
+  html = "";
 
   // Preis-Schwellen fuer Guenstig/Mittel/Teuer
   html += "<section class='card'>";
@@ -6917,6 +7023,9 @@ void handleKioskLayoutPage() {
     html += "<script>if(typeof refreshKioskData==='function'){refreshKioskData();}</script>";
   }
 
+  server.sendContent(html);
+  html = "";
+
   // Live-Verbrauch-Einstellungen speziell fuer Kiosk und Modern-Balken.
   html += "<section class='card'>";
   html += "<div class='panelTitle'><h2>Live-Verbrauch-Anzeige</h2></div>";
@@ -6939,11 +7048,17 @@ void handleKioskLayoutPage() {
   html += "</form>";
   html += "</section>";
 
+  server.sendContent(html);
+  html = "";
+
   html += "<script src='/widget-engine.js'></script>";
   html += "<script>var klData = {";
   html += "k1:{portrait:" + kioskLayoutJson(kioskPortrait) + ",landscape:" + kioskLayoutJson(kioskLandscape) + "},";
   html += "k2:{portrait:" + kioskLayoutJson(kiosk2Portrait, KIOSK2_WIDGET_KEYS, KIOSK2_WIDGET_LABELS, KIOSK2_WIDGET_COUNT) + ",landscape:" + kioskLayoutJson(kiosk2Landscape, KIOSK2_WIDGET_KEYS, KIOSK2_WIDGET_LABELS, KIOSK2_WIDGET_COUNT) + "}";
   html += "};</script>";
+
+  server.sendContent(html);
+  html = "";
 
   html += R"JS(<script>
 var klPage = 'k1';
@@ -7016,7 +7131,12 @@ function klRenderCanvas(){
   });
   klRenderLayers();
 }
+</script>)JS";
 
+  server.sendContent(html);
+  html = "";
+
+  html += R"JS(<script>
 function klRenderLayers(){
   var wrap = document.getElementById('klLayers');
   wrap.innerHTML = '';
@@ -7083,7 +7203,12 @@ function klCommit(indexes){
     klRenderLayers();
   });
 }
+</script>)JS";
 
+  server.sendContent(html);
+  html = "";
+
+  html += R"JS(<script>
 function klSwitchOrientation(o){
   klOrientation = o;
   klSelected = 0;
@@ -7115,8 +7240,8 @@ klRenderCanvas();
 </script>)JS";
 
   html += htmlFooter();
-  server.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
-  server.send(200, "text/html", html);
+  server.sendContent(html);
+  server.sendContent("");
 }
 
 void handleWifiPage() {
