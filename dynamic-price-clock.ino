@@ -92,7 +92,7 @@ using namespace websockets;
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "4.2.0"
+#define FIRMWARE_VERSION "4.3.0"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -609,19 +609,20 @@ KioskWidgetLayout kioskLandscape[KIOSK_WIDGET_COUNT];
 // Energiefluss-Kiosk-Seite (/kiosk2): eigenes Widget-Set, gleiche
 // Grid-Architektur/Groesse (6x12 Portrait, 12x8 Landscape) wie Kiosk-Seite 1,
 // damit derselbe Layout-Editor (Drag/Resize) wiederverwendet werden kann.
-#define KIOSK2_WIDGET_COUNT 7
-const char* KIOSK2_WIDGET_KEYS[KIOSK2_WIDGET_COUNT] = { "clock", "pricegauge", "pricechart", "pv", "battery", "house", "grid" };
-const char* KIOSK2_WIDGET_LABELS[KIOSK2_WIDGET_COUNT] = { "Uhrzeit", "Preis-Gauge", "Preis-Diagramm", "PV-Erzeugung", "Batterie", "Hausverbrauch", "Netz" };
+// Statt vier lose verschiebbaren Einzelkarten (PV/Batterie/Haus/Netz) EIN
+// kombiniertes Hub-Diagramm-Widget ("energyflow", siehe buildEnergyFlowSvg())
+// - zeigt den tatsaechlichen Energiefluss zwischen den Quellen statt vier
+// fuer sich stehender Zahlen, die man selbst gedanklich verknuepfen musste.
+#define KIOSK2_WIDGET_COUNT 4
+const char* KIOSK2_WIDGET_KEYS[KIOSK2_WIDGET_COUNT] = { "clock", "pricegauge", "pricechart", "energyflow" };
+const char* KIOSK2_WIDGET_LABELS[KIOSK2_WIDGET_COUNT] = { "Uhrzeit", "Preis-Gauge", "Preis-Diagramm", "Energiefluss" };
 
 // Portrait: 6 Spalten x 12 Reihen
 const KioskWidgetLayout KIOSK2_PORTRAIT_DEFAULTS[KIOSK2_WIDGET_COUNT] = {
   { 1, 6, 1,  1, true }, // clock:      ganze Breite, oberste Reihe
   { 1, 6, 2,  4, true }, // pricegauge: ganze Breite
   { 1, 6, 6,  3, true }, // pricechart: ganze Breite
-  { 1, 6, 9,  2, true }, // pv:         ganze Breite, schmal
-  { 1, 2, 11, 2, true }, // battery:    unten links
-  { 3, 2, 11, 2, true }, // house:      unten mittig
-  { 5, 2, 11, 2, true }, // grid:       unten rechts
+  { 1, 6, 9,  4, true }, // energyflow: ganze Breite, unterer Bereich
 };
 
 // Landscape: 12 Spalten x 8 Reihen
@@ -629,10 +630,7 @@ const KioskWidgetLayout KIOSK2_LANDSCAPE_DEFAULTS[KIOSK2_WIDGET_COUNT] = {
   { 5, 4,  1, 1, true }, // clock:      mittig oben
   { 1, 5,  2, 5, true }, // pricegauge: linke Haelfte gross
   { 6, 7,  2, 5, true }, // pricechart: rechte Haelfte gross
-  { 1, 3,  7, 2, true }, // pv:         unten
-  { 4, 3,  7, 2, true }, // battery:    unten
-  { 7, 3,  7, 2, true }, // house:      unten
-  { 10, 3, 7, 2, true }, // grid:       unten
+  { 1, 12, 7, 2, true }, // energyflow: ganze Breite unten
 };
 
 KioskWidgetLayout kiosk2Portrait[KIOSK2_WIDGET_COUNT];
@@ -840,6 +838,7 @@ String buildSvgChart(String lineColor = "", String fillColor = "");
 String buildChartPointsJson();
 String buildPinoutSvg();
 String buildPriceGaugeSvg();
+String buildEnergyFlowSvg();
 void getKioskPriceStatus(String &statusText, String &statusColor);
 String kioskWidgetCss(KioskWidgetLayout arr[], const char* const keys[] = KIOSK_WIDGET_KEYS, int count = KIOSK_WIDGET_COUNT);
 String kioskLayoutJson(KioskWidgetLayout arr[], const char* const keys[] = KIOSK_WIDGET_KEYS, const char* const labels[] = KIOSK_WIDGET_LABELS, int count = KIOSK_WIDGET_COUNT);
@@ -6877,22 +6876,33 @@ void handleKiosk2Page() {
   html += ".kiosk-crosshair-line{stroke:rgba(255,255,255,.5);stroke-width:1;stroke-dasharray:4,4;opacity:0;pointer-events:none}";
   html += ".kiosk-crosshair-dot{fill:#fff;stroke:rgba(0,0,0,.4);stroke-width:2;opacity:0;pointer-events:none}";
   html += ".kiosk-tooltip{position:absolute;transform:translate(-50%,-115%);background:rgba(30,30,40,.9);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,.15);border-radius:12px;padding:6px 12px;font-size:13px;font-weight:600;white-space:nowrap;pointer-events:none;opacity:0;color:#fff;box-shadow:0 8px 24px rgba(0,0,0,.4)}";
-  html += ".ef-icon{font-size:clamp(16px,16cqi,38px);line-height:1}";
-  html += ".ef-label{font-size:clamp(8px,5cqi,12px);color:rgba(255,255,255,.6);text-transform:uppercase;letter-spacing:.5px;font-weight:600}";
-  html += ".ef-value{font-size:clamp(14px,13cqi,32px);font-weight:700;color:#fff;letter-spacing:-0.5px;font-variant-numeric:tabular-nums;display:flex;align-items:center;gap:6px}";
-  html += ".ef-sub{font-size:clamp(8px,4cqi,11px);color:rgba(255,255,255,.4)}";
-  html += ".ef-flow{font-size:.65em;display:inline-block;color:rgba(255,255,255,.25)}";
-  html += ".ef-flow.on{color:#0A84FF}";
-  html += ".ef-flow.on.grid{color:#FF9500}";
-  html += ".ef-flow.on.pv{color:#34C759}";
-  // Fluss-Animation: kleines Pfeil-Icon bewegt sich in Fliessrichtung, statt
-  // (wie zuvor) Verbindungspfeile zwischen zwei festen Knoten zu zeigen -
-  // noetig, weil jedes Widget jetzt frei positionierbar ist und nicht mehr
-  // garantiert neben seinem Partner-Widget liegt.
-  html += "@keyframes flowUp{0%{transform:translateY(6px);opacity:.25}50%{opacity:1}100%{transform:translateY(-6px);opacity:.25}}";
-  html += "@keyframes flowDown{0%{transform:translateY(-6px);opacity:.25}50%{opacity:1}100%{transform:translateY(6px);opacity:.25}}";
-  html += ".ef-flow.flow-up{animation:flowUp 1.1s ease-in-out infinite}";
-  html += ".ef-flow.flow-down{animation:flowDown 1.1s ease-in-out infinite}";
+  // Hub-Diagramm statt vier lose verschiebbarer Einzelkarten: Haus in der
+  // Mitte als Anker, PV/Batterie/Netz als Satelliten-Knoten drumherum, durch
+  // Speichen verbunden, die nur bei tatsaechlichem Leistungsfluss farbig
+  // aufleuchten und einen animierten Punkt in Fliessrichtung zeigen - macht
+  // auf einen Blick sichtbar WER an WEN liefert, statt vier Zahlen einzeln
+  // lesen und im Kopf verknuepfen zu muessen.
+  html += ".kw-energyflow svg{width:100%;height:100%}";
+  html += ".ef-node-circle{fill:rgba(255,255,255,.07);stroke:rgba(255,255,255,.4);stroke-width:1.5}";
+  html += ".ef-node-house{stroke:rgba(255,255,255,.65)}";
+  html += ".ef-node-label{font-size:9.5px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;fill:rgba(255,255,255,.5)}";
+  html += ".ef-node-value{font-size:17px;font-weight:700;fill:#fff;font-variant-numeric:tabular-nums}";
+  html += ".ef-node-sub{font-size:9px;fill:rgba(255,255,255,.4)}";
+  html += ".ef-house-value{font-size:20px;font-weight:700;fill:#fff;font-variant-numeric:tabular-nums}";
+  html += ".ef-house-label{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;fill:rgba(255,255,255,.65)}";
+  html += ".ef-soc-bg{fill:none;stroke:rgba(255,255,255,.12);stroke-width:4}";
+  html += ".ef-soc-fill{fill:none;stroke:#0A84FF;stroke-width:4;stroke-linecap:round;transform-origin:80px 320px;transform:rotate(-90deg);transition:stroke-dasharray .4s ease}";
+  html += ".ef-soc-value{font-size:14px;font-weight:700;fill:#0A84FF;font-variant-numeric:tabular-nums}";
+  html += ".ef-line{fill:none;transition:stroke .3s ease}";
+  html += ".ef-line.idle{stroke:rgba(255,255,255,.14);stroke-width:2;stroke-dasharray:4 5;opacity:.6}";
+  html += ".ef-line.active-pv{stroke:#34C759;stroke-width:2.5}";
+  html += ".ef-line.active-batt{stroke:#0A84FF;stroke-width:2.5}";
+  html += ".ef-line.active-grid{stroke:#FF9500;stroke-width:2.5}";
+  html += ".ef-dot{display:none}";
+  html += ".ef-dot.show{display:block}";
+  html += ".ef-dot-pv{fill:#34C759}";
+  html += ".ef-dot-batt-charge,.ef-dot-batt-discharge{fill:#0A84FF}";
+  html += ".ef-dot-grid-import,.ef-dot-grid-export{fill:#FF9500}";
   html += ".ef-error{color:rgba(255,255,255,.6);font-size:clamp(11px,1.6vh,14px);text-align:center;max-width:80vw;margin-top:10px}";
   html += ".kiosk-topbar{position:fixed;top:14px;right:14px;display:flex;gap:8px;opacity:.25;transition:opacity .2s var(--ease);z-index:10}";
   html += ".kiosk-topbar:hover{opacity:1}";
@@ -6928,10 +6938,7 @@ void handleKiosk2Page() {
   server.sendContent(html);
   html = "";
 
-  html += "<div class='kw kw-pv' data-idx='3'><div class='ef-icon'>&#9728;&#65039;</div><div class='ef-label'>PV-Erzeugung</div><div class='ef-value'><span id='efPv'>-- W</span><span class='ef-flow pv' id='efFlowPv'>&#8595;</span></div><span class='kw-resize'></span></div>";
-  html += "<div class='kw kw-battery' data-idx='4'><div class='ef-icon'>&#128267;</div><div class='ef-label'>Batterie</div><div class='ef-value'><span id='efBatt'>-- W</span><span class='ef-flow' id='efFlowBatt'></span></div><div class='ef-sub' id='efBattSub'></div><span class='kw-resize'></span></div>";
-  html += "<div class='kw kw-house' data-idx='5'><div class='ef-icon'>&#127968;</div><div class='ef-label'>Hausverbrauch</div><div class='ef-value' id='efHouse'>-- W</div><span class='kw-resize'></span></div>";
-  html += "<div class='kw kw-grid' data-idx='6'><div class='ef-icon'>&#9889;</div><div class='ef-label'>Netz</div><div class='ef-value'><span id='efGrid'>-- W</span><span class='ef-flow grid' id='efFlowGrid'></span></div><div class='ef-sub' id='efGridSub'></div><span class='kw-resize'></span></div>";
+  html += "<div class='kw kw-energyflow' data-idx='3'>" + buildEnergyFlowSvg() + "<span class='kw-resize'></span></div>";
   html += "</div>";
   html += "<script>var _r=document.querySelector('#efGaugeCard .priceRing');if(_r)_r.classList.add('kiosk');</script>";
   if (!ankerConfigured) {
@@ -6957,6 +6964,12 @@ function efFmt(w){
   if (a >= 1000) return (w/1000).toFixed(2).replace('.', ',') + ' kW';
   return Math.round(w) + ' W';
 }
+// Aktualisiert das Hub-Diagramm (siehe buildEnergyFlowSvg()): Werte in den
+// Knoten, Batterie-Ladering und welche Speiche in welche Richtung gerade
+// farbig/animiert ist. Wichtig: SVG-Elemente brauchen setAttribute('class',...)
+// statt .className = ... - .className liefert bei SVG-Elementen ein
+// SVGAnimatedString-Objekt zurueck, eine simple String-Zuweisung wuerde dort
+// stillschweigend nichts bewirken.
 function efApply(d){
   var errEl = document.getElementById('efErr');
   if (!d.ok) {
@@ -6965,42 +6978,56 @@ function efApply(d){
   }
   if (errEl) errEl.style.display = 'none';
 
-  var pv = document.getElementById('efPv'); if (pv) pv.innerText = efFmt(d.pv);
-  var batt = document.getElementById('efBatt'); if (batt) batt.innerText = efFmt(d.batt);
-  var house = document.getElementById('efHouse'); if (house) house.innerText = efFmt(d.house);
-  var grid = document.getElementById('efGrid'); if (grid) grid.innerText = efFmt(d.grid);
+  var pvVal = document.getElementById('efPvVal'); if (pvVal) pvVal.textContent = efFmt(d.pv);
+  var battVal = document.getElementById('efBattVal'); if (battVal) battVal.textContent = efFmt(d.batt);
+  var houseVal = document.getElementById('efHouseVal'); if (houseVal) houseVal.textContent = efFmt(d.house);
+  var gridVal = document.getElementById('efGridVal'); if (gridVal) gridVal.textContent = efFmt(d.grid);
 
-  var battSub = document.getElementById('efBattSub');
-  if (battSub) {
-    var battState = d.batt > 5 ? 'Laedt' : (d.batt < -5 ? 'Entlaedt (versorgt Haus)' : 'Im Ruhezustand');
-    var socText = (typeof d.soc === 'number' && d.soc >= 0) ? (' &middot; ' + d.soc + '%') : '';
-    battSub.innerHTML = battState + socText;
-  }
   var gridSub = document.getElementById('efGridSub');
-  if (gridSub) gridSub.innerText = d.grid > 5 ? 'Bezug' : (d.grid < -5 ? 'Einspeisung' : '');
+  if (gridSub) gridSub.textContent = d.grid > 5 ? 'Bezug' : (d.grid < -5 ? 'Einspeisung' : '');
 
-  var flowPv = document.getElementById('efFlowPv');
-  if (flowPv) flowPv.className = 'ef-flow pv' + (d.pv > 5 ? ' on flow-down' : '');
-
-  // Batterie: positiv=laedt (Pfeil nach oben, Energie sammelt sich),
-  // negativ=entlaedt und versorgt damit das Haus (Pfeil nach unten, Energie fliesst ab).
-  var flowBatt = document.getElementById('efFlowBatt');
-  if (flowBatt) {
-    if (d.batt > 5) { flowBatt.innerText = '↑'; flowBatt.className = 'ef-flow on flow-up'; }
-    else if (d.batt < -5) { flowBatt.innerText = '↓'; flowBatt.className = 'ef-flow on flow-down'; }
-    else { flowBatt.innerText = ''; flowBatt.className = 'ef-flow'; }
+  // Ladering: Umfang bei r=50 ist 2*PI*50 = 314.16 - Anteil davon je nach %
+  // als "gefuellt gefuellt-rest" Dasharray, Rest unsichtbar bis zum Ringende.
+  var socVal = document.getElementById('efSocVal');
+  var socRing = document.getElementById('efSocRing');
+  var socCirc = 2 * Math.PI * 50;
+  if (typeof d.soc === 'number' && d.soc >= 0) {
+    if (socVal) socVal.textContent = Math.round(d.soc) + '%';
+    if (socRing) {
+      var filled = socCirc * (Math.max(0, Math.min(100, d.soc)) / 100);
+      socRing.setAttribute('stroke-dasharray', filled.toFixed(1) + ' ' + (socCirc - filled).toFixed(1));
+    }
+  } else {
+    if (socVal) socVal.textContent = '';
+    if (socRing) socRing.setAttribute('stroke-dasharray', '0 ' + socCirc.toFixed(1));
   }
 
-  // Netz: statt Pfeil zeigt sich hier ein bewegtes €-Symbol, um den
-  // Geldfluss zu verdeutlichen - positiv=Bezug (kostet Geld, Symbol bewegt
-  // sich abwaerts Richtung Haus), negativ=Einspeisung (bringt Geld,
-  // Symbol bewegt sich aufwaerts Richtung Netz).
-  var flowGrid = document.getElementById('efFlowGrid');
-  if (flowGrid) {
-    if (d.grid > 5) { flowGrid.innerText = '€'; flowGrid.className = 'ef-flow grid on flow-down'; }
-    else if (d.grid < -5) { flowGrid.innerText = '€'; flowGrid.className = 'ef-flow grid on flow-up'; }
-    else { flowGrid.innerText = ''; flowGrid.className = 'ef-flow grid'; }
-  }
+  // PV-Speiche: liefert immer Richtung Haus, nie umgekehrt.
+  var pvActive = d.pv > 5;
+  var lnPv = document.getElementById('lnPv');
+  if (lnPv) lnPv.setAttribute('class', 'ef-line ' + (pvActive ? 'active-pv' : 'idle'));
+  var dotPv = document.getElementById('dotPv');
+  if (dotPv) dotPv.setAttribute('class', 'ef-dot ef-dot-pv' + (pvActive ? ' show' : ''));
+
+  // Batterie-Speiche: positiv=laedt (Fluss Haus->Batterie), negativ=entlaedt
+  // und versorgt damit das Haus (Fluss Batterie->Haus).
+  var battCharging = d.batt > 5, battDischarging = d.batt < -5;
+  var lnBatt = document.getElementById('lnBatt');
+  if (lnBatt) lnBatt.setAttribute('class', 'ef-line ' + ((battCharging || battDischarging) ? 'active-batt' : 'idle'));
+  var dotBattCharge = document.getElementById('dotBattCharge');
+  if (dotBattCharge) dotBattCharge.setAttribute('class', 'ef-dot ef-dot-batt-charge' + (battCharging ? ' show' : ''));
+  var dotBattDischarge = document.getElementById('dotBattDischarge');
+  if (dotBattDischarge) dotBattDischarge.setAttribute('class', 'ef-dot ef-dot-batt-discharge' + (battDischarging ? ' show' : ''));
+
+  // Netz-Speiche: positiv=Bezug (Fluss Netz->Haus), negativ=Einspeisung
+  // (Fluss Haus->Netz).
+  var gridImport = d.grid > 5, gridExport = d.grid < -5;
+  var lnGrid = document.getElementById('lnGrid');
+  if (lnGrid) lnGrid.setAttribute('class', 'ef-line ' + ((gridImport || gridExport) ? 'active-grid' : 'idle'));
+  var dotGridImport = document.getElementById('dotGridImport');
+  if (dotGridImport) dotGridImport.setAttribute('class', 'ef-dot ef-dot-grid-import' + (gridImport ? ' show' : ''));
+  var dotGridExport = document.getElementById('dotGridExport');
+  if (dotGridExport) dotGridExport.setAttribute('class', 'ef-dot ef-dot-grid-export' + (gridExport ? ' show' : ''));
 }
 function efPoll(){
   fetch('/ankerdata').then(function(r){ return r.json(); }).then(efApply).catch(function(e){});
@@ -9161,6 +9188,62 @@ String buildPinoutSvg() {
 }
 
 // -----------------------------------------------------------------------------
+// Energiefluss-Hub-Diagramm (Kiosk 2)
+// -----------------------------------------------------------------------------
+
+// Haus in der Mitte als Anker, PV/Batterie/Netz als Satelliten-Knoten
+// drumherum, durch Speichen verbunden. Nur die Werte selbst (efPvVal etc.)
+// werden hier mit Platzhaltern ("--") vorgerendert - der eigentliche Zustand
+// (welche Speiche aktiv ist, in welche Richtung, Batterie-Ladering) wird rein
+// clientseitig von efApply() anhand der /ankerdata-Antwort gesetzt, siehe
+// dortigen Kommentar. Alle Koordinaten beziehen sich auf viewBox 0 0 400 400.
+String buildEnergyFlowSvg() {
+  String svg = "<svg viewBox='0 0 400 400' role='img' aria-label='Energiefluss zwischen Solaranlage, Batterie, Haus und Netz'>";
+
+  // Speichen (idle-Zustand als Start, efApply() setzt die Klasse aktiv um)
+  svg += "<path id='lnPv' class='ef-line idle' d='M 200 108 L 200 165'/>";
+  svg += "<path id='lnBatt' class='ef-line idle' d='M 108 292 L 165 235'/>";
+  svg += "<path id='lnGrid' class='ef-line idle' d='M 292 292 L 235 235'/>";
+
+  // Fliessende Punkte je Speiche/Richtung - per Default verborgen
+  // (.ef-dot{display:none}), efApply() blendet je nach Fliessrichtung genau
+  // einen davon pro Speiche ein.
+  svg += "<circle id='dotPv' class='ef-dot ef-dot-pv' r='4'><animateMotion dur='1.6s' repeatCount='indefinite' path='M 200 108 L 200 165'/></circle>";
+  svg += "<circle id='dotBattCharge' class='ef-dot ef-dot-batt-charge' r='4'><animateMotion dur='1.6s' repeatCount='indefinite' path='M 165 235 L 108 292'/></circle>";
+  svg += "<circle id='dotBattDischarge' class='ef-dot ef-dot-batt-discharge' r='4'><animateMotion dur='1.6s' repeatCount='indefinite' path='M 108 292 L 165 235'/></circle>";
+  svg += "<circle id='dotGridImport' class='ef-dot ef-dot-grid-import' r='4'><animateMotion dur='1.6s' repeatCount='indefinite' path='M 292 292 L 235 235'/></circle>";
+  svg += "<circle id='dotGridExport' class='ef-dot ef-dot-grid-export' r='4'><animateMotion dur='1.6s' repeatCount='indefinite' path='M 235 235 L 292 292'/></circle>";
+
+  // PV-Knoten (oben)
+  svg += "<g><circle class='ef-node-circle' cx='200' cy='80' r='42'/>";
+  svg += "<text x='200' y='70' text-anchor='middle' class='ef-node-label'>PV</text>";
+  svg += "<text x='200' y='90' text-anchor='middle' class='ef-node-value' id='efPvVal'>-- W</text></g>";
+
+  // Batterie-Knoten (unten links) mit Ladestand-Ring
+  float socCirc = 2.0f * PI * 50.0f;
+  svg += "<g><circle class='ef-soc-bg' cx='80' cy='320' r='50'/>";
+  svg += "<circle class='ef-soc-fill' id='efSocRing' cx='80' cy='320' r='50' stroke-dasharray='0 " + String(socCirc, 1) + "'/>";
+  svg += "<circle class='ef-node-circle' cx='80' cy='320' r='42'/>";
+  svg += "<text x='80' y='304' text-anchor='middle' class='ef-node-label'>Batterie</text>";
+  svg += "<text x='80' y='321' text-anchor='middle' class='ef-node-value' id='efBattVal'>-- W</text>";
+  svg += "<text x='80' y='336' text-anchor='middle' class='ef-soc-value' id='efSocVal'></text></g>";
+
+  // Netz-Knoten (unten rechts)
+  svg += "<g><circle class='ef-node-circle' cx='320' cy='320' r='42'/>";
+  svg += "<text x='320' y='304' text-anchor='middle' class='ef-node-label'>Netz</text>";
+  svg += "<text x='320' y='322' text-anchor='middle' class='ef-node-value' id='efGridVal'>-- W</text>";
+  svg += "<text x='320' y='337' text-anchor='middle' class='ef-node-sub' id='efGridSub'></text></g>";
+
+  // Haus-Knoten (Mitte, Anker)
+  svg += "<g><circle class='ef-node-circle ef-node-house' cx='200' cy='235' r='56'/>";
+  svg += "<text x='200' y='223' text-anchor='middle' class='ef-house-label'>Haus</text>";
+  svg += "<text x='200' y='246' text-anchor='middle' class='ef-house-value' id='efHouseVal'>-- W</text></g>";
+
+  svg += "</svg>";
+  return svg;
+}
+
+// -----------------------------------------------------------------------------
 // Preis-Gauge
 // -----------------------------------------------------------------------------
 
@@ -9287,14 +9370,8 @@ String kioskLayoutJson(KioskWidgetLayout arr[], const char* const keys[], const 
       String low = (metricLow15Day >= 0) ? priceToCentText(metricLow15Day) : "--";
       String avg = (metricDayAvg >= 0) ? priceToCentText(metricDayAvg) : "--";
       preview = "Tief " + low + " &middot; Schnitt " + avg;
-    } else if (key == "pv") {
-      preview = (ankerPvW >= 0) ? ("&#9728;&#65039; " + String((int)ankerPvW) + " W") : "&#9728;&#65039; -- W";
-    } else if (key == "battery") {
-      preview = ankerConfigured ? ("&#128267; " + String((int)ankerBatteryW) + " W") : "&#128267; -- W";
-    } else if (key == "house") {
-      preview = (ankerHomeLoadW >= 0) ? ("&#127968; " + String((int)ankerHomeLoadW) + " W") : "&#127968; -- W";
-    } else if (key == "grid") {
-      preview = (ankerHomeLoadW >= 0 && ankerOutputW >= 0) ? ("&#9889; " + String((int)(ankerHomeLoadW - ankerOutputW)) + " W") : "&#9889; -- W";
+    } else if (key == "energyflow") {
+      preview = (ankerPvW >= 0) ? ("&#9728;&#65039; " + String((int)ankerPvW) + " W &middot; &#127968; " + String((int)ankerHomeLoadW) + " W") : "&#9728;&#65039; -- W";
     }
     json += "{";
     json += "\"key\":\"" + key + "\",";
