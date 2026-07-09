@@ -84,7 +84,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "4.0.0"
+#define FIRMWARE_VERSION "4.1.0"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -585,16 +585,22 @@ KioskWidgetLayout kiosk2Landscape[KIOSK2_WIDGET_COUNT];
 // CSS-Media-Query (siehe .hw-canvas) stapelt die Widgets auf schmalen
 // Bildschirmen, statt ein zweites persistiertes Layout vorzuhalten.
 #define HOME_GRID_COLS 8
-#define HOME_GRID_ROWS 7
-#define HOME_WIDGET_COUNT 4
-const char* HOME_WIDGET_KEYS[HOME_WIDGET_COUNT] = { "gauge", "livepower", "chart", "metrics" };
-const char* HOME_WIDGET_LABELS[HOME_WIDGET_COUNT] = { "Preis-Gauge", "Live-Verbrauch", "Diagramm", "Metriken" };
+// 13 statt urspruenglich 7 Reihen: Platz fuer die zwei zusaetzlichen Widgets
+// "status" (Statuszeile + Aktions-Buttons) und "pricetable" (aufklappbare
+// Preistabelle) unterhalb der urspruenglichen 4 Widgets, die die Reihen 1-7
+// bereits vollstaendig belegen.
+#define HOME_GRID_ROWS 13
+#define HOME_WIDGET_COUNT 6
+const char* HOME_WIDGET_KEYS[HOME_WIDGET_COUNT] = { "gauge", "livepower", "chart", "metrics", "status", "pricetable" };
+const char* HOME_WIDGET_LABELS[HOME_WIDGET_COUNT] = { "Preis-Gauge", "Live-Verbrauch", "Diagramm", "Metriken", "Status & Aktionen", "Preistabelle" };
 
 const KioskWidgetLayout HOME_DEFAULTS[HOME_WIDGET_COUNT] = {
-  { 1, 3, 1, 3, true }, // gauge:     links oben, quadratisch
-  { 1, 3, 4, 2, true }, // livepower: links, unter der Gauge
-  { 4, 5, 1, 5, true }, // chart:     rechts, hoch
-  { 1, 8, 6, 2, true }, // metrics:   ganze Breite, unten
+  { 1, 3, 1, 3, true },  // gauge:      links oben, quadratisch
+  { 1, 3, 4, 2, true },  // livepower:  links, unter der Gauge
+  { 4, 5, 1, 5, true },  // chart:      rechts, hoch
+  { 1, 8, 6, 2, true },  // metrics:    ganze Breite
+  { 1, 8, 8, 2, true },  // status:     ganze Breite, unter den Metriken
+  { 1, 8, 10, 4, true }, // pricetable: ganze Breite, mehr Hoehe fuer die aufklappbare Tabelle (scrollt intern, siehe kw-pricetable-CSS)
 };
 
 KioskWidgetLayout homeLayout[HOME_WIDGET_COUNT];
@@ -4879,7 +4885,9 @@ void handleRoot() {
    Zielreihe passte nicht zur tatsaechlichen Reihe unter dem Mauszeiger).
    Feste, gleich hohe Reihen beheben das - der Inhalt jedes Widgets skaliert
    dank Container-Queries (cqi) ohnehin auf die ihm zugewiesene Box. */
-.kw-canvas{position:relative;display:grid;grid-template-columns:repeat(8,1fr);grid-template-rows:repeat(7,90px);grid-auto-rows:90px;gap:14px;margin:14px 0}
+)CSS";
+  html += ".kw-canvas{position:relative;display:grid;grid-template-columns:repeat(8,1fr);grid-template-rows:repeat(" + String(HOME_GRID_ROWS) + ",90px);grid-auto-rows:90px;gap:14px;margin:14px 0}";
+  html += R"CSS(
 .kw{position:relative;container-type:inline-size;background:var(--card);border:1px solid var(--surface-border);border-radius:22px;padding:clamp(14px,3cqi,26px);box-shadow:0 1px 2px var(--shadow-soft),0 8px 24px rgba(0,0,0,.06);backdrop-filter:blur(20px) saturate(180%);-webkit-backdrop-filter:blur(20px) saturate(180%);box-sizing:border-box;overflow:hidden;display:flex;flex-direction:column;transition:box-shadow .2s var(--ease)}
 .kw.wg-dragging,.kw.wg-resizing{box-shadow:0 20px 44px rgba(0,0,0,.28);z-index:50}
 .kw-arrange-mode .kw{cursor:grab;user-select:none}
@@ -4919,6 +4927,22 @@ void handleRoot() {
 .kw-livepower .pg-scale{font-size:clamp(9px,2.6cqi,12px)}
 .kw-livepower .pg-track{height:clamp(4px,1.4cqi,12px)}
 .kw-livepower .pg-marker{width:clamp(10px,3.6cqi,20px);height:clamp(10px,3.6cqi,20px)}
+.kw-status{align-items:stretch;justify-content:flex-start;overflow-y:auto}
+.kw-status .small{font-size:clamp(9px,2cqi,13px)}
+.kw-status .actions{margin-top:auto}
+/* Die aufklappbare Preistabelle kann bei 192 Zeilen (heute+morgen) mehrere
+   tausend Pixel hoch werden - deutlich mehr als die feste Widget-Hoehe. Die
+   Tabelle bekommt deshalb eine eigene, vom Widget unabhaengige Scroll-Grenze
+   (max-height + overflow-y), statt entweder den ganzen Kasten zu sprengen
+   oder (durch das overflow:hidden der Basis-.kw-Klasse) den Rest der Zeilen
+   ohne jede Moeglichkeit, sie zu sehen, einfach abzuschneiden. */
+.kw-pricetable{align-items:stretch;justify-content:flex-start}
+.kw-pricetable details{width:100%;overflow:hidden;display:flex;flex-direction:column;min-height:0}
+/* .kw hat nur container-type:inline-size (Breite), keine Block-Achsen-
+   Containment - cqh/cqb-Einheiten waeren hier ungueltig. Fester max-height-
+   Wert stattdessen, grosszuegig innerhalb der Default-Widget-Hoehe
+   (rowSpan 4 = ca. 400px). */
+.kw-pricetable table{display:block;max-height:300px;overflow-y:auto}
 @container (max-width: 220px){
   .kw-metrics .gridCards{grid-template-columns:1fr}
   .kw-metrics .metric .sub{display:none}
@@ -5080,14 +5104,13 @@ void handleRoot() {
   html += "<span class='kw-resize'></span>";
   html += "</div>";
 
-  html += "</div>"; // .kw-canvas
-
-  html += "<style>" + kioskWidgetCss(homeLayout, HOME_WIDGET_KEYS, HOME_WIDGET_COUNT) + "</style>";
-
   server.sendContent(html);
   html = "";
 
-  html += "<section class='card'>";
+  // Widget 4: Status & Aktionen (frueher eine feste <section class='card'>
+  // unterhalb des Rasters - auf Nutzerwunsch jetzt ein echtes, verschieb-
+  // und groessenveraenderbares Widget wie die anderen).
+  html += "<div class='kw kw-status' data-idx='4'>";
   html += "<div class='small' style='display:flex;flex-wrap:wrap;gap:6px 16px'>";
   html += "<span>";
   html += (priceProvider == "tibber") ? "Tibber" : "aWATTar";
@@ -5114,13 +5137,20 @@ void handleRoot() {
   }
 
   html += "<div class='actions'><a href='/refresh'><button>Jetzt aktualisieren</button></a><a href='/kiosk'><button type='button' class='secondary'>Tablet-Modus</button></a></div>";
-  html += "</section>";
+  html += "<span class='kw-resize'></span>";
+  html += "</div>";
 
   server.sendContent(html);
   html = "";
 
+  // Widget 5: Preistabelle (frueher eine feste <details class='card'>
+  // unterhalb des Rasters - jetzt ebenfalls ein echtes Widget. Die Tabelle
+  // kann bei 192 Zeilen (heute+morgen) deutlich hoeher werden als die feste
+  // Widget-Groesse - scrollt deshalb intern (siehe .kw-pricetable table CSS)
+  // statt den Kasten zu sprengen oder Zeilen kommentarlos abzuschneiden.
+  html += "<div class='kw kw-pricetable' data-idx='5'>";
   if (quarterCount > 0) {
-    html += "<details class='card'><summary><h2 style='display:inline'>Geladene Preise heute/morgen (";
+    html += "<details><summary><h2 style='display:inline'>Geladene Preise heute/morgen (";
     html += String(quarterCount);
     html += " Slots)</h2></summary>";
     html += "<table><tr><th>Zeit</th><th>ct/kWh</th></tr>";
@@ -5141,7 +5171,15 @@ void handleRoot() {
     }
 
     html += "</table></details>";
+  } else {
+    html += "<p class='small'>Noch keine Preisdaten geladen.</p>";
   }
+  html += "<span class='kw-resize'></span>";
+  html += "</div>";
+
+  html += "</div>"; // .kw-canvas
+
+  html += "<style>" + kioskWidgetCss(homeLayout, HOME_WIDGET_KEYS, HOME_WIDGET_COUNT) + "</style>";
 
   server.sendContent(html);
   html = "";
@@ -5171,7 +5209,7 @@ setInterval(updatePriceBadge,10000);
 var kwArrangeMode = false;
 var kwController = null;
 
-function kwGrid(){ return { cols: 8, rows: 7 }; }
+function kwGrid(){ return { cols: 8, rows: 13 }; }
 function kwGetEl(i){ return document.querySelector('.kw-canvas .kw[data-idx="' + i + '"]'); }
 
 function kwApplyLayout(i){
