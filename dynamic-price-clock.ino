@@ -83,7 +83,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "4.1.3"
+#define FIRMWARE_VERSION "4.1.4"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -3073,6 +3073,16 @@ static String resolveGithubDownloadUrl(const String &url) {
     if (loc.length() > 0) {
       resolved = loc;
     }
+  } else if (code <= 0) {
+    // Live beobachtet: schlaegt schon diese leichte Vorab-Anfrage mit einem
+    // Verbindungsfehler fehl (z.B. HTTPC_ERROR_CONNECTION_REFUSED), landete
+    // der Aufrufer bisher stillschweigend bei der UNAUFGELOESTEN github.com-URL
+    // und der eigentliche Downloadversuch ist dann prompt am selben
+    // Verbindungsproblem gescheitert - mit einer irrefuehrenden Meldung
+    // ("HTTP-Fehler -1 beim Download"), die wie ein Download-Problem aussah,
+    // obwohl es ein Verbindungsproblem schon bei der Redirect-Aufloesung war.
+    // Leerer Rueckgabewert macht das fuer den Aufrufer unterscheidbar.
+    resolved = "";
   }
   http.end();
   return resolved;
@@ -3229,6 +3239,18 @@ bool otaDownloadAndFlashGithub(String url) {
       // frisch pro Versuch, da signierte CDN-Links von GitHub nur kurz
       // gueltig sind.
       String downloadUrl = resolveGithubDownloadUrl(url);
+
+      bool ok = false;
+      if (downloadUrl.length() == 0) {
+        // resolveGithubDownloadUrl() konnte nicht einmal die leichte
+        // Vorab-Anfrage absetzen (echter Verbindungsfehler, nicht nur "kein
+        // Redirect noetig") - live beobachtet als Ursache fuer irrefuehrende
+        // "HTTP-Fehler -1"-Meldungen beim eigentlichen Download, obwohl das
+        // Problem schon hier lag. Klar benennen statt mit der raten, ob
+        // stillschweigend die unaufgeloeste URL weiterprobiert werden soll.
+        ota.diag = otaPreflightDiag(extractHostFromUrl(url)) + ", Versuch " + String(attempt) + "/" + String(maxAttempts);
+        ota.error = "Redirect-Aufloesung fehlgeschlagen (Verbindungsfehler)";
+      } else {
       String downloadHost = extractHostFromUrl(downloadUrl);
 
       WiFiClientSecure client;
@@ -3240,7 +3262,6 @@ bool otaDownloadAndFlashGithub(String url) {
       otaProgress(OtaOwner::Github, (int)written, (int)fullContentLength);
       ota.diag = otaPreflightDiag(downloadHost) + ", Versuch " + String(attempt) + "/" + String(maxAttempts);
 
-      bool ok = false;
       HTTPClient http;
       http.setTimeout(15000);
       if (!http.begin(client, downloadUrl)) {
@@ -3283,6 +3304,7 @@ bool otaDownloadAndFlashGithub(String url) {
         http.end();
       }
       client.stop();
+      } // downloadUrl.length() > 0
 
       if (ok) {
         return true;
