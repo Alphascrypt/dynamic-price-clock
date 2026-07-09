@@ -83,7 +83,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "4.1.2"
+#define FIRMWARE_VERSION "4.1.3"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -3115,26 +3115,24 @@ void otaWdtExit() {
 // Stream::available()-Bug treffen kann, der schon bei der Versionspruefung
 // (otaCheckLatest(), siehe dortiger Kommentar) reproduzierbar war: bei
 // WiFiClientSecure/BearSSL kann available() zwischen TLS-Record-Grenzen
-// kurzzeitig 0 liefern, obwohl noch Bytes unterwegs sind -
-// Update::writeStream() (das httpUpdate.update() intern aufruft) wertet
-// das faelschlich als Verbindungsende und bricht den Download vorzeitig ab,
-// obwohl die Verbindung noch lebt. Der manuelle Firmware-Upload
-// (handleUploadFirmwareData()) hat dieses Problem nie, weil er nicht ueber
-// eine TLS-Verbindung liest, sondern direkt vom WebServer-Upload-Callback -
-// genau das ist der Unterschied, den der Nutzer beobachtet hat ("klappt
-// beim manuellen Hochladen"). Dieser Loop wartet bei kurzzeitigem
-// available()==0 auf mehr Daten (solange die Verbindung noch lebt und die
-// Gesamtgroesse aus Content-Length noch nicht erreicht ist), statt sofort
-// aufzugeben.
-bool otaDownloadToFlash(HTTPClient &http, size_t contentLength) {
-  if (!Update.begin(contentLength)) {
-    ota.error = "Update.begin fehlgeschlagen: " + String(Update.errorString());
-    return false;
-  }
-
+// kurzzeitig 0 liefern, obwohl noch Bytes unterwegs sind. Der manuelle
+// Firmware-Upload (handleUploadFirmwareData()) hat dieses Problem nie, weil
+// er nicht ueber eine TLS-Verbindung liest, sondern direkt vom
+// WebServer-Upload-Callback.
+//
+// Live gegen das echte Geraet getestet (siehe Commit-Beschreibung): die
+// Verbindung bricht bei der fuer BearSSL-Software-TLS auf dem ESP32-C5
+// typischen langsamen Rate (~10-15 KB/s) reproduzierbar nach einer gewissen
+// Zeit/Datenmenge ab (mehrfach fast an derselben Byte-Position, ~474 KB von
+// 1,78 MB) - das ist kein zu kurzes Client-Timeout, sondern eine echte
+// Verbindungsunterbrechung, die laenger warten allein nicht behebt. Deshalb
+// schreibt *written hier fortlaufend in die Variable des Aufrufers zurueck:
+// otaDownloadAndFlashGithub() nutzt das, um beim naechsten Versuch per
+// HTTP-Range genau dort weiterzumachen, statt die Datei bei 0 neu
+// anzufangen und wieder an derselben Stelle zu scheitern.
+bool otaDownloadToFlash(HTTPClient &http, size_t &written, size_t contentLength) {
   NetworkClient *stream = http.getStreamPtr();
   uint8_t buf[1024];
-  size_t written = 0;
   unsigned long lastDataMs = millis();
 
   while (written < contentLength) {
@@ -3143,16 +3141,14 @@ bool otaDownloadToFlash(HTTPClient &http, size_t contentLength) {
     if (avail == 0) {
       if (!http.connected()) {
         ota.error = "Verbindung waehrend des Downloads verloren (" + String(written) + "/" + String(contentLength) + " Bytes)";
-        Update.abort();
         return false;
       }
-      // 15s ohne auch nur ein einziges neues Byte ist kein TLS-Record-
-      // Grenzfall mehr, sondern ein echter Haenger - der esp_task_wdt (siehe
+      // 45s ohne auch nur ein einziges neues Byte: kein TLS-Record-Grenzfall
+      // mehr, sondern ein echter Haenger - der esp_task_wdt (siehe
       // otaWdtEnter()) greift zusaetzlich nach 4 Minuten als letztes
       // Sicherheitsnetz, falls diese Schleife selbst haengen bleiben sollte.
-      if (millis() - lastDataMs > 15000UL) {
-        ota.error = "Download haengt - seit 15s keine neuen Daten (" + String(written) + "/" + String(contentLength) + " Bytes)";
-        Update.abort();
+      if (millis() - lastDataMs > 45000UL) {
+        ota.error = "Download haengt - seit 45s keine neuen Daten (" + String(written) + "/" + String(contentLength) + " Bytes)";
         return false;
       }
       delay(20);
@@ -3168,7 +3164,6 @@ bool otaDownloadToFlash(HTTPClient &http, size_t contentLength) {
 
     if (Update.write(buf, got) != got) {
       ota.error = "Update.write fehlgeschlagen: " + String(Update.errorString());
-      Update.abort();
       return false;
     }
 
@@ -3212,7 +3207,20 @@ bool otaDownloadAndFlashGithub(String url) {
   // echte transiente Netzwerkfehler, statt den Nutzer manuell erneut
   // klicken zu lassen. Progressive Pausen (3.5s/5s/6.5s) geben dem Heap
   // Zeit, sich von der vorherigen TLS-Sitzung zu erholen.
+  //
+  // written/updateStarted leben AUSSERHALB der Schleife (nicht pro Versuch
+  // neu) - live am echten Geraet beobachtet: die Verbindung bricht
+  // reproduzierbar mitten im Download ab (siehe otaDownloadToFlash()), immer
+  // wieder nahe derselben Byte-Position. Ohne Resume wuerde jeder Versuch bei
+  // 0 neu anfangen und garantiert wieder an derselben Stelle scheitern. Mit
+  // Range: bytes=written- macht der naechste Versuch stattdessen genau dort
+  // weiter, wo der vorherige aufgehoert hat, und die Datei kommt ueber
+  // mehrere kurze erfolgreiche Teilstuecke zusammen statt in einem Stueck.
   const int maxAttempts = 4;
+  size_t written = 0;
+  bool updateStarted = false;
+  size_t fullContentLength = 0;
+
   for (int attempt = 1; attempt <= maxAttempts; attempt++) {
     otaWdtFeed(); // Watchdog-Reset zu Beginn jedes Versuchs, nicht nur bei jedem Fortschritts-Ticks
     {
@@ -3229,7 +3237,7 @@ bool otaDownloadAndFlashGithub(String url) {
       // vertrauen - verhindert, dass ein einzelner Verbindungsversuch
       // unbegrenzt haengen bleibt und den ganzen OTA-Task blockiert.
       client.setHandshakeTimeout(12000);
-      otaProgress(OtaOwner::Github, 0, 0);
+      otaProgress(OtaOwner::Github, (int)written, (int)fullContentLength);
       ota.diag = otaPreflightDiag(downloadHost) + ", Versuch " + String(attempt) + "/" + String(maxAttempts);
 
       bool ok = false;
@@ -3239,11 +3247,33 @@ bool otaDownloadAndFlashGithub(String url) {
         ota.error = "Verbindung zum Download-Server fehlgeschlagen";
       } else {
         http.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
+        if (updateStarted && written > 0) {
+          http.addHeader("Range", "bytes=" + String(written) + "-");
+        }
         int code = http.GET();
-        if (code == HTTP_CODE_OK) {
+        if (code == HTTP_CODE_OK || code == HTTP_CODE_PARTIAL_CONTENT) {
           int len = http.getSize();
+          bool serverHonoredRange = (code == HTTP_CODE_PARTIAL_CONTENT);
+          if (updateStarted && written > 0 && !serverHonoredRange) {
+            // Server ignoriert Range und schickt die Datei komplett von
+            // vorne - die bereits geschriebene Partition passt dann nicht
+            // mehr zu den ankommenden Bytes, also sauber neu anfangen.
+            Update.abort();
+            updateStarted = false;
+            written = 0;
+          }
           if (len > 0) {
-            ok = otaDownloadToFlash(http, (size_t)len);
+            if (!updateStarted) {
+              fullContentLength = serverHonoredRange ? (written + (size_t)len) : (size_t)len;
+              if (Update.begin(fullContentLength)) {
+                updateStarted = true;
+              } else {
+                ota.error = "Update.begin fehlgeschlagen: " + String(Update.errorString());
+              }
+            }
+            if (updateStarted) {
+              ok = otaDownloadToFlash(http, written, fullContentLength);
+            }
           } else {
             ota.error = "Server hat keine Dateigroesse gemeldet";
           }
@@ -3267,6 +3297,13 @@ bool otaDownloadAndFlashGithub(String url) {
     if (attempt < maxAttempts) {
       delay(2000 + attempt * 1500);
     }
+  }
+
+  // Alle Versuche ausgeschoepft: begonnene OTA-Partition sauber freigeben,
+  // statt sie fuer den naechsten kompletten Update-Anlauf (neuer Aufruf
+  // dieser Funktion) belegt zu lassen.
+  if (updateStarted) {
+    Update.abort();
   }
 
   return false;
