@@ -5,7 +5,6 @@
 #include "esp_task_wdt.h"
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
-#include <HTTPUpdate.h>
 #include <Update.h>
 #include <WebServer.h>
 #include <Preferences.h>
@@ -84,7 +83,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "4.1.0"
+#define FIRMWARE_VERSION "4.1.1"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -253,7 +252,7 @@ String githubToken = "";
 // jeder einzelnen Aufrufstelle zu verlassen.
 enum class OtaPhase : uint8_t {
   Idle, Checking, CheckFailed, UpdateAvailable, UpToDate,
-  Downloading, // GitHub-Pfad: HTTPUpdate schreibt Bytes
+  Downloading, // GitHub-Pfad: manueller Download-Loop schreibt Bytes direkt in die Flash-Partition
   Uploading,   // manueller Pfad: Multipart-Body kommt an
   Flashing,    // manueller Pfad: alle Bytes da, Update.end() steht noch aus
   Rebooting,
@@ -3049,8 +3048,8 @@ String otaPreflightDiag(const String &host) {
 // refused" auf JEDEN Versuch produziert (kein transientes Problem, siehe
 // HTTPClient::disconnect()/connect() in der ESP32-Arduino-Core-Bibliothek).
 // Umgehung: Redirect hier selbst mit einer eigenen, kurzlebigen Verbindung
-// aufloesen und httpUpdate.update() direkt die finale CDN-URL uebergeben,
-// damit sie nie den Host wechseln muss.
+// aufloesen und der eigentlichen Download-Verbindung direkt die finale
+// CDN-URL uebergeben, damit sie nie den Host wechseln muss.
 static String resolveGithubDownloadUrl(const String &url) {
   WiFiClientSecure client;
   client.setInsecure();
@@ -3084,8 +3083,8 @@ static String resolveGithubDownloadUrl(const String &url) {
 
 // Meldet den GitHub-OTA-Task beim ESP-IDF Task-Watchdog an, mit grosszuegigem
 // Timeout - reagiert der Task minutenlang gar nicht mehr (haengt z.B. in
-// einem Netzwerk-Timeout fest, ohne dass httpUpdate.onProgress() je feuert),
-// loest das automatisch einen Reboot aus, statt wie bisher einen manuellen
+// einem Netzwerk-Timeout fest, ohne dass otaDownloadToFlash() je Fortschritt
+// meldet), loest das automatisch einen Reboot aus, statt wie bisher einen manuellen
 // Stromausfall/Reset zu erfordern. Das ist sicher: Update.begin()/
 // Update.write() schreiben ausschliesslich in die inaktive Partition, der
 // eigentliche Boot-Partitions-Wechsel (esp_ota_set_boot_partition(), intern
@@ -3110,6 +3109,83 @@ void otaWdtExit() {
   esp_task_wdt_reconfigure(&cfg);
 }
 
+// Liest den Binaer-Body eines bereits laufenden HTTP-GET manuell in
+// Bloecken und schreibt sie direkt in die OTA-Partition - ersetzt den
+// frueheren Aufruf von httpUpdate.update(), der intern denselben
+// Stream::available()-Bug treffen kann, der schon bei der Versionspruefung
+// (otaCheckLatest(), siehe dortiger Kommentar) reproduzierbar war: bei
+// WiFiClientSecure/BearSSL kann available() zwischen TLS-Record-Grenzen
+// kurzzeitig 0 liefern, obwohl noch Bytes unterwegs sind -
+// Update::writeStream() (das httpUpdate.update() intern aufruft) wertet
+// das faelschlich als Verbindungsende und bricht den Download vorzeitig ab,
+// obwohl die Verbindung noch lebt. Der manuelle Firmware-Upload
+// (handleUploadFirmwareData()) hat dieses Problem nie, weil er nicht ueber
+// eine TLS-Verbindung liest, sondern direkt vom WebServer-Upload-Callback -
+// genau das ist der Unterschied, den der Nutzer beobachtet hat ("klappt
+// beim manuellen Hochladen"). Dieser Loop wartet bei kurzzeitigem
+// available()==0 auf mehr Daten (solange die Verbindung noch lebt und die
+// Gesamtgroesse aus Content-Length noch nicht erreicht ist), statt sofort
+// aufzugeben.
+bool otaDownloadToFlash(HTTPClient &http, size_t contentLength) {
+  if (!Update.begin(contentLength)) {
+    ota.error = "Update.begin fehlgeschlagen: " + String(Update.errorString());
+    return false;
+  }
+
+  NetworkClient *stream = http.getStreamPtr();
+  uint8_t buf[1024];
+  size_t written = 0;
+  unsigned long lastDataMs = millis();
+
+  while (written < contentLength) {
+    size_t avail = stream->available();
+
+    if (avail == 0) {
+      if (!http.connected()) {
+        ota.error = "Verbindung waehrend des Downloads verloren (" + String(written) + "/" + String(contentLength) + " Bytes)";
+        Update.abort();
+        return false;
+      }
+      // 15s ohne auch nur ein einziges neues Byte ist kein TLS-Record-
+      // Grenzfall mehr, sondern ein echter Haenger - der esp_task_wdt (siehe
+      // otaWdtEnter()) greift zusaetzlich nach 4 Minuten als letztes
+      // Sicherheitsnetz, falls diese Schleife selbst haengen bleiben sollte.
+      if (millis() - lastDataMs > 15000UL) {
+        ota.error = "Download haengt - seit 15s keine neuen Daten (" + String(written) + "/" + String(contentLength) + " Bytes)";
+        Update.abort();
+        return false;
+      }
+      delay(20);
+      continue;
+    }
+
+    size_t toRead = (avail > sizeof(buf)) ? sizeof(buf) : avail;
+    size_t got = stream->readBytes(buf, toRead);
+    if (got == 0) {
+      delay(10);
+      continue;
+    }
+
+    if (Update.write(buf, got) != got) {
+      ota.error = "Update.write fehlgeschlagen: " + String(Update.errorString());
+      Update.abort();
+      return false;
+    }
+
+    written += got;
+    lastDataMs = millis();
+    otaProgress(OtaOwner::Github, (int)written, (int)contentLength);
+    otaWdtFeed();
+  }
+
+  if (!Update.end(true)) {
+    ota.error = "Update.end fehlgeschlagen: " + String(Update.errorString());
+    return false;
+  }
+
+  return true;
+}
+
 bool otaDownloadAndFlashGithub(String url) {
   if (url.length() == 0 || url.indexOf("github") < 0) {
     ota.error = "Ungueltige Update-URL";
@@ -3131,13 +3207,6 @@ bool otaDownloadAndFlashGithub(String url) {
     return false;
   }
 
-  httpUpdate.rebootOnUpdate(false);
-  httpUpdate.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
-  httpUpdate.onProgress([](int cur, int total) {
-    otaProgress(OtaOwner::Github, cur, total);
-    otaWdtFeed();
-  });
-
   // Der Redirect-Hostwechsel wird jetzt vorab selbst aufgeloest
   // (resolveGithubDownloadUrl()), trotzdem hier mehrfach versuchen fuer
   // echte transiente Netzwerkfehler, statt den Nutzer manuell erneut
@@ -3145,11 +3214,12 @@ bool otaDownloadAndFlashGithub(String url) {
   // Zeit, sich von der vorherigen TLS-Sitzung zu erholen.
   const int maxAttempts = 4;
   for (int attempt = 1; attempt <= maxAttempts; attempt++) {
-    otaWdtFeed(); // Watchdog-Reset zu Beginn jedes Versuchs, nicht nur bei onProgress()-Ticks
+    otaWdtFeed(); // Watchdog-Reset zu Beginn jedes Versuchs, nicht nur bei jedem Fortschritts-Ticks
     {
       // Redirect selbst aufloesen (siehe resolveGithubDownloadUrl()), damit
-      // httpUpdate.update() nie den Host wechseln muss - frisch pro Versuch,
-      // da signierte CDN-Links von GitHub nur kurz gueltig sind.
+      // die eigentliche Download-Verbindung nie den Host wechseln muss -
+      // frisch pro Versuch, da signierte CDN-Links von GitHub nur kurz
+      // gueltig sind.
       String downloadUrl = resolveGithubDownloadUrl(url);
       String downloadHost = extractHostFromUrl(downloadUrl);
 
@@ -3162,14 +3232,33 @@ bool otaDownloadAndFlashGithub(String url) {
       otaProgress(OtaOwner::Github, 0, 0);
       ota.diag = otaPreflightDiag(downloadHost) + ", Versuch " + String(attempt) + "/" + String(maxAttempts);
 
-      t_httpUpdate_return ret = httpUpdate.update(client, downloadUrl);
+      bool ok = false;
+      HTTPClient http;
+      http.setTimeout(15000);
+      if (!http.begin(client, downloadUrl)) {
+        ota.error = "Verbindung zum Download-Server fehlgeschlagen";
+      } else {
+        http.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
+        int code = http.GET();
+        if (code == HTTP_CODE_OK) {
+          int len = http.getSize();
+          if (len > 0) {
+            ok = otaDownloadToFlash(http, (size_t)len);
+          } else {
+            ota.error = "Server hat keine Dateigroesse gemeldet";
+          }
+        } else {
+          ota.error = "HTTP-Fehler " + String(code) + " beim Download";
+        }
+        http.end();
+      }
       client.stop();
 
-      if (ret == HTTP_UPDATE_OK) {
+      if (ok) {
         return true;
       }
 
-      ota.error = "Update fehlgeschlagen (Versuch " + String(attempt) + "/" + String(maxAttempts) + "): " + httpUpdate.getLastErrorString() + " [" + ota.diag + "]";
+      ota.error += " (Versuch " + String(attempt) + "/" + String(maxAttempts) + ") [" + ota.diag + "]";
     }
     // client explizit vor der Pause aus dem Scope laufen lassen, damit der
     // TLS-Speicher (mbedTLS-Puffer, ~40KB je Sitzung) sicher freigegeben ist,
