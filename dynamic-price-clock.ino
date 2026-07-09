@@ -83,7 +83,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "4.1.1"
+#define FIRMWARE_VERSION "4.1.2"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -6244,7 +6244,7 @@ void handleKioskPage() {
   html += ".kw-gauge .pg-track{background:rgba(255,255,255,.15)}";
   html += ".kiosk-live-power{font-size:clamp(16px,12cqi,42px);font-weight:700;color:#fff;letter-spacing:-0.5px}";
   html += ".kiosk-live-power:empty{display:none}";
-  html += ".kiosk-live-power.bar{display:flex;flex-direction:column;justify-content:center;align-items:stretch;gap:clamp(3px,2cqi,8px);width:96%;max-width:520px;margin:0 auto;padding:clamp(3px,2cqi,10px) clamp(6px,3cqi,16px);box-sizing:border-box}";
+  html += ".kiosk-live-power.bar{display:flex;flex-direction:column;justify-content:center;align-items:stretch;gap:clamp(3px,2cqi,8px);width:100%;padding:clamp(3px,2cqi,10px) clamp(6px,3cqi,16px);box-sizing:border-box}";
   html += ".kiosk-live-power.bar .klpLbl{font-size:clamp(8px,4cqi,12px);color:rgba(255,255,255,.55);text-transform:uppercase;letter-spacing:.4px;font-weight:600;line-height:1;text-align:center}";
   html += ".kiosk-live-power.bar .klpVal{font-size:clamp(14px,10cqi,36px);font-weight:700;line-height:1;font-variant-numeric:tabular-nums;text-align:center;color:#fff;letter-spacing:-0.5px}";
   html += ".kiosk-live-power.bar .klpTrack{position:relative;width:100%;height:clamp(6px,3cqi,14px);border-radius:999px;overflow:hidden;background:rgba(255,255,255,.15)}";
