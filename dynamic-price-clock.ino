@@ -92,7 +92,7 @@ using namespace websockets;
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "4.3.0"
+#define FIRMWARE_VERSION "4.4.0"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -427,6 +427,24 @@ String ankerLastError = "";
 bool ankerConfigured = false;
 String ankerLastRawJson = ""; // letzte rohe Antwort von get_scen_info, zur Fehlersuche auf der Konto-Seite
 
+// Lebenszeit-Summen aus dem bisher ungenutzten "statistics"-Array der
+// get_scen_info-Antwort (type 1=kWh Gesamtertrag, 2=kg CO2 gespart,
+// 3=Euro gespart seit Inbetriebnahme) - keine neue Anfrage noetig, die
+// Werte stecken schon in der Antwort, die ohnehin alle 60s abgerufen wird.
+float ankerTotalYieldKwh = -1;
+float ankerCo2SavedKg = -1;
+float ankerMoneySavedEur = -1;
+
+// Tagesertrag PV (kWh): echte Tagesenergie liefert die Anker-API nicht,
+// deshalb hier selbst durch Aufintegrieren der PV-Momentanleistung ueber die
+// Zeit angenaehert (Riemannsumme aus den 60s-Polls) - eine Annaeherung, keine
+// exakte Messung, aber ohne unsicheren, unbestaetigten Zusatz-Endpunkt.
+// Ueberlebt keinen Neustart (nur RAM), analog zu anderen Tageszaehlern in
+// diesem Projekt.
+float pvYieldTodayKwh = 0;
+String pvYieldTodayDate = "";
+unsigned long lastPvIntegrationMs = 0;
+
 String lastError = "Noch kein Update";
 String webInterfaceName = "Dynamic Price Clock";
 // Akzentfarbe fuer das UI (iOS-Systemfarben). Erlaubt: blue, green, orange, red, pink, purple, teal, indigo.
@@ -613,24 +631,29 @@ KioskWidgetLayout kioskLandscape[KIOSK_WIDGET_COUNT];
 // kombiniertes Hub-Diagramm-Widget ("energyflow", siehe buildEnergyFlowSvg())
 // - zeigt den tatsaechlichen Energiefluss zwischen den Quellen statt vier
 // fuer sich stehender Zahlen, die man selbst gedanklich verknuepfen musste.
-#define KIOSK2_WIDGET_COUNT 4
-const char* KIOSK2_WIDGET_KEYS[KIOSK2_WIDGET_COUNT] = { "clock", "pricegauge", "pricechart", "energyflow" };
-const char* KIOSK2_WIDGET_LABELS[KIOSK2_WIDGET_COUNT] = { "Uhrzeit", "Preis-Gauge", "Preis-Diagramm", "Energiefluss" };
+// "stats" ergaenzt Autarkie/Eigenverbrauch (berechnet) sowie Tagesertrag/
+// Gesamtertrag/CO2/Geld gespart (siehe buildEnergyStatsHtml()) als eigenes,
+// kompaktes Kennzahlen-Widget neben dem Hub-Diagramm.
+#define KIOSK2_WIDGET_COUNT 5
+const char* KIOSK2_WIDGET_KEYS[KIOSK2_WIDGET_COUNT] = { "clock", "pricegauge", "pricechart", "energyflow", "stats" };
+const char* KIOSK2_WIDGET_LABELS[KIOSK2_WIDGET_COUNT] = { "Uhrzeit", "Preis-Gauge", "Preis-Diagramm", "Energiefluss", "Kennzahlen" };
 
 // Portrait: 6 Spalten x 12 Reihen
 const KioskWidgetLayout KIOSK2_PORTRAIT_DEFAULTS[KIOSK2_WIDGET_COUNT] = {
   { 1, 6, 1,  1, true }, // clock:      ganze Breite, oberste Reihe
-  { 1, 6, 2,  4, true }, // pricegauge: ganze Breite
-  { 1, 6, 6,  3, true }, // pricechart: ganze Breite
-  { 1, 6, 9,  4, true }, // energyflow: ganze Breite, unterer Bereich
+  { 1, 6, 2,  3, true }, // pricegauge: ganze Breite
+  { 1, 6, 5,  3, true }, // pricechart: ganze Breite
+  { 1, 6, 8,  3, true }, // energyflow: ganze Breite
+  { 1, 6, 11, 2, true }, // stats:      ganze Breite, unterste Reihen
 };
 
 // Landscape: 12 Spalten x 8 Reihen
 const KioskWidgetLayout KIOSK2_LANDSCAPE_DEFAULTS[KIOSK2_WIDGET_COUNT] = {
   { 5, 4,  1, 1, true }, // clock:      mittig oben
-  { 1, 5,  2, 5, true }, // pricegauge: linke Haelfte gross
-  { 6, 7,  2, 5, true }, // pricechart: rechte Haelfte gross
-  { 1, 12, 7, 2, true }, // energyflow: ganze Breite unten
+  { 1, 5,  2, 4, true }, // pricegauge: linke Haelfte oben
+  { 6, 7,  2, 4, true }, // pricechart: rechte Haelfte oben
+  { 1, 7,  6, 3, true }, // energyflow: unten links, breiter
+  { 8, 5,  6, 3, true }, // stats:      unten rechts, schmaler
 };
 
 KioskWidgetLayout kiosk2Portrait[KIOSK2_WIDGET_COUNT];
@@ -839,6 +862,7 @@ String buildChartPointsJson();
 String buildPinoutSvg();
 String buildPriceGaugeSvg();
 String buildEnergyFlowSvg();
+String buildEnergyStatsHtml();
 void getKioskPriceStatus(String &statusText, String &statusColor);
 String kioskWidgetCss(KioskWidgetLayout arr[], const char* const keys[] = KIOSK_WIDGET_KEYS, int count = KIOSK_WIDGET_COUNT);
 String kioskLayoutJson(KioskWidgetLayout arr[], const char* const keys[] = KIOSK_WIDGET_KEYS, const char* const labels[] = KIOSK_WIDGET_LABELS, int count = KIOSK_WIDGET_COUNT);
@@ -3154,6 +3178,42 @@ void updateAnkerSolarData() {
   ankerBatteryW = battNet;
 
   ankerHomeLoadW = data["home_load_power"].as<String>().toFloat();
+
+  // Lebenszeit-Statistik (Gesamtertrag/CO2/Geld gespart) - steckt in
+  // "statistics", type je Eintrag: 1=kWh, 2=kg CO2, 3=Euro.
+  JsonArray stats = data["statistics"].as<JsonArray>();
+  if (!stats.isNull()) {
+    for (JsonObject s : stats) {
+      String t = s["type"].as<String>();
+      float total = s["total"].as<String>().toFloat();
+      if (t == "1") ankerTotalYieldKwh = total;
+      else if (t == "2") ankerCo2SavedKg = total;
+      else if (t == "3") ankerMoneySavedEur = total;
+    }
+  }
+
+  // Tagesertrag PV per Riemannsumme annaehern (siehe Kommentar bei den
+  // globalen Variablen) - Datumswechsel setzt den Zaehler zurueck, ein
+  // ungewoehnlich grosser Poll-Abstand (Neustart, laengere Unterbrechung)
+  // wird verworfen statt faelschlich als durchgehende PV-Leistung
+  // hochgerechnet zu werden.
+  String todayStr = getLocalDatePrefix();
+  if (todayStr.length() > 0) {
+    if (pvYieldTodayDate != todayStr) {
+      pvYieldTodayDate = todayStr;
+      pvYieldTodayKwh = 0;
+      lastPvIntegrationMs = millis();
+    } else if (lastPvIntegrationMs > 0 && ankerPvW >= 0) {
+      unsigned long dtMs = millis() - lastPvIntegrationMs;
+      if (dtMs > 0 && dtMs < (unsigned long)ANKER_POLL_INTERVAL_MS * 3) {
+        pvYieldTodayKwh += ankerPvW * (dtMs / 3600000.0f) / 1000.0f;
+      }
+      lastPvIntegrationMs = millis();
+    } else {
+      lastPvIntegrationMs = millis();
+    }
+  }
+
   ankerLastError = "";
 }
 
@@ -4207,16 +4267,27 @@ void loadKioskLayoutFromPrefs() {
     kioskLandscape[i].visible  = prefs.getBool((lPrefix + "v").c_str(), KIOSK_LANDSCAPE_DEFAULTS[i].visible);
   }
 
-  // Energiefluss-Kiosk (Kiosk 2): eigener Preferences-Praefix (k2P/k2L)
+  // Energiefluss-Kiosk (Kiosk 2): eigener Preferences-Praefix (k2Pb/k2Lb).
+  // WICHTIG: "b" (statt des urspruenglichen k2P/k2L) ist bewusst ein NEUER
+  // Praefix, kein Tippfehler - diese Werte werden pro ARRAY-INDEX gespeichert,
+  // nicht pro Widget-Schluessel. Als das Widget-Set heute von
+  // pv/battery/house/grid (7 Eintraege) auf energyflow/stats (5 Eintraege)
+  // umgebaut wurde, haette Index 3 sonst stillschweigend die alte,
+  // inzwischen bedeutungslose Position des FRUEHEREN Widgets an dieser
+  // Stelle geerbt (live beobachtet: energyflow landete auf einer
+  // Uralt-Position). Ein neuer Praefix macht das genauso sauber wie der
+  // bereits bestehende Wechsel von den alten x/y/w/h-Keys auf kgP/kgL (siehe
+  // Kommentar oben) - alte kiosk2-Eintraege werden schlicht nie wieder
+  // gelesen, kein Migrationscode noetig.
   for (int i = 0; i < KIOSK2_WIDGET_COUNT; i++) {
-    String pPrefix = "k2P" + String(i);
+    String pPrefix = "k2Pb" + String(i);
     kiosk2Portrait[i].colStart = prefs.getUChar((pPrefix + "c").c_str(), KIOSK2_PORTRAIT_DEFAULTS[i].colStart);
     kiosk2Portrait[i].colSpan  = prefs.getUChar((pPrefix + "s").c_str(), KIOSK2_PORTRAIT_DEFAULTS[i].colSpan);
     kiosk2Portrait[i].rowStart = prefs.getUChar((pPrefix + "r").c_str(), KIOSK2_PORTRAIT_DEFAULTS[i].rowStart);
     kiosk2Portrait[i].rowSpan  = prefs.getUChar((pPrefix + "p").c_str(), KIOSK2_PORTRAIT_DEFAULTS[i].rowSpan);
     kiosk2Portrait[i].visible  = prefs.getBool((pPrefix + "v").c_str(), KIOSK2_PORTRAIT_DEFAULTS[i].visible);
 
-    String lPrefix2 = "k2L" + String(i);
+    String lPrefix2 = "k2Lb" + String(i);
     kiosk2Landscape[i].colStart = prefs.getUChar((lPrefix2 + "c").c_str(), KIOSK2_LANDSCAPE_DEFAULTS[i].colStart);
     kiosk2Landscape[i].colSpan  = prefs.getUChar((lPrefix2 + "s").c_str(), KIOSK2_LANDSCAPE_DEFAULTS[i].colSpan);
     kiosk2Landscape[i].rowStart = prefs.getUChar((lPrefix2 + "r").c_str(), KIOSK2_LANDSCAPE_DEFAULTS[i].rowStart);
@@ -4249,7 +4320,8 @@ void saveKioskWidget(bool landscape, int i, KioskWidgetLayout item) {
 }
 
 void saveKiosk2Widget(bool landscape, int i, KioskWidgetLayout item) {
-  saveKioskWidgetGeneric((landscape ? "k2L" : "k2P") + String(i), item);
+  // k2Pb/k2Lb, nicht k2P/k2L - siehe Kommentar in loadKioskLayoutFromPrefs().
+  saveKioskWidgetGeneric((landscape ? "k2Lb" : "k2Pb") + String(i), item);
 }
 
 void saveHomeLayoutToPrefs() {
@@ -6903,6 +6975,15 @@ void handleKiosk2Page() {
   html += ".ef-dot-pv{fill:#34C759}";
   html += ".ef-dot-batt-charge,.ef-dot-batt-discharge{fill:#0A84FF}";
   html += ".ef-dot-grid-import,.ef-dot-grid-export{fill:#FF9500}";
+  // Kennzahlen-Kacheln (Autarkie/Eigenverbrauch/Ertrag/CO2/Geld) - 3x2-Grid,
+  // Groesse per cqi an die tatsaechliche Widget-Groesse gekoppelt (nicht an
+  // die Bildschirmhoehe), da das Widget in Hoch- und Querformat sehr
+  // unterschiedlich breit/hoch sein kann (siehe KIOSK2_*_DEFAULTS).
+  html += ".kw-stats{padding:clamp(6px,2cqi,14px)}";
+  html += ".ef-stats-grid{display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(2,1fr);gap:clamp(4px,2cqi,10px);width:100%;height:100%}";
+  html += ".ef-stat-tile{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;background:rgba(255,255,255,.05);border-radius:clamp(8px,1.5cqi,14px);padding:clamp(2px,1cqi,6px);overflow:hidden}";
+  html += ".ef-stat-label{font-size:clamp(7px,2.6cqi,10px);color:rgba(255,255,255,.5);text-transform:uppercase;letter-spacing:.05em;font-weight:600;line-height:1.2}";
+  html += ".ef-stat-value{font-size:clamp(11px,4.5cqi,20px);font-weight:700;color:#fff;margin-top:2px;font-variant-numeric:tabular-nums}";
   html += ".ef-error{color:rgba(255,255,255,.6);font-size:clamp(11px,1.6vh,14px);text-align:center;max-width:80vw;margin-top:10px}";
   html += ".kiosk-topbar{position:fixed;top:14px;right:14px;display:flex;gap:8px;opacity:.25;transition:opacity .2s var(--ease);z-index:10}";
   html += ".kiosk-topbar:hover{opacity:1}";
@@ -6939,6 +7020,7 @@ void handleKiosk2Page() {
   html = "";
 
   html += "<div class='kw kw-energyflow' data-idx='3'>" + buildEnergyFlowSvg() + "<span class='kw-resize'></span></div>";
+  html += "<div class='kw kw-stats' data-idx='4'>" + buildEnergyStatsHtml() + "<span class='kw-resize'></span></div>";
   html += "</div>";
   html += "<script>var _r=document.querySelector('#efGaugeCard .priceRing');if(_r)_r.classList.add('kiosk');</script>";
   if (!ankerConfigured) {
@@ -7028,6 +7110,40 @@ function efApply(d){
   if (dotGridImport) dotGridImport.setAttribute('class', 'ef-dot ef-dot-grid-import' + (gridImport ? ' show' : ''));
   var dotGridExport = document.getElementById('dotGridExport');
   if (dotGridExport) dotGridExport.setAttribute('class', 'ef-dot ef-dot-grid-export' + (gridExport ? ' show' : ''));
+
+  // Kennzahlen-Widget (siehe buildEnergyStatsHtml()). Autarkie/Eigenverbrauch
+  // sind Momentanwerte aus denselben pv/house/grid-Rohdaten wie das
+  // Hub-Diagramm - bewusst nicht serverseitig berechnet (siehe Kommentar in
+  // handleAnkerData()), um doppelte Rechenlogik zu vermeiden.
+  var autarkyEl = document.getElementById('statAutarky');
+  if (autarkyEl) {
+    if (d.house > 1) {
+      var selfCovered = d.house - Math.max(0, d.grid);
+      var autarky = Math.max(0, Math.min(100, selfCovered / d.house * 100));
+      autarkyEl.textContent = Math.round(autarky) + '%';
+    } else {
+      autarkyEl.textContent = '--';
+    }
+  }
+  var selfConsEl = document.getElementById('statSelfCons');
+  if (selfConsEl) {
+    if (d.pv > 1) {
+      var exported = Math.max(0, -d.grid);
+      var selfConsumed = Math.max(0, d.pv - exported);
+      var selfCons = Math.max(0, Math.min(100, selfConsumed / d.pv * 100));
+      selfConsEl.textContent = Math.round(selfCons) + '%';
+    } else {
+      selfConsEl.textContent = '--';
+    }
+  }
+  var pvTodayEl = document.getElementById('statPvToday');
+  if (pvTodayEl) pvTodayEl.textContent = (typeof d.pvYieldTodayKwh === 'number') ? d.pvYieldTodayKwh.toFixed(1).replace('.', ',') + ' kWh' : '--';
+  var yieldTotalEl = document.getElementById('statYieldTotal');
+  if (yieldTotalEl) yieldTotalEl.textContent = (typeof d.yieldTotalKwh === 'number' && d.yieldTotalKwh >= 0) ? Math.round(d.yieldTotalKwh) + ' kWh' : '--';
+  var co2El = document.getElementById('statCo2');
+  if (co2El) co2El.textContent = (typeof d.co2SavedKg === 'number' && d.co2SavedKg >= 0) ? Math.round(d.co2SavedKg) + ' kg' : '--';
+  var moneyEl = document.getElementById('statMoney');
+  if (moneyEl) moneyEl.textContent = (typeof d.moneySavedEur === 'number' && d.moneySavedEur >= 0) ? Math.round(d.moneySavedEur) + ' €' : '--';
 }
 function efPoll(){
   fetch('/ankerdata').then(function(r){ return r.json(); }).then(efApply).catch(function(e){});
@@ -7212,7 +7328,15 @@ void handleAnkerData() {
     json += "\"batt\":" + String(ankerBatteryW, 1) + ",";
     json += "\"soc\":" + String(ankerBatterySoc) + ",";
     json += "\"house\":" + String(ankerHomeLoadW, 1) + ",";
-    json += "\"grid\":" + String(grid, 1);
+    json += "\"grid\":" + String(grid, 1) + ",";
+    // Autarkie/Eigenverbrauch werden bewusst NICHT hier serverseitig
+    // berechnet, sondern aus denselben pv/batt/house/grid-Rohwerten
+    // clientseitig in efApply() - vermeidet doppelte Rechenlogik in C++ UND
+    // JS, die sonst leicht auseinanderlaufen kann.
+    json += "\"yieldTotalKwh\":" + String(ankerTotalYieldKwh, 1) + ",";
+    json += "\"co2SavedKg\":" + String(ankerCo2SavedKg, 1) + ",";
+    json += "\"moneySavedEur\":" + String(ankerMoneySavedEur, 1) + ",";
+    json += "\"pvYieldTodayKwh\":" + String(pvYieldTodayKwh, 2);
   }
   json += "}";
 
@@ -9243,6 +9367,22 @@ String buildEnergyFlowSvg() {
   return svg;
 }
 
+// Kompaktes Kennzahlen-Widget neben dem Hub-Diagramm: Autarkie/Eigenverbrauch
+// (momentane Verhaeltniszahlen, clientseitig aus denselben pv/house/grid-
+// Rohwerten berechnet, die auch das Hub-Diagramm bekommt - siehe efApply())
+// sowie Tagesertrag/Gesamtertrag/CO2/Geld gespart (direkt aus /ankerdata).
+String buildEnergyStatsHtml() {
+  String html = "<div class='ef-stats-grid'>";
+  html += "<div class='ef-stat-tile'><div class='ef-stat-label'>Autarkie</div><div class='ef-stat-value' id='statAutarky'>--</div></div>";
+  html += "<div class='ef-stat-tile'><div class='ef-stat-label'>Eigenverbrauch</div><div class='ef-stat-value' id='statSelfCons'>--</div></div>";
+  html += "<div class='ef-stat-tile'><div class='ef-stat-label'>PV heute</div><div class='ef-stat-value' id='statPvToday'>--</div></div>";
+  html += "<div class='ef-stat-tile'><div class='ef-stat-label'>Ertrag gesamt</div><div class='ef-stat-value' id='statYieldTotal'>--</div></div>";
+  html += "<div class='ef-stat-tile'><div class='ef-stat-label'>CO2 gespart</div><div class='ef-stat-value' id='statCo2'>--</div></div>";
+  html += "<div class='ef-stat-tile'><div class='ef-stat-label'>Geld gespart</div><div class='ef-stat-value' id='statMoney'>--</div></div>";
+  html += "</div>";
+  return html;
+}
+
 // -----------------------------------------------------------------------------
 // Preis-Gauge
 // -----------------------------------------------------------------------------
@@ -9372,6 +9512,8 @@ String kioskLayoutJson(KioskWidgetLayout arr[], const char* const keys[], const 
       preview = "Tief " + low + " &middot; Schnitt " + avg;
     } else if (key == "energyflow") {
       preview = (ankerPvW >= 0) ? ("&#9728;&#65039; " + String((int)ankerPvW) + " W &middot; &#127968; " + String((int)ankerHomeLoadW) + " W") : "&#9728;&#65039; -- W";
+    } else if (key == "stats") {
+      preview = (ankerTotalYieldKwh >= 0) ? ("Ertrag " + String((int)ankerTotalYieldKwh) + " kWh") : "Kennzahlen";
     }
     json += "{";
     json += "\"key\":\"" + key + "\",";
