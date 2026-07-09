@@ -15,7 +15,16 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_GC9A01A.h>
 #include <Adafruit_NeoPixel.h>
-#include <WebSocketsClient.h>
+// ArduinoWebsockets statt Links2004/WebSockets: Live gegen das echte Geraet
+// getestet - die vorherige Bibliothek stellte die Verbindung zu Tibbers
+// liveMeasurement-Subscription her und authentifizierte sich erfolgreich,
+// aber das anschliessende "subscribe"-Kommando erhielt NIE eine Antwort
+// (kein Fehler, kein Ping, keine Daten - komplette Stille), egal ob direkt
+// aus dem Event-Callback oder verzoegert danach gesendet. Andere
+// Implementierung (eigener TLS-/Framing-Code) als gezielter Versuch, ob das
+// Problem an dieser spezifischen Bibliothek liegt.
+#include <ArduinoWebsockets.h>
+using namespace websockets;
 
 // Fuer die (inoffizielle) Anker-Solix-Cloud-Anmeldung: ECDH(SECP256R1) +
 // AES-256-CBC + MD5, siehe updateAnkerSolarData().
@@ -83,7 +92,7 @@
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "4.1.4"
+#define FIRMWARE_VERSION "4.2.0"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -332,10 +341,62 @@ String kioskLivePowerStyle = "text"; // "text" oder "bar"
 // Nachrichten an und livePowerW bleibt -1, dann wird nirgends etwas angezeigt.
 const char* TIBBER_WS_HOST = "websocket-api.tibber.com";
 const char* TIBBER_WS_URL = "/v1-beta/gql/subscriptions";
-WebSocketsClient tibberWs;
-bool tibberWsStarted = false;
+// Fallback-Root-CA, falls der Nutzer auf /anbieter kein eigenes Zertifikat
+// hinterlegt hat (siehe tibberRootCaPem) - noetig, weil ArduinoWebsockets'
+// setInsecure() auf ESP32 nachweislich nicht funktioniert (siehe Kommentar
+// in updateTibberLiveMeasurement()). Amazon Root CA 1, per openssl s_client
+// gegen websocket-api.tibber.com verifiziert (deckt *.tibber.com ab).
+const char* TIBBER_WS_FALLBACK_CA =
+  "-----BEGIN CERTIFICATE-----\n"
+  "MIIEkjCCA3qgAwIBAgITBn+USionzfP6wq4rAfkI7rnExjANBgkqhkiG9w0BAQsF\n"
+  "ADCBmDELMAkGA1UEBhMCVVMxEDAOBgNVBAgTB0FyaXpvbmExEzARBgNVBAcTClNj\n"
+  "b3R0c2RhbGUxJTAjBgNVBAoTHFN0YXJmaWVsZCBUZWNobm9sb2dpZXMsIEluYy4x\n"
+  "OzA5BgNVBAMTMlN0YXJmaWVsZCBTZXJ2aWNlcyBSb290IENlcnRpZmljYXRlIEF1\n"
+  "dGhvcml0eSAtIEcyMB4XDTE1MDUyNTEyMDAwMFoXDTM3MTIzMTAxMDAwMFowOTEL\n"
+  "MAkGA1UEBhMCVVMxDzANBgNVBAoTBkFtYXpvbjEZMBcGA1UEAxMQQW1hem9uIFJv\n"
+  "b3QgQ0EgMTCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBALJ4gHHKeNXj\n"
+  "ca9HgFB0fW7Y14h29Jlo91ghYPl0hAEvrAIthtOgQ3pOsqTQNroBvo3bSMgHFzZM\n"
+  "9O6II8c+6zf1tRn4SWiw3te5djgdYZ6k/oI2peVKVuRF4fn9tBb6dNqcmzU5L/qw\n"
+  "IFAGbHrQgLKm+a/sRxmPUDgH3KKHOVj4utWp+UhnMJbulHheb4mjUcAwhmahRWa6\n"
+  "VOujw5H5SNz/0egwLX0tdHA114gk957EWW67c4cX8jJGKLhD+rcdqsq08p8kDi1L\n"
+  "93FcXmn/6pUCyziKrlA4b9v7LWIbxcceVOF34GfID5yHI9Y/QCB/IIDEgEw+OyQm\n"
+  "jgSubJrIqg0CAwEAAaOCATEwggEtMA8GA1UdEwEB/wQFMAMBAf8wDgYDVR0PAQH/\n"
+  "BAQDAgGGMB0GA1UdDgQWBBSEGMyFNOy8DJSULghZnMeyEE4KCDAfBgNVHSMEGDAW\n"
+  "gBScXwDfqgHXMCs4iKK4bUqc8hGRgzB4BggrBgEFBQcBAQRsMGowLgYIKwYBBQUH\n"
+  "MAGGImh0dHA6Ly9vY3NwLnJvb3RnMi5hbWF6b250cnVzdC5jb20wOAYIKwYBBQUH\n"
+  "MAKGLGh0dHA6Ly9jcnQucm9vdGcyLmFtYXpvbnRydXN0LmNvbS9yb290ZzIuY2Vy\n"
+  "MD0GA1UdHwQ2MDQwMqAwoC6GLGh0dHA6Ly9jcmwucm9vdGcyLmFtYXpvbnRydXN0\n"
+  "LmNvbS9yb290ZzIuY3JsMBEGA1UdIAQKMAgwBgYEVR0gADANBgkqhkiG9w0BAQsF\n"
+  "AAOCAQEAYjdCXLwQtT6LLOkMm2xF4gcAevnFWAu5CIw+7bMlPLVvUOTNNWqnkzSW\n"
+  "MiGpSESrnO09tKpzbeR/FoCJbM8oAxiDR3mjEH4wW6w7sGDgd9QIpuEdfF7Au/ma\n"
+  "eyKdpwAJfqxGF4PcnCZXmTA5YpaP7dreqsXMGz7KQ2hsVxa81Q4gLv7/wmpdLqBK\n"
+  "bRRYh5TmOTFffHPLkIhqhBGWJ6bt2YFGpn6jcgAKUj6DiAdjd4lpFw85hdKrCEVN\n"
+  "0FE6/V1dN2RMfjCyVSRCnTawXZwXgWHxyvkQAiSr6w10kY17RSlQOYiypok1JR4U\n"
+  "akcjMS9cmvqtmg5iUaQqqcT5NJ0hGA==\n"
+  "-----END CERTIFICATE-----\n";
+WebsocketsClient tibberWs;
+bool tibberWsInited = false;      // Callbacks/Header einmalig gesetzt
+bool tibberWsConnected = false;   // aktuell verbunden (per Events selbst nachgefuehrt, keine Auto-Reconnect-Bibliotheksfunktion vorhanden)
+unsigned long tibberWsLastConnectAttemptMs = 0;
 float livePowerW = -1;
 unsigned long livePowerUpdatedAtMs = 0;
+// Reine Diagnose (siehe handleTibberWsEvent()) - zeigt in /livepower, was die
+// WebSocket-Verbindung zuletzt tatsaechlich getan/erhalten hat, da Server-
+// seitige GraphQL-Fehler (z.B. abgelehnte Subscription) bisher stillschweigend
+// verworfen wurden und "livePowerW bleibt -1" ohne Erklaerung aussah wie ein
+// fehlendes Pulse-Geraet, obwohl ein echter Fehler vorlag.
+String tibberWsLastEvent = "nie verbunden";
+unsigned long tibberWsLastEventMs = 0;
+// Laut Tibber-API-Doku sollte vor dem (Re-)Verbinden geprueft werden, ob
+// viewer.home.features.realTimeConsumptionEnabled true ist - wird hier per
+// normaler HTTPS-GraphQL-Abfrage (updatePrices()) huckepack mitgeholt, reine
+// Diagnose, keine Steuerlogik (die WS-Verbindung wird trotzdem versucht,
+// falls dieser Wert aus irgendeinem Grund nicht ermittelt werden konnte).
+bool tibberRealTimeEnabledKnown = false;
+bool tibberRealTimeEnabled = false;
+// Siehe updateTibberLiveMeasurement(): das Abo-Kommando darf nicht direkt aus
+// handleTibberWsEvent() heraus gesendet werden, deshalb nur hier vormerken.
+bool tibberSubscribePending = false;
 
 // Strompreis-Quelle: "tibber" (Standard), "awattar_de" oder "awattar_at".
 // aWATTar liefert nur den Boersenpreis ohne Netzentgelte/Steuern, deshalb
@@ -615,7 +676,8 @@ void updateTibber();
 void updateAwattarPrices();
 void updatePrices();
 void updateTibberLiveMeasurement();
-void handleTibberWsEvent(WStype_t type, uint8_t *payload, size_t length);
+void handleTibberWsEventCb(WebsocketsEvent event, String data);
+void handleTibberWsMessage(WebsocketsMessage message);
 String otaPreflightDiag(const String &host);
 enum class OtaPhase : uint8_t;
 enum class OtaOwner : uint8_t;
@@ -2019,7 +2081,7 @@ void updateTibber() {
   http.addHeader("Authorization", "Bearer " + tibberToken);
 
   String body =
-    "{\"query\":\"{ viewer { homes { id appNickname currentSubscription { priceInfo(resolution: QUARTER_HOURLY) { current { total startsAt } today { total startsAt } tomorrow { total startsAt } } } consumption(resolution: DAILY, last: 40) { nodes { from cost consumption currency } } } } }\"}";
+    "{\"query\":\"{ viewer { homes { id appNickname features { realTimeConsumptionEnabled } currentSubscription { priceInfo(resolution: QUARTER_HOURLY) { current { total startsAt } today { total startsAt } tomorrow { total startsAt } } } consumption(resolution: DAILY, last: 40) { nodes { from cost consumption currency } } } } }\"}";
 
   int httpCode = http.POST(body);
 
@@ -2045,6 +2107,7 @@ void updateTibber() {
   JsonObject fHome = filter["data"]["viewer"]["homes"][0].to<JsonObject>();
   fHome["id"] = true;
   fHome["appNickname"] = true;
+  fHome["features"]["realTimeConsumptionEnabled"] = true;
   JsonObject fPrice = fHome["currentSubscription"]["priceInfo"].to<JsonObject>();
   fPrice["current"]["total"] = true;
   fPrice["current"]["startsAt"] = true;
@@ -2104,6 +2167,9 @@ void updateTibber() {
     if (selectedHomeId.length() > 0 && id != selectedHomeId) {
       continue;
     }
+
+    tibberRealTimeEnabledKnown = true;
+    tibberRealTimeEnabled = home["features"]["realTimeConsumptionEnabled"] | false;
 
     JsonArray dayNodes = home["consumption"]["nodes"];
     if (!dayNodes.isNull() && dayNodes.size() > 0) {
@@ -2205,64 +2271,142 @@ void updateTibber() {
 // Tibber Pulse - Live-Verbrauch (GraphQL-Subscription per WebSocket)
 // -----------------------------------------------------------------------------
 
-// Startet die WebSocket-Verbindung einmalig, sobald Token+Home-ID bekannt
+// Startet/erhaelt die WebSocket-Verbindung, sobald Token+Home-ID bekannt
 // sind. Wird jeden loop()-Durchlauf aufgerufen, die Guards machen das billig.
+// ArduinoWebsockets hat (anders als die vorherige Bibliothek) keine eingebaute
+// Auto-Reconnect-Funktion - der Verbindungsstatus wird hier selbst per Events
+// nachgefuehrt und ein Wiederverbindungsversuch alle 15s unternommen.
 void updateTibberLiveMeasurement() {
   if (priceProvider != "tibber" || tibberToken.length() < 10 || selectedHomeId.length() == 0) {
-    if (tibberWsStarted) {
-      tibberWs.disconnect();
-      tibberWsStarted = false;
+    if (tibberWsConnected) {
+      tibberWs.close();
+      tibberWsConnected = false;
       livePowerW = -1;
     }
     return;
   }
 
-  if (!tibberWsStarted) {
-    tibberWs.beginSSL(TIBBER_WS_HOST, 443, TIBBER_WS_URL, "", "graphql-transport-ws");
-    tibberWs.onEvent(handleTibberWsEvent);
-    tibberWs.setReconnectInterval(15000);
-    tibberWsStarted = true;
+  if (!tibberWsInited) {
+    tibberWs.onMessage(handleTibberWsMessage);
+    tibberWs.onEvent(handleTibberWsEventCb);
+    // WICHTIG: ArduinoWebsockets' setInsecure() ist auf ESP32 nachweislich
+    // ein No-Op (loescht nur interne Zertifikat-Zeiger, ruft aber NIE
+    // WiFiClientSecure::setInsecure() auf - siehe websockets_client.cpp,
+    // Methode setInsecure() im #elif defined(ESP32)-Zweig). Ohne echtes
+    // CACert schlaegt der TLS-Handshake deshalb IMMER fehl. Testweise mit
+    // Amazons oeffentlichem Root (deckt *.tibber.com ab, per openssl
+    // s_client gegen websocket-api.tibber.com verifiziert) statt unsicherer
+    // Verbindung - falls tibberRootCaPem gesetzt ist, wird das bevorzugt.
+    tibberWs.setCACert(tibberRootCaPem.length() > 0 ? tibberRootCaPem.c_str() : TIBBER_WS_FALLBACK_CA);
+    tibberWs.addHeader("Sec-WebSocket-Protocol", "graphql-transport-ws");
+    tibberWsInited = true;
   }
 
-  tibberWs.loop();
+  if (!tibberWsConnected && millis() - tibberWsLastConnectAttemptMs >= 15000UL) {
+    tibberWsLastConnectAttemptMs = millis();
+    bool ok = tibberWs.connectSecure(TIBBER_WS_HOST, 443, TIBBER_WS_URL);
+    if (ok) {
+      tibberWsConnected = true;
+      tibberWsLastEvent = "verbunden, sende connection_init";
+      tibberWsLastEventMs = millis();
+      String initMsg = "{\"type\":\"connection_init\",\"payload\":{\"token\":\"" + tibberToken + "\"}}";
+      tibberWs.send(initMsg);
+    } else {
+      tibberWsLastEvent = "Verbindungsaufbau fehlgeschlagen";
+      tibberWsLastEventMs = millis();
+    }
+  }
+
+  if (tibberWsConnected) {
+    tibberWs.poll();
+  }
+
+  if (tibberSubscribePending) {
+    tibberSubscribePending = false;
+    String subMsg =
+      "{\"id\":\"live1\",\"type\":\"subscribe\",\"payload\":{\"query\":\"subscription($homeId: ID!){ liveMeasurement(homeId: $homeId){ power } }\",\"variables\":{\"homeId\":\"" + selectedHomeId + "\"}}}";
+    bool sendOk = tibberWs.send(subMsg);
+    // Diagnose: Laenge und homeId-Praefix der TATSAECHLICH gesendeten
+    // Nachricht sichtbar machen, um eine leere/falsche selectedHomeId an
+    // dieser Stelle auszuschliessen, statt es nur anzunehmen.
+    tibberWsLastEvent = "Abo gesendet (len=" + String(subMsg.length()) + ", homeId=" + selectedHomeId.substring(0, 8) + "..., send()=" + (sendOk ? "ok" : "FALSE") + "), warte auf Antwort";
+    tibberWsLastEventMs = millis();
+    unsigned long sentAtMs = tibberWsLastEventMs;
+
+    // Testweise: statt bis zum naechsten regulaeren loop()-Durchlauf zu
+    // warten, hier selbst bis zu 3s eng pollen. Traf schon beim OTA-Download
+    // dieser Sitzung ein aehnliches TLS-Timing-Muster auf, moeglich, dass
+    // die Antwort im normalen loop()-Rhythmus (mit Display-/LED-Refresh
+    // dazwischen) verpasst wird, obwohl der Server sie zeitnah schickt.
+    for (int i = 0; i < 40; i++) {
+      delay(75);
+      tibberWs.poll();
+      if (tibberWsLastEventMs != sentAtMs) {
+        // handleTibberWsMessage() hat tibberWsLastEvent inzwischen auf einen
+        // NEUEN Wert aktualisiert - es kam tatsaechlich etwas an.
+        break;
+      }
+    }
+  }
 }
 
-void handleTibberWsEvent(WStype_t type, uint8_t *payload, size_t length) {
-  switch (type) {
-    case WStype_CONNECTED: {
-      String initMsg = "{\"type\":\"connection_init\",\"payload\":{\"token\":\"" + tibberToken + "\"}}";
-      tibberWs.sendTXT(initMsg);
-      break;
+void handleTibberWsEventCb(WebsocketsEvent event, String data) {
+  if (event == WebsocketsEvent::ConnectionClosed) {
+    tibberWsConnected = false;
+    livePowerW = -1;
+    tibberWsLastEvent = "getrennt";
+    tibberWsLastEventMs = millis();
+  }
+  // ConnectionOpened wird nicht extra behandelt - connectSecure() liefert den
+  // Erfolg direkt synchron zurueck (siehe updateTibberLiveMeasurement()).
+}
+
+void handleTibberWsMessage(WebsocketsMessage message) {
+  if (!message.isText()) return;
+
+  DynamicJsonDocument doc(2048);
+  if (deserializeJson(doc, message.data())) {
+    tibberWsLastEvent = "JSON-Parse-Fehler bei eingehender Nachricht";
+    tibberWsLastEventMs = millis();
+    return;
+  }
+
+  String msgType = doc["type"] | "";
+
+  if (msgType == "connection_ack") {
+    tibberWsLastEvent = "connection_ack erhalten, Abo vorgemerkt";
+    tibberWsLastEventMs = millis();
+    // Nicht direkt hier senden (siehe tibberSubscribePending) - nur vormerken,
+    // aus Vorsicht/Konsistenz zur alten Bibliothek beibehalten, auch wenn
+    // unklar ist, ob ArduinoWebsockets dasselbe Problem haette.
+    tibberSubscribePending = true;
+  } else if (msgType == "next") {
+    float p = doc["payload"]["data"]["liveMeasurement"]["power"] | -1.0;
+    if (p >= 0) {
+      livePowerW = p;
+      livePowerUpdatedAtMs = millis();
+      tibberWsLastEvent = "next: " + String(p, 0) + " W";
+      tibberWsLastEventMs = millis();
     }
-
-    case WStype_DISCONNECTED:
-      livePowerW = -1;
-      break;
-
-    case WStype_TEXT: {
-      DynamicJsonDocument doc(2048);
-      if (deserializeJson(doc, payload, length)) return;
-
-      String msgType = doc["type"] | "";
-
-      if (msgType == "connection_ack") {
-        String subMsg =
-          "{\"id\":\"live1\",\"type\":\"subscribe\",\"payload\":{\"query\":\"subscription($homeId: ID!){ liveMeasurement(homeId: $homeId){ power } }\",\"variables\":{\"homeId\":\"" + selectedHomeId + "\"}}}";
-        tibberWs.sendTXT(subMsg);
-      } else if (msgType == "next") {
-        float p = doc["payload"]["data"]["liveMeasurement"]["power"] | -1.0;
-        if (p >= 0) {
-          livePowerW = p;
-          livePowerUpdatedAtMs = millis();
-        }
-      } else if (msgType == "ping") {
-        tibberWs.sendTXT("{\"type\":\"pong\"}");
-      }
-      break;
-    }
-
-    default:
-      break;
+  } else if (msgType == "ping") {
+    // Nur als Diagnose vermerken, WANN der letzte Ping kam (Alter wird
+    // ueber tibberWsLastEventMs abgelesen) - unterscheidet "Verbindung lebt,
+    // wartet nur auf echte Messwerte" von "seit der Subscription kam
+    // ueberhaupt nichts mehr an".
+    tibberWsLastEvent = "ping erhalten (Verbindung lebt)";
+    tibberWsLastEventMs = millis();
+    tibberWs.send("{\"type\":\"pong\"}");
+  } else if (msgType == "error" || msgType == "connection_error") {
+    // Server lehnt Verbindung/Subscription ab (z.B. abgelaufener Token,
+    // falsche Home-ID, kein Pulse fuer diese Home-ID registriert) - bisher
+    // stillschweigend verworfen, jetzt sichtbar statt "livePowerW bleibt
+    // grundlos -1".
+    String detail = doc["payload"]["message"] | doc["payload"].as<String>();
+    tibberWsLastEvent = "Server-Fehler (" + msgType + "): " + detail;
+    tibberWsLastEventMs = millis();
+  } else {
+    tibberWsLastEvent = "unbekannte Nachricht: " + msgType;
+    tibberWsLastEventMs = millis();
   }
 }
 
@@ -7147,7 +7291,11 @@ void handleLivePower() {
   // "value" liefert den Verbrauchswert OHNE das Blitz-Icon (im Unterschied
   // zu "text") - wird von der Startseite gebraucht, die Icon und Wert in
   // getrennten Elementen (pg-label/pg-value) anzeigt statt in einer Zeile.
-  String json = "{\"text\":\"" + jsonEscapeValue(text) + "\",\"value\":\"" + jsonEscapeValue(formatLivePowerValue()) + "\",\"pct\":" + String(pct, 1) + ",\"zone\":\"" + zone + "\",\"max\":" + String(livePowerMaxKw, 1) + "}";
+  // wsEvent/wsEventAgeMs sind reine Diagnosefelder (siehe tibberWsLastEvent) -
+  // additiv, das bestehende Frontend ignoriert unbekannte JSON-Felder.
+  unsigned long wsAge = tibberWsLastEventMs > 0 ? (millis() - tibberWsLastEventMs) / 1000 : 0;
+  String rtFlag = tibberRealTimeEnabledKnown ? (tibberRealTimeEnabled ? "true" : "false") : "unbekannt";
+  String json = "{\"text\":\"" + jsonEscapeValue(text) + "\",\"value\":\"" + jsonEscapeValue(formatLivePowerValue()) + "\",\"pct\":" + String(pct, 1) + ",\"zone\":\"" + zone + "\",\"max\":" + String(livePowerMaxKw, 1) + ",\"wsEvent\":\"" + jsonEscapeValue(tibberWsLastEvent) + "\",\"wsEventAgeSec\":" + String(wsAge) + ",\"realTimeConsumptionEnabled\":\"" + rtFlag + "\"}";
 
   server.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
   server.send(200, "application/json", json);
