@@ -92,7 +92,7 @@ using namespace websockets;
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "4.5.2"
+#define FIRMWARE_VERSION "4.5.3"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -9674,8 +9674,12 @@ String buildPriceGaugeSvg() {
   if (nowCent >= ledRedCent) { zoneLabel = "Teuer"; ringColor = "#FF3B30"; pgClass = "pg-bad"; }
   else if (nowCent >= ledYellowCent) { zoneLabel = "Mittel"; ringColor = "#FF9500"; pgClass = "pg-mid"; }
 
+  // addMinutesToIsoTime() liefert bereits ein fertiges "HH:MM"-Ergebnis, kein
+  // ISO-Datum - eine erneute Verarbeitung durch formatTimeOnly() (das >=16
+  // Zeichen erwartet) ergab hier immer einen leeren String und unterdrueckte
+  // dadurch die komplette Zeitanzeige.
   String timeFrom = formatTimeOnly(currentStartsAt);
-  String timeTo = formatTimeOnly(addMinutesToIsoTime(currentStartsAt, 15));
+  String timeTo = addMinutesToIsoTime(currentStartsAt, 15);
 
   // 270°-Tachobogen: Luecke unten (45° je Seite), Start unten-links, Ende unten-rechts
   // r=90, circumference=565.5, arcLen=424.1 (75% = 270°)
@@ -9902,8 +9906,14 @@ String buildSvgChart(String lineColor, String fillColor) {
   svg.reserve(13000);
 
   // Apple-Weather-Style Chart: transparent, keine Box, dünne Gridlines,
-  // satter Farbverlauf-Fill, glatte dicke Linie, weisse Marker
-  svg += "<svg id='priceChartSvg' viewBox='0 0 760 320' xmlns='http://www.w3.org/2000/svg' style='font-family:-apple-system,Inter,system-ui,sans-serif'>";
+  // satter Farbverlauf-Fill, glatte dicke Linie, weisse Marker.
+  // preserveAspectRatio='none': das Widget hat auf Kiosk1/Kiosk2 in Hoch- und
+  // Querformat vier unterschiedliche Seitenverhaeltnisse, keines davon trifft
+  // exakt 760:320 - ohne 'none' skaliert der Browser per Default gleichmaessig
+  // (xMidYMid meet) und laesst oben/unten oder links/rechts ungenutzten Rand.
+  // Fuer ein Liniendiagramm ist nicht-gleichmaessiges Strecken unkritisch
+  // (anders als beim Energiefluss-Hub, wo Kreise rund bleiben muessen).
+  svg += "<svg id='priceChartSvg' viewBox='0 0 760 320' preserveAspectRatio='none' xmlns='http://www.w3.org/2000/svg' style='font-family:-apple-system,Inter,system-ui,sans-serif'>";
   svg += "<defs>";
   svg += "<linearGradient id='chartFill' x1='0' y1='0' x2='0' y2='1'>";
   svg += "<stop offset='0%' stop-color='" + fillColor + "' stop-opacity='1'/>";
