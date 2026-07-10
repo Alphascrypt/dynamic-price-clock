@@ -92,7 +92,7 @@ using namespace websockets;
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "4.6.2"
+#define FIRMWARE_VERSION "4.6.3"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -327,8 +327,17 @@ int tibberMonthDaysCounted = 0;
 // heute faellt - ist bei laufendem Tag ein noch unvollstaendiger, von Tibber
 // fortlaufend aktualisierter Wert (kein eigener Zaehler/Riemannsumme noetig,
 // Tibber liefert die Netzbezugs-Messung direkt).
+// Live geklaert (siehe frueherer Diagnose-Kommentar): Tibber liefert taeglich
+// aufgeloeste Verbrauchsdaten oft erst mit 1+ Tag Verzoegerung (abhaengig vom
+// Netzbetreiber) - der Knoten fuer den aktuellen Kalendertag existiert dann
+// schlicht noch nicht. Ein striktes "nur exakt heute" wuerde die Box an den
+// meisten Tagen dauerhaft leer lassen. Stattdessen: juengster verfuegbarer Tag
+// in der Antwort (unabhaengig vom Kalendertag), tibberTodayActualDate haelt
+// fest welcher Tag das tatsaechlich ist, damit die Kachel-Beschriftung
+// clientseitig korrekt "heute" oder das echte Datum zeigen kann.
 float tibberTodayCost = -1;
 float tibberTodayConsumptionKwh = -1;
+String tibberTodayActualDate = "";
 
 // Monatliche Grundgebuehr (EUR) - die API liefert nur die reinen
 // Energiekosten, die tatsaechliche Rechnung enthaelt aber zusaetzlich die
@@ -2286,22 +2295,27 @@ void updateTibber() {
       float sumKwh = 0.0f;
       int daysCounted = 0;
       String curr = "";
-      float todayCost = -1.0f;
-      float todayKwh = -1.0f;
+      float recentCost = -1.0f;
+      float recentKwh = -1.0f;
+      String recentDate = "";
       for (JsonObject dayNode : dayNodes) {
         String from = String((const char*)(dayNode["from"] | ""));
-        if (from.length() < 7) continue;
-        if (from.substring(0, 7) != monthPrefix) continue;
+        if (from.length() < 10) continue;
         float c = dayNode["cost"] | 0.0f;
         float k = dayNode["consumption"] | 0.0f;
-        sumCost += c;
-        sumKwh += k;
-        daysCounted++;
-        String cur = String((const char*)(dayNode["currency"] | ""));
-        if (cur.length() > 0) curr = cur;
-        if (from.length() >= 10 && from.substring(0, 10) == todayPrefix) {
-          todayCost = c;
-          todayKwh = k;
+        // Juengster Tag in der Antwort - unabhaengig vom Monat, dient als
+        // "heute"-Anzeige (siehe Kommentar bei tibberTodayActualDate oben).
+        // Reihenfolge der Knoten ist chronologisch aufsteigend, der zuletzt
+        // durchlaufene ist deshalb immer der neueste.
+        recentCost = c;
+        recentKwh = k;
+        recentDate = from.substring(0, 10);
+        if (from.substring(0, 7) == monthPrefix) {
+          sumCost += c;
+          sumKwh += k;
+          daysCounted++;
+          String cur = String((const char*)(dayNode["currency"] | ""));
+          if (cur.length() > 0) curr = cur;
         }
       }
       if (daysCounted > 0) {
@@ -2310,8 +2324,9 @@ void updateTibber() {
         tibberMonthCurrency = curr;
         tibberMonthDaysCounted = daysCounted;
       }
-      tibberTodayCost = todayCost;
-      tibberTodayConsumptionKwh = todayKwh;
+      tibberTodayCost = recentCost;
+      tibberTodayConsumptionKwh = recentKwh;
+      tibberTodayActualDate = recentDate;
     }
 
     JsonObject sub = home["currentSubscription"];
@@ -7441,7 +7456,24 @@ function efPriceRefresh(){
     }
     // Netzbezug/Kosten-Widget (siehe buildGridCostHtml()) - Werte kommen aus
     // Tibbers eigener Zaehlerauswertung (tibberTodayCost/tibberMonthCost),
-    // deshalb -1 als "noch keine Daten" statt 0 behandeln.
+    // deshalb -1 als "noch keine Daten" statt 0 behandeln. Tibber liefert den
+    // Tageswert oft erst mit 1+ Tag Verzoegerung nach - todayActualDate sagt,
+    // welcher Tag tatsaechlich gemeint ist, Beschriftung wird entsprechend
+    // angepasst statt faelschlich immer "heute" zu behaupten.
+    var todayLabelSuffix = '';
+    if (typeof d.todayActualDate === 'string' && d.todayActualDate.length === 10) {
+      var now = new Date();
+      var todayLocal = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
+      if (d.todayActualDate === todayLocal) {
+        todayLabelSuffix = ' heute';
+      } else {
+        todayLabelSuffix = ' ' + d.todayActualDate.substring(8, 10) + '.' + d.todayActualDate.substring(5, 7) + '.';
+      }
+    }
+    var todayKwhLblEl = document.getElementById('statTodayKwhLbl');
+    if (todayKwhLblEl) todayKwhLblEl.textContent = 'Verbrauch (Netz)' + todayLabelSuffix;
+    var todayCostLblEl = document.getElementById('statTodayCostLbl');
+    if (todayCostLblEl) todayCostLblEl.textContent = 'Kosten' + todayLabelSuffix;
     var todayKwhEl = document.getElementById('statTodayKwh');
     if (todayKwhEl) todayKwhEl.textContent = (typeof d.todayConsumptionKwh === 'number' && d.todayConsumptionKwh >= 0) ? d.todayConsumptionKwh.toFixed(1).replace('.', ',') + ' kWh' : '--';
     var todayCostEl = document.getElementById('statTodayCost');
@@ -7821,6 +7853,7 @@ void handleKioskData() {
   json += "\"monthEstimateText\":\"" + jsonEscapeValue(monthEstimateText) + "\",";
   json += "\"todayConsumptionKwh\":" + String(tibberTodayConsumptionKwh, 2) + ",";
   json += "\"todayCostEur\":" + String(tibberTodayCost, 2) + ",";
+  json += "\"todayActualDate\":\"" + jsonEscapeValue(tibberTodayActualDate) + "\",";
   json += "\"monthCostEur\":" + String(tibberMonthCost, 2);
   json += "}";
 
@@ -9853,9 +9886,14 @@ String buildEnergyStatsHtml() {
 // direkt misst. Werte werden client-seitig ueber /kioskdata aktualisiert
 // (siehe efPriceRefresh() im Kiosk-2-JS), hier nur Platzhalter.
 String buildGridCostHtml() {
+  // Verbrauch/Kosten-Label bewusst nicht statisch "heute": Tibber liefert
+  // taeglich aufgeloeste Werte oft erst mit 1+ Tag Verzoegerung, die Kachel
+  // zeigt deshalb den juengsten verfuegbaren Tag und beschriftet ihn
+  // clientseitig passend (siehe efPriceRefresh() im Kiosk-2-JS und Kommentar
+  // bei tibberTodayActualDate).
   String html = "<div class='ef-stats-grid ef-gridcost-grid'>";
-  html += "<div class='ef-stat-tile'><div class='ef-stat-label'>Verbrauch heute (Netz)</div><div class='ef-stat-value' id='statTodayKwh'>--</div></div>";
-  html += "<div class='ef-stat-tile'><div class='ef-stat-label'>Kosten heute</div><div class='ef-stat-value' id='statTodayCost'>--</div></div>";
+  html += "<div class='ef-stat-tile'><div class='ef-stat-label' id='statTodayKwhLbl'>Verbrauch (Netz)</div><div class='ef-stat-value' id='statTodayKwh'>--</div></div>";
+  html += "<div class='ef-stat-tile'><div class='ef-stat-label' id='statTodayCostLbl'>Kosten</div><div class='ef-stat-value' id='statTodayCost'>--</div></div>";
   html += "<div class='ef-stat-tile'><div class='ef-stat-label'>Kosten Monat bisher</div><div class='ef-stat-value' id='statMonthCost'>--</div></div>";
   html += "</div>";
   return html;
