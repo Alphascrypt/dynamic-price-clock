@@ -92,7 +92,7 @@ using namespace websockets;
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "4.4.0"
+#define FIRMWARE_VERSION "4.5.0"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -659,6 +659,31 @@ const KioskWidgetLayout KIOSK2_LANDSCAPE_DEFAULTS[KIOSK2_WIDGET_COUNT] = {
 KioskWidgetLayout kiosk2Portrait[KIOSK2_WIDGET_COUNT];
 KioskWidgetLayout kiosk2Landscape[KIOSK2_WIDGET_COUNT];
 
+// Positionen der 4 Knoten im Energiefluss-Hub-Diagramm (siehe
+// buildEnergyFlowSvg()), Reihenfolge PV/Batterie/Netz/Haus, Koordinaten im
+// SVG-eigenen viewBox 0..400 (unabhaengig von der tatsaechlichen
+// Widget-Groesse auf dem Bildschirm). Frei verschiebbar im Anordnen-Modus,
+// die Verbindungslinien werden bei jeder Verschiebung neu aus den
+// aktuellen Positionen berechnet (siehe efLineBetween() clientseitig und
+// die serverseitige Entsprechung in buildEnergyFlowSvg()).
+struct EfNodePos { float x, y; };
+const EfNodePos EF_NODE_DEFAULTS[4] = {
+  { 200, 80  },  // 0 = PV
+  { 80,  320 },  // 1 = Batterie
+  { 320, 320 },  // 2 = Netz
+  { 200, 235 },  // 3 = Haus
+};
+EfNodePos efNodePos[4] = {
+  { 200, 80  },
+  { 80,  320 },
+  { 320, 320 },
+  { 200, 235 },
+};
+// Docking-Radius je Knoten - bei der Batterie bewusst der AEUSSERE
+// Ladering (r=50), nicht der innere Kreis (r=42), damit die Linie am Ring
+// andockt statt darunter zu verschwinden.
+const float EF_NODE_RADIUS[4] = { 42, 50, 42, 56 };
+
 // Startseiten-Dashboard (/): drittes Widget-Set, gleiche KioskWidgetLayout-
 // Struktur und dieselben kioskWidgetCss()/kioskLayoutJson()-Helfer wie oben,
 // aber nur EIN Layout (kein Hoch-/Querformat) - die Startseite ist eine
@@ -755,6 +780,7 @@ void saveKiosk2Widget(bool landscape, int i, KioskWidgetLayout item);
 void saveHomeLayoutToPrefs();
 void handleKioskLayoutPage();
 void handleSaveKioskLayoutAjax();
+void handleSaveEfNodePos();
 void handleResetKioskLayout();
 
 bool checkAuth();
@@ -1827,6 +1853,7 @@ void setup() {
   server.on("/kiosklayout", handleKioskLayoutPage);
   server.on("/savekiosklayoutajax", HTTP_POST, handleSaveKioskLayoutAjax);
   server.on("/resetkiosklayout", HTTP_POST, handleResetKioskLayout);
+  server.on("/saveefnodepos", HTTP_POST, handleSaveEfNodePos);
   server.on("/pinout", handlePinoutPage);
   server.on("/savepins", HTTP_POST, handleSavePins);
   server.on("/restartdevice", HTTP_POST, handleRestartDevice);
@@ -4267,6 +4294,24 @@ void loadKioskLayoutFromPrefs() {
     kioskLandscape[i].visible  = prefs.getBool((lPrefix + "v").c_str(), KIOSK_LANDSCAPE_DEFAULTS[i].visible);
   }
 
+  // Einmalige Aufraeumaktion: die verwaisten k2P/k2L-Schluessel der urspruenglichen
+  // 7-Widget-Generation (siehe Kommentar bei k2Pb/k2Lb unten) werden nie wieder
+  // gelesen, belegen aber weiterhin NVS-Eintraege. Live nachgewiesen: diese ~70
+  // toten Eintraege fragmentieren die Partition so stark, dass ein neuer Blob-Key
+  // (efNodePos) mit ESP_ERR_NVS_NOT_ENOUGH_SPACE fehlschlaegt, obwohl
+  // nvs_get_stats() insgesamt noch freie Eintraege zeigt (Seiten-Fragmentierung,
+  // keine echte Erschoepfung). Per Flag-Key nur einmal ausgefuehrt.
+  if (!prefs.getBool("k2CleanDone", false)) {
+    const char* oldSuffixes[] = { "c", "s", "r", "p", "v" };
+    for (int i = 0; i < 7; i++) {
+      for (int s = 0; s < 5; s++) {
+        prefs.remove(("k2P" + String(i) + oldSuffixes[s]).c_str());
+        prefs.remove(("k2L" + String(i) + oldSuffixes[s]).c_str());
+      }
+    }
+    prefs.putBool("k2CleanDone", true);
+  }
+
   // Energiefluss-Kiosk (Kiosk 2): eigener Preferences-Praefix (k2Pb/k2Lb).
   // WICHTIG: "b" (statt des urspruenglichen k2P/k2L) ist bewusst ein NEUER
   // Praefix, kein Tippfehler - diese Werte werden pro ARRAY-INDEX gespeichert,
@@ -4294,6 +4339,15 @@ void loadKioskLayoutFromPrefs() {
     kiosk2Landscape[i].rowSpan  = prefs.getUChar((lPrefix2 + "p").c_str(), KIOSK2_LANDSCAPE_DEFAULTS[i].rowSpan);
     kiosk2Landscape[i].visible  = prefs.getBool((lPrefix2 + "v").c_str(), KIOSK2_LANDSCAPE_DEFAULTS[i].visible);
   }
+
+  // Energiefluss-Knotenpositionen: EIN Blob-Key statt Einzel-Keys pro Knoten
+  // (siehe Kommentar bei k2Pb/k2Lb weiter oben - genau dieser Fehler soll
+  // sich hier nicht wiederholen, falls sich die Knotenanzahl je aendert).
+  size_t efNodeBytes = prefs.getBytesLength("efNodePos");
+  if (efNodeBytes == sizeof(efNodePos)) {
+    prefs.getBytes("efNodePos", efNodePos, sizeof(efNodePos));
+  }
+  // sonst: Default-Werte aus dem Initialisierer oben bleiben unveraendert.
 
   // Startseiten-Dashboard: das ganze Array als EIN Blob-Key statt 5
   // Sub-Keys pro Widget (siehe Kommentar bei der homeLayout-Deklaration) -
@@ -4326,6 +4380,40 @@ void saveKiosk2Widget(bool landscape, int i, KioskWidgetLayout item) {
 
 void saveHomeLayoutToPrefs() {
   prefs.putBytes("homeLay", (uint8_t*)homeLayout, sizeof(homeLayout));
+}
+
+void saveEfNodePosToPrefs() {
+  prefs.putBytes("efNodePos", (uint8_t*)efNodePos, sizeof(efNodePos));
+}
+
+// Speichert die Position GENAU EINES Hub-Diagramm-Knotens (0=PV, 1=Batterie,
+// 2=Netz, 3=Haus), wird beim Loslassen nach dem Verschieben im Anordnen-
+// Modus aufgerufen (siehe efNodeDragEnd() im Kiosk-2-JS). Koordinaten
+// werden auf den viewBox-Bereich (mit etwas Rand fuer den jeweiligen
+// Docking-Radius) geclampt, damit ein Knoten nicht komplett aus dem
+// sichtbaren Bereich gezogen werden kann.
+void handleSaveEfNodePos() {
+  if (!checkAuth()) return;
+
+  int idx = server.hasArg("idx") ? server.arg("idx").toInt() : -1;
+  if (idx < 0 || idx >= 4) {
+    server.send(200, "application/json", "{\"ok\":false,\"error\":\"Ungueltiger Knoten-Index\"}");
+    return;
+  }
+
+  float x = server.hasArg("x") ? server.arg("x").toFloat() : efNodePos[idx].x;
+  float y = server.hasArg("y") ? server.arg("y").toFloat() : efNodePos[idx].y;
+  float r = EF_NODE_RADIUS[idx];
+  if (x < r) x = r;
+  if (x > 400 - r) x = 400 - r;
+  if (y < r) y = r;
+  if (y > 400 - r) y = 400 - r;
+
+  efNodePos[idx].x = x;
+  efNodePos[idx].y = y;
+  saveEfNodePosToPrefs();
+
+  server.send(200, "application/json", "{\"ok\":true}");
 }
 
 // -----------------------------------------------------------------------------
@@ -6985,6 +7073,8 @@ void handleKiosk2Page() {
   html += ".ef-stat-label{font-size:clamp(7px,2.6cqi,10px);color:rgba(255,255,255,.5);text-transform:uppercase;letter-spacing:.05em;font-weight:600;line-height:1.2}";
   html += ".ef-stat-value{font-size:clamp(11px,4.5cqi,20px);font-weight:700;color:#fff;margin-top:2px;font-variant-numeric:tabular-nums}";
   html += ".ef-error{color:rgba(255,255,255,.6);font-size:clamp(11px,1.6vh,14px);text-align:center;max-width:80vw;margin-top:10px}";
+  html += ".kiosk-arrange-mode .ef-node{cursor:grab}";
+  html += ".ef-node.ef-node-dragging{cursor:grabbing}";
   html += ".kiosk-topbar{position:fixed;top:14px;right:14px;display:flex;gap:8px;opacity:.25;transition:opacity .2s var(--ease);z-index:10}";
   html += ".kiosk-topbar:hover{opacity:1}";
   html += kioskWidgetCss(kiosk2Portrait, KIOSK2_WIDGET_KEYS, KIOSK2_WIDGET_COUNT);
@@ -7274,6 +7364,10 @@ function kioskToggleArrange(){
     el.addEventListener('pointerdown', function(e){
       if (!kioskArrangeMode) return;
       if (e.target.closest('.kw-resize')) return;
+      // Einzelne Hub-Diagramm-Knoten haben ihr eigenes Drag-Handling (siehe
+      // unten) - ohne diese Ausnahme wuerde ein Ziehen an einem Knoten
+      // zusaetzlich das ganze Energiefluss-Widget verschieben.
+      if (e.target.closest('.ef-node')) return;
       kioskArrangeController.startDrag(e, idx);
     });
     var handle = el.querySelector('.kw-resize');
@@ -7283,6 +7377,108 @@ function kioskToggleArrange(){
         kioskArrangeController.startResize(e, idx);
       });
     }
+  });
+})();
+
+// Energiefluss-Hub-Diagramm: PV/Batterie/Netz/Haus einzeln frei verschiebbar
+// im Anordnen-Modus, Verbindungslinien werden nach jeder Verschiebung neu
+// berechnet. efLineBetween() MUSS mit der C++-Entsprechung efLinePath()
+// (siehe buildEnergyFlowSvg()) synchron bleiben - beide docken die Linie am
+// Kreisrand (nicht am Zentrum) an, damit sie nicht sichtbar hineinragt.
+var EF_NODE_RADIUS = [42, 50, 42, 56];
+var efNodePositions = [null, null, null, null];
+
+function efLineBetween(x1, y1, r1, x2, y2, r2) {
+  var dx = x2 - x1, dy = y2 - y1;
+  var dist = Math.sqrt(dx * dx + dy * dy) || 0.01;
+  var ux = dx / dist, uy = dy / dist;
+  return { x1: x1 + ux * r1, y1: y1 + uy * r1, x2: x2 - ux * r2, y2: y2 - uy * r2 };
+}
+function efPathStr(p) {
+  return 'M ' + p.x1.toFixed(1) + ' ' + p.y1.toFixed(1) + ' L ' + p.x2.toFixed(1) + ' ' + p.y2.toFixed(1);
+}
+function efReadNodePositions() {
+  document.querySelectorAll('.ef-node').forEach(function(g){
+    var idx = parseInt(g.getAttribute('data-node'), 10);
+    var m = /translate\(([-\d.]+),\s*([-\d.]+)\)/.exec(g.getAttribute('transform') || '');
+    if (m) efNodePositions[idx] = { x: parseFloat(m[1]), y: parseFloat(m[2]) };
+  });
+}
+function efRecalcLines() {
+  if (!efNodePositions[0] || !efNodePositions[1] || !efNodePositions[2] || !efNodePositions[3]) return;
+  var pv = efNodePositions[0], batt = efNodePositions[1], grid = efNodePositions[2], house = efNodePositions[3];
+
+  var pvLine = efLineBetween(pv.x, pv.y, EF_NODE_RADIUS[0], house.x, house.y, EF_NODE_RADIUS[3]);
+  var battLine = efLineBetween(batt.x, batt.y, EF_NODE_RADIUS[1], house.x, house.y, EF_NODE_RADIUS[3]);
+  var gridLine = efLineBetween(grid.x, grid.y, EF_NODE_RADIUS[2], house.x, house.y, EF_NODE_RADIUS[3]);
+
+  var pvPath = efPathStr(pvLine);
+  var battPath = efPathStr(battLine);
+  var battPathRev = 'M ' + battLine.x2.toFixed(1) + ' ' + battLine.y2.toFixed(1) + ' L ' + battLine.x1.toFixed(1) + ' ' + battLine.y1.toFixed(1);
+  var gridPath = efPathStr(gridLine);
+  var gridPathRev = 'M ' + gridLine.x2.toFixed(1) + ' ' + gridLine.y2.toFixed(1) + ' L ' + gridLine.x1.toFixed(1) + ' ' + gridLine.y1.toFixed(1);
+
+  var lnPv = document.getElementById('lnPv'); if (lnPv) lnPv.setAttribute('d', pvPath);
+  var lnBatt = document.getElementById('lnBatt'); if (lnBatt) lnBatt.setAttribute('d', battPath);
+  var lnGrid = document.getElementById('lnGrid'); if (lnGrid) lnGrid.setAttribute('d', gridPath);
+
+  var dotDefs = [
+    ['dotPv', pvPath], ['dotBattCharge', battPathRev], ['dotBattDischarge', battPath],
+    ['dotGridImport', gridPath], ['dotGridExport', gridPathRev]
+  ];
+  dotDefs.forEach(function(pair){
+    var dotEl = document.getElementById(pair[0]);
+    if (!dotEl) return;
+    var am = dotEl.querySelector('animateMotion');
+    if (am) am.setAttribute('path', pair[1]);
+  });
+}
+function efNodeToSvgPoint(svg, clientX, clientY) {
+  var pt = svg.createSVGPoint();
+  pt.x = clientX; pt.y = clientY;
+  var ctm = svg.getScreenCTM();
+  if (!ctm) return { x: 0, y: 0 };
+  var p = pt.matrixTransform(ctm.inverse());
+  return { x: p.x, y: p.y };
+}
+(function(){
+  efReadNodePositions();
+  var svg = document.querySelector('.kw-energyflow svg');
+  if (!svg) return;
+
+  document.querySelectorAll('.ef-node').forEach(function(nodeEl){
+    var idx = parseInt(nodeEl.getAttribute('data-node'), 10);
+    nodeEl.addEventListener('pointerdown', function(e){
+      if (!kioskArrangeMode) return;
+      e.preventDefault();
+      e.stopPropagation();
+      nodeEl.classList.add('ef-node-dragging');
+      var r = EF_NODE_RADIUS[idx];
+
+      function onMove(ev){
+        var p = efNodeToSvgPoint(svg, ev.clientX, ev.clientY);
+        var x = Math.max(r, Math.min(400 - r, p.x));
+        var y = Math.max(r, Math.min(400 - r, p.y));
+        nodeEl.setAttribute('transform', 'translate(' + x.toFixed(1) + ',' + y.toFixed(1) + ')');
+        efNodePositions[idx] = { x: x, y: y };
+        efRecalcLines();
+      }
+      function onUp(){
+        document.removeEventListener('pointermove', onMove);
+        document.removeEventListener('pointerup', onUp);
+        nodeEl.classList.remove('ef-node-dragging');
+        var pos = efNodePositions[idx];
+        if (pos) {
+          var body = new URLSearchParams();
+          body.set('idx', idx);
+          body.set('x', pos.x.toFixed(1));
+          body.set('y', pos.y.toFixed(1));
+          fetch('/saveefnodepos', { method: 'POST', keepalive: true, headers: {'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'}, body: body.toString() });
+        }
+      }
+      document.addEventListener('pointermove', onMove);
+      document.addEventListener('pointerup', onUp);
+    });
   });
 })();
 </script>)JS";
@@ -7531,6 +7727,13 @@ void handleResetKioskLayout() {
         saveKiosk2Widget(true, i, kiosk2Landscape[i]);
       }
     }
+    // Hub-Diagramm-Knotenpositionen sind unabhaengig von Hoch-/Querformat
+    // (ein einziges viewBox-Koordinatensystem) - bei jedem Kiosk-2-Reset mit
+    // zurueckgesetzt, unabhaengig davon, ob nur eine Ausrichtung gewaehlt war.
+    for (int i = 0; i < 4; i++) {
+      efNodePos[i] = EF_NODE_DEFAULTS[i];
+    }
+    saveEfNodePosToPrefs();
   } else {
     for (int i = 0; i < KIOSK_WIDGET_COUNT; i++) {
       if (doPortrait) {
@@ -9315,53 +9518,83 @@ String buildPinoutSvg() {
 // Energiefluss-Hub-Diagramm (Kiosk 2)
 // -----------------------------------------------------------------------------
 
-// Haus in der Mitte als Anker, PV/Batterie/Netz als Satelliten-Knoten
-// drumherum, durch Speichen verbunden. Nur die Werte selbst (efPvVal etc.)
-// werden hier mit Platzhaltern ("--") vorgerendert - der eigentliche Zustand
-// (welche Speiche aktiv ist, in welche Richtung, Batterie-Ladering) wird rein
-// clientseitig von efApply() anhand der /ankerdata-Antwort gesetzt, siehe
-// dortigen Kommentar. Alle Koordinaten beziehen sich auf viewBox 0 0 400 400.
+// Berechnet den Verbindungspfad zwischen zwei Knoten von Kreisrand zu
+// Kreisrand (nicht Zentrum-zu-Zentrum), damit die Linie exakt andockt statt
+// hineinzuragen. Gleiche Formel wie clientseitig in efLineBetween() (siehe
+// Kiosk-2-JS) - beide MUESSEN bei Aenderungen synchron bleiben, da die
+// clientseitige Funktion die Linien nach jedem Verschieben eines Knotens neu
+// berechnet, waehrend diese hier nur die Erstauslieferung der Seite bedient.
+static String efLinePath(int idxA, int idxB) {
+  float x1 = efNodePos[idxA].x, y1 = efNodePos[idxA].y, r1 = EF_NODE_RADIUS[idxA];
+  float x2 = efNodePos[idxB].x, y2 = efNodePos[idxB].y, r2 = EF_NODE_RADIUS[idxB];
+  float dx = x2 - x1, dy = y2 - y1;
+  float dist = sqrt(dx * dx + dy * dy);
+  if (dist < 0.01f) dist = 0.01f;
+  float ux = dx / dist, uy = dy / dist;
+  float ax = x1 + ux * r1, ay = y1 + uy * r1;
+  float bx = x2 - ux * r2, by = y2 - uy * r2;
+  return "M " + String(ax, 1) + " " + String(ay, 1) + " L " + String(bx, 1) + " " + String(by, 1);
+}
+
+// Haus (Index 3) in der Mitte als Anker, PV/Batterie/Netz (0/1/2) als
+// Satelliten-Knoten drumherum. Jeder Knoten ist ein <g transform=
+// 'translate(x,y)'> mit relativ zu (0,0) positionierten Kindelementen -
+// verschieben im Anordnen-Modus aendert dadurch nur EIN transform-Attribut
+// pro Knoten (siehe efNodeDragMove() im Kiosk-2-JS), statt jedes Kind-
+// Element einzeln neu positionieren zu muessen. Nur die Werte selbst
+// (efPvVal etc.) werden hier mit Platzhaltern ("--") vorgerendert - der
+// eigentliche Zustand (welche Speiche aktiv ist, in welche Richtung,
+// Batterie-Ladering) wird rein clientseitig von efApply() anhand der
+// /ankerdata-Antwort gesetzt. Alle Koordinaten beziehen sich auf viewBox
+// 0 0 400 400.
 String buildEnergyFlowSvg() {
   String svg = "<svg viewBox='0 0 400 400' role='img' aria-label='Energiefluss zwischen Solaranlage, Batterie, Haus und Netz'>";
 
-  // Speichen (idle-Zustand als Start, efApply() setzt die Klasse aktiv um)
-  svg += "<path id='lnPv' class='ef-line idle' d='M 200 108 L 200 165'/>";
-  svg += "<path id='lnBatt' class='ef-line idle' d='M 108 292 L 165 235'/>";
-  svg += "<path id='lnGrid' class='ef-line idle' d='M 292 292 L 235 235'/>";
+  // Speichen (idle-Zustand als Start, efApply() setzt die Klasse aktiv um).
+  String pvPath = efLinePath(0, 3), battPath = efLinePath(1, 3), gridPath = efLinePath(2, 3);
+  String battPathRev = efLinePath(3, 1), gridPathRev = efLinePath(3, 2);
+
+  svg += "<path id='lnPv' class='ef-line idle' d='" + pvPath + "'/>";
+  svg += "<path id='lnBatt' class='ef-line idle' d='" + battPath + "'/>";
+  svg += "<path id='lnGrid' class='ef-line idle' d='" + gridPath + "'/>";
 
   // Fliessende Punkte je Speiche/Richtung - per Default verborgen
   // (.ef-dot{display:none}), efApply() blendet je nach Fliessrichtung genau
   // einen davon pro Speiche ein.
-  svg += "<circle id='dotPv' class='ef-dot ef-dot-pv' r='4'><animateMotion dur='1.6s' repeatCount='indefinite' path='M 200 108 L 200 165'/></circle>";
-  svg += "<circle id='dotBattCharge' class='ef-dot ef-dot-batt-charge' r='4'><animateMotion dur='1.6s' repeatCount='indefinite' path='M 165 235 L 108 292'/></circle>";
-  svg += "<circle id='dotBattDischarge' class='ef-dot ef-dot-batt-discharge' r='4'><animateMotion dur='1.6s' repeatCount='indefinite' path='M 108 292 L 165 235'/></circle>";
-  svg += "<circle id='dotGridImport' class='ef-dot ef-dot-grid-import' r='4'><animateMotion dur='1.6s' repeatCount='indefinite' path='M 292 292 L 235 235'/></circle>";
-  svg += "<circle id='dotGridExport' class='ef-dot ef-dot-grid-export' r='4'><animateMotion dur='1.6s' repeatCount='indefinite' path='M 235 235 L 292 292'/></circle>";
+  svg += "<circle id='dotPv' class='ef-dot ef-dot-pv' r='4'><animateMotion dur='1.6s' repeatCount='indefinite' path='" + pvPath + "'/></circle>";
+  svg += "<circle id='dotBattCharge' class='ef-dot ef-dot-batt-charge' r='4'><animateMotion dur='1.6s' repeatCount='indefinite' path='" + battPathRev + "'/></circle>";
+  svg += "<circle id='dotBattDischarge' class='ef-dot ef-dot-batt-discharge' r='4'><animateMotion dur='1.6s' repeatCount='indefinite' path='" + battPath + "'/></circle>";
+  svg += "<circle id='dotGridImport' class='ef-dot ef-dot-grid-import' r='4'><animateMotion dur='1.6s' repeatCount='indefinite' path='" + gridPath + "'/></circle>";
+  svg += "<circle id='dotGridExport' class='ef-dot ef-dot-grid-export' r='4'><animateMotion dur='1.6s' repeatCount='indefinite' path='" + gridPathRev + "'/></circle>";
 
-  // PV-Knoten (oben)
-  svg += "<g><circle class='ef-node-circle' cx='200' cy='80' r='42'/>";
-  svg += "<text x='200' y='70' text-anchor='middle' class='ef-node-label'>PV</text>";
-  svg += "<text x='200' y='90' text-anchor='middle' class='ef-node-value' id='efPvVal'>-- W</text></g>";
+  // PV-Knoten (Index 0)
+  svg += "<g class='ef-node' data-node='0' transform='translate(" + String(efNodePos[0].x, 1) + "," + String(efNodePos[0].y, 1) + ")'>";
+  svg += "<circle class='ef-node-circle' r='42'/>";
+  svg += "<text y='-10' text-anchor='middle' class='ef-node-label'>PV</text>";
+  svg += "<text y='10' text-anchor='middle' class='ef-node-value' id='efPvVal'>-- W</text></g>";
 
-  // Batterie-Knoten (unten links) mit Ladestand-Ring
-  float socCirc = 2.0f * PI * 50.0f;
-  svg += "<g><circle class='ef-soc-bg' cx='80' cy='320' r='50'/>";
-  svg += "<circle class='ef-soc-fill' id='efSocRing' cx='80' cy='320' r='50' stroke-dasharray='0 " + String(socCirc, 1) + "'/>";
-  svg += "<circle class='ef-node-circle' cx='80' cy='320' r='42'/>";
-  svg += "<text x='80' y='304' text-anchor='middle' class='ef-node-label'>Batterie</text>";
-  svg += "<text x='80' y='321' text-anchor='middle' class='ef-node-value' id='efBattVal'>-- W</text>";
-  svg += "<text x='80' y='336' text-anchor='middle' class='ef-soc-value' id='efSocVal'></text></g>";
+  // Batterie-Knoten (Index 1) mit Ladestand-Ring
+  float socCirc = 2.0f * PI * EF_NODE_RADIUS[1];
+  svg += "<g class='ef-node' data-node='1' transform='translate(" + String(efNodePos[1].x, 1) + "," + String(efNodePos[1].y, 1) + ")'>";
+  svg += "<circle class='ef-soc-bg' r='" + String(EF_NODE_RADIUS[1], 0) + "'/>";
+  svg += "<circle class='ef-soc-fill' id='efSocRing' r='" + String(EF_NODE_RADIUS[1], 0) + "' stroke-dasharray='0 " + String(socCirc, 1) + "'/>";
+  svg += "<circle class='ef-node-circle' r='42'/>";
+  svg += "<text y='-16' text-anchor='middle' class='ef-node-label'>Batterie</text>";
+  svg += "<text y='1' text-anchor='middle' class='ef-node-value' id='efBattVal'>-- W</text>";
+  svg += "<text y='16' text-anchor='middle' class='ef-soc-value' id='efSocVal'></text></g>";
 
-  // Netz-Knoten (unten rechts)
-  svg += "<g><circle class='ef-node-circle' cx='320' cy='320' r='42'/>";
-  svg += "<text x='320' y='304' text-anchor='middle' class='ef-node-label'>Netz</text>";
-  svg += "<text x='320' y='322' text-anchor='middle' class='ef-node-value' id='efGridVal'>-- W</text>";
-  svg += "<text x='320' y='337' text-anchor='middle' class='ef-node-sub' id='efGridSub'></text></g>";
+  // Netz-Knoten (Index 2)
+  svg += "<g class='ef-node' data-node='2' transform='translate(" + String(efNodePos[2].x, 1) + "," + String(efNodePos[2].y, 1) + ")'>";
+  svg += "<circle class='ef-node-circle' r='42'/>";
+  svg += "<text y='-16' text-anchor='middle' class='ef-node-label'>Netz</text>";
+  svg += "<text y='2' text-anchor='middle' class='ef-node-value' id='efGridVal'>-- W</text>";
+  svg += "<text y='17' text-anchor='middle' class='ef-node-sub' id='efGridSub'></text></g>";
 
-  // Haus-Knoten (Mitte, Anker)
-  svg += "<g><circle class='ef-node-circle ef-node-house' cx='200' cy='235' r='56'/>";
-  svg += "<text x='200' y='223' text-anchor='middle' class='ef-house-label'>Haus</text>";
-  svg += "<text x='200' y='246' text-anchor='middle' class='ef-house-value' id='efHouseVal'>-- W</text></g>";
+  // Haus-Knoten (Index 3, Mitte/Anker)
+  svg += "<g class='ef-node' data-node='3' transform='translate(" + String(efNodePos[3].x, 1) + "," + String(efNodePos[3].y, 1) + ")'>";
+  svg += "<circle class='ef-node-circle ef-node-house' r='56'/>";
+  svg += "<text y='-12' text-anchor='middle' class='ef-house-label'>Haus</text>";
+  svg += "<text y='11' text-anchor='middle' class='ef-house-value' id='efHouseVal'>-- W</text></g>";
 
   svg += "</svg>";
   return svg;
