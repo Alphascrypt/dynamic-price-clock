@@ -92,7 +92,7 @@ using namespace websockets;
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "4.5.0"
+#define FIRMWARE_VERSION "4.5.1"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -661,23 +661,30 @@ KioskWidgetLayout kiosk2Landscape[KIOSK2_WIDGET_COUNT];
 
 // Positionen der 4 Knoten im Energiefluss-Hub-Diagramm (siehe
 // buildEnergyFlowSvg()), Reihenfolge PV/Batterie/Netz/Haus, Koordinaten im
-// SVG-eigenen viewBox 0..400 (unabhaengig von der tatsaechlichen
-// Widget-Groesse auf dem Bildschirm). Frei verschiebbar im Anordnen-Modus,
-// die Verbindungslinien werden bei jeder Verschiebung neu aus den
-// aktuellen Positionen berechnet (siehe efLineBetween() clientseitig und
-// die serverseitige Entsprechung in buildEnergyFlowSvg()).
+// SVG-eigenen viewBox 0..EF_CANVAS_W x 0..EF_CANVAS_H (unabhaengig von der
+// tatsaechlichen Widget-Groesse auf dem Bildschirm). Bewusst ein breites statt
+// quadratisches Koordinatensystem: das Widget selbst ist in beiden
+// Orientierungen ein breites Rechteck (Kiosk2 Portrait/Landscape-Defaults
+// jeweils ca. 2:1), ein quadratisches viewBox wurde per preserveAspectRatio
+// mittig eingepasst und liess links/rechts viel Platz ungenutzt - Knoten
+// liessen sich dadurch nicht sehr weit auseinanderziehen. Frei verschiebbar
+// im Anordnen-Modus, die Verbindungslinien werden bei jeder Verschiebung neu
+// aus den aktuellen Positionen berechnet (siehe efLineBetween() clientseitig
+// und die serverseitige Entsprechung in buildEnergyFlowSvg()).
+#define EF_CANVAS_W 640
+#define EF_CANVAS_H 360
 struct EfNodePos { float x, y; };
 const EfNodePos EF_NODE_DEFAULTS[4] = {
-  { 200, 80  },  // 0 = PV
-  { 80,  320 },  // 1 = Batterie
-  { 320, 320 },  // 2 = Netz
-  { 200, 235 },  // 3 = Haus
+  { 320, 72  },  // 0 = PV
+  { 128, 288 },  // 1 = Batterie
+  { 512, 288 },  // 2 = Netz
+  { 320, 212 },  // 3 = Haus
 };
 EfNodePos efNodePos[4] = {
-  { 200, 80  },
-  { 80,  320 },
-  { 320, 320 },
-  { 200, 235 },
+  { 320, 72  },
+  { 128, 288 },
+  { 512, 288 },
+  { 320, 212 },
 };
 // Docking-Radius je Knoten - bei der Batterie bewusst der AEUSSERE
 // Ladering (r=50), nicht der innere Kreis (r=42), damit die Linie am Ring
@@ -4343,11 +4350,20 @@ void loadKioskLayoutFromPrefs() {
   // Energiefluss-Knotenpositionen: EIN Blob-Key statt Einzel-Keys pro Knoten
   // (siehe Kommentar bei k2Pb/k2Lb weiter oben - genau dieser Fehler soll
   // sich hier nicht wiederholen, falls sich die Knotenanzahl je aendert).
-  size_t efNodeBytes = prefs.getBytesLength("efNodePos");
+  // Key bewusst "efNodePos2" statt "efNodePos": die Groesse (4x2 Floats,
+  // 32 Byte) blieb beim Umstieg auf das breitere Koordinatensystem
+  // (EF_CANVAS_W/H, vorher festes 400x400) GLEICH, der Groessen-Check allein
+  // haette also alte, jetzt falsch skalierte Positionen unbemerkt uebernommen.
+  size_t efNodeBytes = prefs.getBytesLength("efNodePos2");
   if (efNodeBytes == sizeof(efNodePos)) {
-    prefs.getBytes("efNodePos", efNodePos, sizeof(efNodePos));
+    prefs.getBytes("efNodePos2", efNodePos, sizeof(efNodePos));
   }
   // sonst: Default-Werte aus dem Initialisierer oben bleiben unveraendert.
+  // Alten "efNodePos"-Key entfernen, damit er nicht als weiterer verwaister
+  // Eintrag die NVS-Partition fragmentiert (siehe Kommentar bei k2CleanDone
+  // oben) - remove() auf einen bereits geloeschten/nicht existenten Key ist
+  // ein sicherer No-Op, daher hier ohne eigenen Einmal-Flag.
+  prefs.remove("efNodePos");
 
   // Startseiten-Dashboard: das ganze Array als EIN Blob-Key statt 5
   // Sub-Keys pro Widget (siehe Kommentar bei der homeLayout-Deklaration) -
@@ -4383,7 +4399,19 @@ void saveHomeLayoutToPrefs() {
 }
 
 void saveEfNodePosToPrefs() {
-  prefs.putBytes("efNodePos", (uint8_t*)efNodePos, sizeof(efNodePos));
+  size_t written = prefs.putBytes("efNodePos2", (uint8_t*)efNodePos, sizeof(efNodePos));
+  if (written != sizeof(efNodePos)) {
+    // Ein Overwrite eines bestehenden Blob-Keys legt intern einen neuen
+    // Eintrag an und markiert den alten nur als "erloescht", nicht sofort
+    // freigegeben - bei einem oft verschobenen Knoten (viele Overwrites auf
+    // denselben Key) sammeln sich auf der zugehoerigen NVS-Seite so ungenutzte,
+    // aber noch nicht kompaktierte Eintraege an, bis ein Schreibversuch mit
+    // ESP_ERR_NVS_NOT_ENOUGH_SPACE fehlschlaegt (live beobachtet), obwohl die
+    // Partition insgesamt noch freie Eintraege hat. Ein expliziter remove()
+    // vor dem Retry stoesst die noetige Seiten-Kompaktierung an.
+    prefs.remove("efNodePos2");
+    prefs.putBytes("efNodePos2", (uint8_t*)efNodePos, sizeof(efNodePos));
+  }
 }
 
 // Speichert die Position GENAU EINES Hub-Diagramm-Knotens (0=PV, 1=Batterie,
@@ -4405,9 +4433,9 @@ void handleSaveEfNodePos() {
   float y = server.hasArg("y") ? server.arg("y").toFloat() : efNodePos[idx].y;
   float r = EF_NODE_RADIUS[idx];
   if (x < r) x = r;
-  if (x > 400 - r) x = 400 - r;
+  if (x > EF_CANVAS_W - r) x = EF_CANVAS_W - r;
   if (y < r) y = r;
-  if (y > 400 - r) y = 400 - r;
+  if (y > EF_CANVAS_H - r) y = EF_CANVAS_H - r;
 
   efNodePos[idx].x = x;
   efNodePos[idx].y = y;
@@ -7386,6 +7414,7 @@ function kioskToggleArrange(){
 // (siehe buildEnergyFlowSvg()) synchron bleiben - beide docken die Linie am
 // Kreisrand (nicht am Zentrum) an, damit sie nicht sichtbar hineinragt.
 var EF_NODE_RADIUS = [42, 50, 42, 56];
+var EF_CANVAS_W = 640, EF_CANVAS_H = 360;
 var efNodePositions = [null, null, null, null];
 
 function efLineBetween(x1, y1, r1, x2, y2, r2) {
@@ -7457,8 +7486,8 @@ function efNodeToSvgPoint(svg, clientX, clientY) {
 
       function onMove(ev){
         var p = efNodeToSvgPoint(svg, ev.clientX, ev.clientY);
-        var x = Math.max(r, Math.min(400 - r, p.x));
-        var y = Math.max(r, Math.min(400 - r, p.y));
+        var x = Math.max(r, Math.min(EF_CANVAS_W - r, p.x));
+        var y = Math.max(r, Math.min(EF_CANVAS_H - r, p.y));
         nodeEl.setAttribute('transform', 'translate(' + x.toFixed(1) + ',' + y.toFixed(1) + ')');
         efNodePositions[idx] = { x: x, y: y };
         efRecalcLines();
@@ -9546,9 +9575,9 @@ static String efLinePath(int idxA, int idxB) {
 // eigentliche Zustand (welche Speiche aktiv ist, in welche Richtung,
 // Batterie-Ladering) wird rein clientseitig von efApply() anhand der
 // /ankerdata-Antwort gesetzt. Alle Koordinaten beziehen sich auf viewBox
-// 0 0 400 400.
+// 0 0 EF_CANVAS_W EF_CANVAS_H.
 String buildEnergyFlowSvg() {
-  String svg = "<svg viewBox='0 0 400 400' role='img' aria-label='Energiefluss zwischen Solaranlage, Batterie, Haus und Netz'>";
+  String svg = "<svg viewBox='0 0 " + String(EF_CANVAS_W) + " " + String(EF_CANVAS_H) + "' role='img' aria-label='Energiefluss zwischen Solaranlage, Batterie, Haus und Netz'>";
 
   // Speichen (idle-Zustand als Start, efApply() setzt die Klasse aktiv um).
   String pvPath = efLinePath(0, 3), battPath = efLinePath(1, 3), gridPath = efLinePath(2, 3);
