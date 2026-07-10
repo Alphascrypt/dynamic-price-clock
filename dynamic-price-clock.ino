@@ -92,7 +92,7 @@ using namespace websockets;
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "4.5.4"
+#define FIRMWARE_VERSION "4.5.5"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -5680,7 +5680,28 @@ setInterval(updatePriceBadge,10000);
   html += "<script src='/widget-engine.js'></script>";
   html += "<script>var homeData = " + kioskLayoutJson(homeLayout, HOME_WIDGET_KEYS, HOME_WIDGET_LABELS, HOME_WIDGET_COUNT) + ";</script>";
   html += "<script>var hwChartPoints = " + buildChartPointsJson() + ";";
-  html += "WidgetGridEngine.createChartCrosshair('priceChartSvg', 'hwChartWrap', 'hwChartTooltip', function(){ return hwChartPoints; });</script>";
+  html += "WidgetGridEngine.createChartCrosshair('priceChartSvg', 'hwChartWrap', 'hwChartTooltip', function(){ return hwChartPoints; });";
+  // Siehe fixChartTextScale()-Kommentar auf den Kiosk-Seiten: buildSvgChart()
+  // nutzt preserveAspectRatio='none', damit das Diagramm die Widget-Box in
+  // Breite UND Hoehe fuellt - das streckt Text/Marker nicht-gleichmaessig mit,
+  // sobald das Widget im Anordnen-Modus breiter/schmaler gezogen wird. Auch
+  // auf der Startseite noetig, da die Widgets dort ebenfalls frei
+  // groessenveraenderbar sind.
+  html += "function fixChartTextScale(containerId){";
+  html += "var svg=document.querySelector('#'+containerId+' #priceChartSvg');if(!svg)return;";
+  html += "var vb=svg.viewBox.baseVal;if(!vb||!vb.width||!vb.height)return;";
+  html += "var rect=svg.getBoundingClientRect();if(!rect.width||!rect.height)return;";
+  html += "var scaleX=rect.width/vb.width,scaleY=rect.height/vb.height;if(!scaleX||!scaleY)return;";
+  html += "var corr=scaleY/scaleX;";
+  html += "svg.querySelectorAll('text,circle:not(.kiosk-crosshair-dot)').forEach(function(el){";
+  html += "var isCircle=el.tagName.toLowerCase()==='circle';";
+  html += "var x=parseFloat(el.getAttribute(isCircle?'cx':'x'))||0;";
+  html += "var y=parseFloat(el.getAttribute(isCircle?'cy':'y'))||0;";
+  html += "el.setAttribute('transform','translate('+x+' '+y+') scale('+corr.toFixed(4)+' 1) translate('+(-x)+' '+(-y)+')');";
+  html += "});}";
+  html += "var hwChartWrapEl=document.getElementById('hwChartWrap');";
+  html += "if(hwChartWrapEl&&typeof ResizeObserver!=='undefined'){new ResizeObserver(function(){fixChartTextScale('hwChartWrap');}).observe(hwChartWrapEl);}";
+  html += "fixChartTextScale('hwChartWrap');</script>";
 
   server.sendContent(html);
   html = "";
@@ -6915,6 +6936,41 @@ var kioskChartWrapEl = document.getElementById('kioskChartWrap');
 var kioskGaugeWrapEl = document.getElementById('kioskGaugeWrap');
 var kioskCrosshair = WidgetGridEngine.createChartCrosshair('priceChartSvg', 'kioskChartWrap', 'kioskTooltip', function(){ return kioskChartPoints; });
 
+// Das Diagramm nutzt preserveAspectRatio='none' (siehe buildSvgChart()), damit
+// es die Widget-Box komplett ausfuellt statt mit Rand eingepasst zu werden -
+// das streckt aber auch Text und Marker-Kreise nicht-gleichmaessig mit, sobald
+// die Box im Anordnen-Modus breiter/schmaler gezogen wird als das feste
+// 760x320-Koordinatensystem. Gegen-Skalierung: tatsaechliches Breiten-/
+// Hoehenverhaeltnis (gerenderte Groesse vs. viewBox) ermitteln und Text/Kreise
+// um genau den Unterschied entgegengesetzt skalieren, damit nur die
+// Kurven/Flaechen gestreckt wirken, nicht die Beschriftungen.
+function fixChartTextScale(containerId){
+  var svg = document.querySelector('#' + containerId + ' #priceChartSvg');
+  if (!svg) return;
+  var vb = svg.viewBox.baseVal;
+  if (!vb || !vb.width || !vb.height) return;
+  var rect = svg.getBoundingClientRect();
+  if (!rect.width || !rect.height) return;
+  var scaleX = rect.width / vb.width;
+  var scaleY = rect.height / vb.height;
+  if (!scaleX || !scaleY) return;
+  var corr = scaleY / scaleX;
+  // .kiosk-crosshair-dot ausgeschlossen: dessen cx/cy werden bei jeder
+  // Mausbewegung live von wgCreateChartCrosshair() aktualisiert - ein hier
+  // einmalig gesetztes transform wuerde dabei sofort veralten und den Punkt
+  // gegenueber der aktuellen Mausposition versetzt darstellen.
+  svg.querySelectorAll('text,circle:not(.kiosk-crosshair-dot)').forEach(function(el){
+    var isCircle = el.tagName.toLowerCase() === 'circle';
+    var x = parseFloat(el.getAttribute(isCircle ? 'cx' : 'x')) || 0;
+    var y = parseFloat(el.getAttribute(isCircle ? 'cy' : 'y')) || 0;
+    el.setAttribute('transform', 'translate(' + x + ' ' + y + ') scale(' + corr.toFixed(4) + ' 1) translate(' + (-x) + ' ' + (-y) + ')');
+  });
+}
+if (kioskChartWrapEl && typeof ResizeObserver !== 'undefined') {
+  new ResizeObserver(function(){ fixChartTextScale('kioskChartWrap'); }).observe(kioskChartWrapEl);
+}
+fixChartTextScale('kioskChartWrap');
+
 // Statt eines vollen Seiten-Reloads (das den Vollbildmodus beenden wuerde,
 // weil requestFullscreen() eine Nutzer-Geste braucht) werden die Preisdaten
 // periodisch per fetch() nachgeladen und nur die betroffenen Elemente ersetzt.
@@ -6929,6 +6985,7 @@ function refreshKioskData(){
       kioskChartWrapEl.innerHTML = data.chartSvg + "<div class='kiosk-tooltip' id='kioskTooltip'></div>";
       kioskChartPoints = data.chartPoints;
       kioskCrosshair.reattach();
+      fixChartTextScale('kioskChartWrap');
     }
 
     var lowEl = document.getElementById('kioskLowText');
@@ -6952,8 +7009,14 @@ function refreshLivePower(){
   var el = document.getElementById('kioskLivePower');
   if (!el) return;
   fetch('/livepower').then(function(r){ return r.json(); }).then(function(data){
+    // WICHTIG: el ist dasselbe Element wie das .kw-Widget selbst (id=kioskLivePower
+    // sitzt direkt auf dem .kw-livepower-Container) - ein innerHTML-Ersatz OHNE
+    // den .kw-resize-Griff entfernt diesen dauerhaft, da dieser Poller alle 2.5s
+    // laeuft. Danach laesst sich das Widget im Anordnen-Modus nicht mehr per Ziehen
+    // vergroessern (live reproduziert: Griff verschwand schon nach dem ersten Tick).
+    var resizeHandle = "<span class='kw-resize'></span>";
     if (el.classList.contains('bar')) {
-      if (!data.text) { el.innerHTML = ''; return; }
+      if (!data.text) { el.innerHTML = resizeHandle; return; }
       var pct = (typeof data.pct === 'number' && data.pct >= 0) ? data.pct : 0;
       var zone = (typeof data.zone === 'string') ? data.zone : 'zc';
       var max = (typeof data.max === 'number' && data.max > 0) ? data.max : 10;
@@ -6963,10 +7026,10 @@ function refreshLivePower(){
         var v = max * i / 4;
         scale += '<span>' + fmt(v) + (i === 4 ? ' kW' : '') + '</span>';
       }
-      el.innerHTML = "<div class='klpLbl'>⚡ Aktueller Verbrauch</div><div class='klpVal'>" + data.text + "</div><div class='klpTrack'><div class='klpFill " + zone + "' style='width:" + pct.toFixed(1) + "%'></div></div><div class='klpScale'>" + scale + "</div>";
+      el.innerHTML = "<div class='klpLbl'>⚡ Aktueller Verbrauch</div><div class='klpVal'>" + data.text + "</div><div class='klpTrack'><div class='klpFill " + zone + "' style='width:" + pct.toFixed(1) + "%'></div></div><div class='klpScale'>" + scale + "</div>" + resizeHandle;
       if (typeof klpApplySizeClass === 'function') klpApplySizeClass();
     } else {
-      el.innerHTML = data.text || '';
+      el.innerHTML = (data.text || '') + resizeHandle;
     }
   }).catch(function(e){ /* naechster Versuch beim naechsten Intervall */ });
 }
@@ -7084,7 +7147,12 @@ void handleKiosk2Page() {
   html += ".ef-house-value{font-size:20px;font-weight:700;fill:#fff;font-variant-numeric:tabular-nums}";
   html += ".ef-house-label{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;fill:rgba(255,255,255,.65)}";
   html += ".ef-soc-bg{fill:none;stroke:rgba(255,255,255,.12);stroke-width:4}";
-  html += ".ef-soc-fill{fill:none;stroke:#0A84FF;stroke-width:4;stroke-linecap:round;transform-origin:80px 320px;transform:rotate(-90deg);transition:stroke-dasharray .4s ease}";
+  // transform-origin war ein Relikt aus der Zeit VOR dem Umbau auf
+  // <g transform='translate(x,y)'>-Knoten (siehe Kommentar bei EF_NODE_DEFAULTS):
+  // der Kreis selbst sitzt lokal immer bei (0,0), der alte absolute Punkt
+  // (80,320) drehte die Rotation um einen voellig falschen Pivot und schob den
+  // Ring dadurch komplett aus dem sichtbaren Bereich - live reproduziert.
+  html += ".ef-soc-fill{fill:none;stroke:#0A84FF;stroke-width:4;stroke-linecap:round;transform-origin:0 0;transform:rotate(-90deg);transition:stroke-dasharray .4s ease}";
   html += ".ef-soc-value{font-size:14px;font-weight:700;fill:#0A84FF;font-variant-numeric:tabular-nums}";
   html += ".ef-line{fill:none;transition:stroke .3s ease}";
   html += ".ef-line.idle{stroke:rgba(255,255,255,.14);stroke-width:2;stroke-dasharray:4 5;opacity:.6}";
@@ -7294,12 +7362,49 @@ function efPriceRefresh(){
       cc.innerHTML = d.chartSvg + "<div class='kiosk-tooltip' id='efTooltip'></div>";
       if (d.chartPoints != null) kioskChartPoints = d.chartPoints;
       efCrosshair.reattach();
+      fixChartTextScale('efChartCard');
     }
   }).catch(function(e){});
 }
 setInterval(efPriceRefresh, 30000);
 
 var efCrosshair = WidgetGridEngine.createChartCrosshair('priceChartSvg', 'efChartCard', 'efTooltip', function(){ return kioskChartPoints; });
+
+// Das Diagramm nutzt preserveAspectRatio='none' (siehe buildSvgChart()), damit
+// es die Widget-Box komplett ausfuellt statt mit Rand eingepasst zu werden -
+// das streckt aber auch Text und Marker-Kreise nicht-gleichmaessig mit, sobald
+// die Box im Anordnen-Modus breiter/schmaler gezogen wird als das feste
+// 760x320-Koordinatensystem. Gegen-Skalierung: tatsaechliches Breiten-/
+// Hoehenverhaeltnis (gerenderte Groesse vs. viewBox) ermitteln und Text/Kreise
+// um genau den Unterschied entgegengesetzt skalieren, damit nur die
+// Kurven/Flaechen gestreckt wirken, nicht die Beschriftungen.
+function fixChartTextScale(containerId){
+  var svg = document.querySelector('#' + containerId + ' #priceChartSvg');
+  if (!svg) return;
+  var vb = svg.viewBox.baseVal;
+  if (!vb || !vb.width || !vb.height) return;
+  var rect = svg.getBoundingClientRect();
+  if (!rect.width || !rect.height) return;
+  var scaleX = rect.width / vb.width;
+  var scaleY = rect.height / vb.height;
+  if (!scaleX || !scaleY) return;
+  var corr = scaleY / scaleX;
+  // .kiosk-crosshair-dot ausgeschlossen: dessen cx/cy werden bei jeder
+  // Mausbewegung live von wgCreateChartCrosshair() aktualisiert - ein hier
+  // einmalig gesetztes transform wuerde dabei sofort veralten und den Punkt
+  // gegenueber der aktuellen Mausposition versetzt darstellen.
+  svg.querySelectorAll('text,circle:not(.kiosk-crosshair-dot)').forEach(function(el){
+    var isCircle = el.tagName.toLowerCase() === 'circle';
+    var x = parseFloat(el.getAttribute(isCircle ? 'cx' : 'x')) || 0;
+    var y = parseFloat(el.getAttribute(isCircle ? 'cy' : 'y')) || 0;
+    el.setAttribute('transform', 'translate(' + x + ' ' + y + ') scale(' + corr.toFixed(4) + ' 1) translate(' + (-x) + ' ' + (-y) + ')');
+  });
+}
+var efChartCardEl = document.getElementById('efChartCard');
+if (efChartCardEl && typeof ResizeObserver !== 'undefined') {
+  new ResizeObserver(function(){ fixChartTextScale('efChartCard'); }).observe(efChartCardEl);
+}
+fixChartTextScale('efChartCard');
 
 function updateKioskClock(){
   var timeEl = document.getElementById('kioskTime');
@@ -11016,23 +11121,13 @@ function wgCreateChartCrosshair(svgId, wrapId, tooltipId, getPoints) {
     svg.appendChild(dot);
   }
 
-  // Das Diagramm-Widget kann frei in Groesse/Seitenverhaeltnis veraendert
-  // werden, deshalb passt das SVG per Default preserveAspectRatio="xMidYMid
-  // meet" oft mit Letterboxing rein - die tatsaechliche Inhaltsflaeche ist
-  // dann kleiner als die Bounding-Box.
+  // buildSvgChart() setzt preserveAspectRatio='none' (fuellt die Widget-Box
+  // in Breite UND Hoehe komplett aus, ohne Letterboxing) - die Bounding-Box
+  // des SVG-Elements ist deshalb bereits exakt die Inhaltsflaeche, anders als
+  // bei der frueheren Default-Einpassung ("xMidYMid meet") mit Rand oben/unten
+  // oder links/rechts.
   function getSvgContentRect() {
-    var rect = svg.getBoundingClientRect();
-    var vb = svg.viewBox && svg.viewBox.baseVal;
-    if (!vb || !vb.width || !vb.height || !rect.width || !rect.height) return rect;
-    var scale = Math.min(rect.width / vb.width, rect.height / vb.height);
-    var contentW = vb.width * scale;
-    var contentH = vb.height * scale;
-    return {
-      left: rect.left + (rect.width - contentW) / 2,
-      top: rect.top + (rect.height - contentH) / 2,
-      width: contentW,
-      height: contentH
-    };
+    return svg.getBoundingClientRect();
   }
 
   function nearestPoint(svgX) {
