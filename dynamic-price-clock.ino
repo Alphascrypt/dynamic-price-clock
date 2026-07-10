@@ -92,7 +92,7 @@ using namespace websockets;
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "4.5.3"
+#define FIRMWARE_VERSION "4.5.4"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -7123,6 +7123,7 @@ void handleKiosk2Page() {
 
   html += "<div class='kiosk-topbar'>";
   html += "<button class='secondary' type='button' id='kioskArrangeBtn' onclick='kioskToggleArrange()'>Anordnen</button>";
+  html += "<button class='secondary' type='button' onclick='enterKioskFullscreen()'>Vollbild</button>";
   html += "<a href='/kiosk'><button class='secondary' type='button'>Preise</button></a>";
   html += "<a href='/'><button class='secondary' type='button'>Dashboard</button></a>";
   html += "</div>";
@@ -7163,6 +7164,10 @@ void handleKiosk2Page() {
 
   html += R"JS(
 <script>
+function enterKioskFullscreen(){
+  var el = document.documentElement;
+  if (el.requestFullscreen) el.requestFullscreen();
+}
 function efFmt(w){
   if (w === null || isNaN(w)) return '-- W';
   var a = Math.abs(w);
