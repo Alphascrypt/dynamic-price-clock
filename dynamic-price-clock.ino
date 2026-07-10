@@ -92,7 +92,7 @@ using namespace websockets;
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "4.5.5"
+#define FIRMWARE_VERSION "4.6.0"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -322,6 +322,13 @@ float tibberMonthCost = -1;
 float tibberMonthConsumptionKwh = -1;
 String tibberMonthCurrency = "";
 int tibberMonthDaysCounted = 0;
+
+// Heutiger Tag: derselbe DAILY-Knoten (siehe oben), dessen "from"-Datum auf
+// heute faellt - ist bei laufendem Tag ein noch unvollstaendiger, von Tibber
+// fortlaufend aktualisierter Wert (kein eigener Zaehler/Riemannsumme noetig,
+// Tibber liefert die Netzbezugs-Messung direkt).
+float tibberTodayCost = -1;
+float tibberTodayConsumptionKwh = -1;
 
 // Monatliche Grundgebuehr (EUR) - die API liefert nur die reinen
 // Energiekosten, die tatsaechliche Rechnung enthaelt aber zusaetzlich die
@@ -581,14 +588,19 @@ LayoutItem d2Layout[LAYOUT_ITEMS];
 #define KIOSK_WIDGET_COUNT 6
 
 // Grid-basiertes Layout ab v2.0.0: statt Absolut-Position auf einem Canvas
-// belegt jedes Widget Zellen in einem CSS-Grid. Portrait = 6 Spalten x 12
-// Reihen, Landscape = 12 Spalten x 8 Reihen. Widgets sind ueber grid-column
+// belegt jedes Widget Zellen in einem CSS-Grid. Portrait = 6 Spalten x 14
+// Reihen, Landscape = 12 Spalten x 10 Reihen. Widgets sind ueber grid-column
 // und grid-row platziert; das Grid selbst passt sich responsiv der verfuegbaren
 // Flaeche an (auch auf TV-Browsern die aspect-ratio nicht koennen).
+// Zeilenzahl auf beiden Achsen um 2 erhoeht (urspruenglich 12/8), um Platz
+// fuer das neue "gridcost"-Widget auf Kiosk 2 zu schaffen - dieselben
+// Konstanten werden auch von Kiosk 1 genutzt, dessen Widgets die zwei
+// zusaetzlichen Reihen aktuell ungenutzt lassen (nur etwas mehr Rand unten,
+// kein Bruch).
 #define KIOSK_GRID_COLS_PORTRAIT 6
-#define KIOSK_GRID_ROWS_PORTRAIT 12
+#define KIOSK_GRID_ROWS_PORTRAIT 14
 #define KIOSK_GRID_COLS_LANDSCAPE 12
-#define KIOSK_GRID_ROWS_LANDSCAPE 8
+#define KIOSK_GRID_ROWS_LANDSCAPE 10
 
 struct KioskWidgetLayout {
   uint8_t colStart;  // 1-basiert, 1..gridCols
@@ -634,26 +646,33 @@ KioskWidgetLayout kioskLandscape[KIOSK_WIDGET_COUNT];
 // "stats" ergaenzt Autarkie/Eigenverbrauch (berechnet) sowie Tagesertrag/
 // Gesamtertrag/CO2/Geld gespart (siehe buildEnergyStatsHtml()) als eigenes,
 // kompaktes Kennzahlen-Widget neben dem Hub-Diagramm.
-#define KIOSK2_WIDGET_COUNT 5
-const char* KIOSK2_WIDGET_KEYS[KIOSK2_WIDGET_COUNT] = { "clock", "pricegauge", "pricechart", "energyflow", "stats" };
-const char* KIOSK2_WIDGET_LABELS[KIOSK2_WIDGET_COUNT] = { "Uhrzeit", "Preis-Gauge", "Preis-Diagramm", "Energiefluss", "Kennzahlen" };
+// "gridcost" ergaenzt Netzbezug/Kosten heute sowie Kosten im laufenden Monat
+// (siehe buildGridCostHtml()), direkt aus Tibbers eigener Zaehlerauswertung
+// (tibberTodayCost/tibberMonthCost) statt einer eigenen Naeherung - separates
+// Widget statt weiterer Kacheln in "stats", da ausdruecklich eine eigene
+// Box gewuenscht war.
+#define KIOSK2_WIDGET_COUNT 6
+const char* KIOSK2_WIDGET_KEYS[KIOSK2_WIDGET_COUNT] = { "clock", "pricegauge", "pricechart", "energyflow", "stats", "gridcost" };
+const char* KIOSK2_WIDGET_LABELS[KIOSK2_WIDGET_COUNT] = { "Uhrzeit", "Preis-Gauge", "Preis-Diagramm", "Energiefluss", "Kennzahlen", "Netzkosten" };
 
-// Portrait: 6 Spalten x 12 Reihen
+// Portrait: 6 Spalten x 14 Reihen
 const KioskWidgetLayout KIOSK2_PORTRAIT_DEFAULTS[KIOSK2_WIDGET_COUNT] = {
   { 1, 6, 1,  1, true }, // clock:      ganze Breite, oberste Reihe
   { 1, 6, 2,  3, true }, // pricegauge: ganze Breite
   { 1, 6, 5,  3, true }, // pricechart: ganze Breite
   { 1, 6, 8,  3, true }, // energyflow: ganze Breite
-  { 1, 6, 11, 2, true }, // stats:      ganze Breite, unterste Reihen
+  { 1, 6, 11, 2, true }, // stats:      ganze Breite
+  { 1, 6, 13, 2, true }, // gridcost:   ganze Breite, unterste Reihen
 };
 
-// Landscape: 12 Spalten x 8 Reihen
+// Landscape: 12 Spalten x 10 Reihen
 const KioskWidgetLayout KIOSK2_LANDSCAPE_DEFAULTS[KIOSK2_WIDGET_COUNT] = {
   { 5, 4,  1, 1, true }, // clock:      mittig oben
   { 1, 5,  2, 4, true }, // pricegauge: linke Haelfte oben
   { 6, 7,  2, 4, true }, // pricechart: rechte Haelfte oben
   { 1, 7,  6, 3, true }, // energyflow: unten links, breiter
   { 8, 5,  6, 3, true }, // stats:      unten rechts, schmaler
+  { 1, 12, 9, 2, true }, // gridcost:   ganze Breite, unterste Reihen
 };
 
 KioskWidgetLayout kiosk2Portrait[KIOSK2_WIDGET_COUNT];
@@ -708,12 +727,12 @@ const char* HOME_WIDGET_KEYS[HOME_WIDGET_COUNT] = { "gauge", "livepower", "chart
 const char* HOME_WIDGET_LABELS[HOME_WIDGET_COUNT] = { "Preis-Gauge", "Live-Verbrauch", "Diagramm", "Metriken", "Status & Aktionen", "Preistabelle" };
 
 const KioskWidgetLayout HOME_DEFAULTS[HOME_WIDGET_COUNT] = {
-  { 1, 3, 1, 3, true },  // gauge:      links oben, quadratisch
-  { 1, 3, 4, 2, true },  // livepower:  links, unter der Gauge
-  { 4, 5, 1, 5, true },  // chart:      rechts, hoch
-  { 1, 8, 6, 2, true },  // metrics:    ganze Breite
-  { 1, 8, 8, 2, true },  // status:     ganze Breite, unter den Metriken
-  { 1, 8, 10, 4, true }, // pricetable: ganze Breite, mehr Hoehe fuer die aufklappbare Tabelle (scrollt intern, siehe kw-pricetable-CSS)
+  { 1, 3, 1,  5, true }, // gauge:      links oben, hoch
+  { 6, 3, 6,  4, true }, // livepower:  rechts mittig
+  { 4, 5, 1,  5, true }, // chart:      rechts oben, breit
+  { 1, 5, 6,  4, true }, // metrics:    links mittig
+  { 5, 4, 10, 4, true }, // status:     rechts unten
+  { 1, 4, 10, 4, true }, // pricetable: links unten
 };
 
 KioskWidgetLayout homeLayout[HOME_WIDGET_COUNT];
@@ -896,6 +915,7 @@ String buildPinoutSvg();
 String buildPriceGaugeSvg();
 String buildEnergyFlowSvg();
 String buildEnergyStatsHtml();
+String buildGridCostHtml();
 void getKioskPriceStatus(String &statusText, String &statusColor);
 String kioskWidgetCss(KioskWidgetLayout arr[], const char* const keys[] = KIOSK_WIDGET_KEYS, int count = KIOSK_WIDGET_COUNT);
 String kioskLayoutJson(KioskWidgetLayout arr[], const char* const keys[] = KIOSK_WIDGET_KEYS, const char* const labels[] = KIOSK_WIDGET_LABELS, int count = KIOSK_WIDGET_COUNT);
@@ -2230,11 +2250,14 @@ void updateTibber() {
 
     JsonArray dayNodes = home["consumption"]["nodes"];
     if (!dayNodes.isNull() && dayNodes.size() > 0) {
-      String monthPrefix = getLocalDatePrefix().substring(0, 7); // "YYYY-MM"
+      String todayPrefix = getLocalDatePrefix();          // "YYYY-MM-DD"
+      String monthPrefix = todayPrefix.substring(0, 7);    // "YYYY-MM"
       float sumCost = 0.0f;
       float sumKwh = 0.0f;
       int daysCounted = 0;
       String curr = "";
+      float todayCost = -1.0f;
+      float todayKwh = -1.0f;
       for (JsonObject dayNode : dayNodes) {
         String from = String((const char*)(dayNode["from"] | ""));
         if (from.length() < 7) continue;
@@ -2246,6 +2269,10 @@ void updateTibber() {
         daysCounted++;
         String cur = String((const char*)(dayNode["currency"] | ""));
         if (cur.length() > 0) curr = cur;
+        if (from.length() >= 10 && from.substring(0, 10) == todayPrefix) {
+          todayCost = c;
+          todayKwh = k;
+        }
       }
       if (daysCounted > 0) {
         tibberMonthCost = sumCost;
@@ -2253,6 +2280,8 @@ void updateTibber() {
         tibberMonthCurrency = curr;
         tibberMonthDaysCounted = daysCounted;
       }
+      tibberTodayCost = todayCost;
+      tibberTodayConsumptionKwh = todayKwh;
     }
 
     JsonObject sub = home["currentSubscription"];
@@ -7168,8 +7197,11 @@ void handleKiosk2Page() {
   // Groesse per cqi an die tatsaechliche Widget-Groesse gekoppelt (nicht an
   // die Bildschirmhoehe), da das Widget in Hoch- und Querformat sehr
   // unterschiedlich breit/hoch sein kann (siehe KIOSK2_*_DEFAULTS).
-  html += ".kw-stats{padding:clamp(6px,2cqi,14px)}";
+  html += ".kw-stats,.kw-gridcost{padding:clamp(6px,2cqi,14px)}";
   html += ".ef-stats-grid{display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(2,1fr);gap:clamp(4px,2cqi,10px);width:100%;height:100%}";
+  // gridcost hat nur 3 statt 6 Kacheln - eine Reihe statt zwei, sonst waeren
+  // die Kacheln nur halb so hoch wie in "stats" und unnoetig gestaucht.
+  html += ".ef-gridcost-grid{grid-template-rows:1fr}";
   html += ".ef-stat-tile{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;background:rgba(255,255,255,.05);border-radius:clamp(8px,1.5cqi,14px);padding:clamp(2px,1cqi,6px);overflow:hidden}";
   html += ".ef-stat-label{font-size:clamp(7px,2.6cqi,10px);color:rgba(255,255,255,.5);text-transform:uppercase;letter-spacing:.05em;font-weight:600;line-height:1.2}";
   html += ".ef-stat-value{font-size:clamp(11px,4.5cqi,20px);font-weight:700;color:#fff;margin-top:2px;font-variant-numeric:tabular-nums}";
@@ -7213,6 +7245,7 @@ void handleKiosk2Page() {
 
   html += "<div class='kw kw-energyflow' data-idx='3'>" + buildEnergyFlowSvg() + "<span class='kw-resize'></span></div>";
   html += "<div class='kw kw-stats' data-idx='4'>" + buildEnergyStatsHtml() + "<span class='kw-resize'></span></div>";
+  html += "<div class='kw kw-gridcost' data-idx='5'>" + buildGridCostHtml() + "<span class='kw-resize'></span></div>";
   html += "</div>";
   html += "<script>var _r=document.querySelector('#efGaugeCard .priceRing');if(_r)_r.classList.add('kiosk');</script>";
   if (!ankerConfigured) {
@@ -7364,6 +7397,15 @@ function efPriceRefresh(){
       efCrosshair.reattach();
       fixChartTextScale('efChartCard');
     }
+    // Netzbezug/Kosten-Widget (siehe buildGridCostHtml()) - Werte kommen aus
+    // Tibbers eigener Zaehlerauswertung (tibberTodayCost/tibberMonthCost),
+    // deshalb -1 als "noch keine Daten" statt 0 behandeln.
+    var todayKwhEl = document.getElementById('statTodayKwh');
+    if (todayKwhEl) todayKwhEl.textContent = (typeof d.todayConsumptionKwh === 'number' && d.todayConsumptionKwh >= 0) ? d.todayConsumptionKwh.toFixed(1).replace('.', ',') + ' kWh' : '--';
+    var todayCostEl = document.getElementById('statTodayCost');
+    if (todayCostEl) todayCostEl.textContent = (typeof d.todayCostEur === 'number' && d.todayCostEur >= 0) ? d.todayCostEur.toFixed(2).replace('.', ',') + ' €' : '--';
+    var monthCostEl = document.getElementById('statMonthCost');
+    if (monthCostEl) monthCostEl.textContent = (typeof d.monthCostEur === 'number' && d.monthCostEur >= 0) ? d.monthCostEur.toFixed(2).replace('.', ',') + ' €' : '--';
   }).catch(function(e){});
 }
 setInterval(efPriceRefresh, 30000);
@@ -7731,7 +7773,10 @@ void handleKioskData() {
   json += "\"avgText\":\"" + jsonEscapeValue(avgText) + "\",";
   json += "\"standText\":\"" + jsonEscapeValue(standText) + "\",";
   json += "\"monthCostText\":\"" + jsonEscapeValue(monthCostText) + "\",";
-  json += "\"monthEstimateText\":\"" + jsonEscapeValue(monthEstimateText) + "\"";
+  json += "\"monthEstimateText\":\"" + jsonEscapeValue(monthEstimateText) + "\",";
+  json += "\"todayConsumptionKwh\":" + String(tibberTodayConsumptionKwh, 2) + ",";
+  json += "\"todayCostEur\":" + String(tibberTodayCost, 2) + ",";
+  json += "\"monthCostEur\":" + String(tibberMonthCost, 2);
   json += "}";
 
   server.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
@@ -9760,6 +9805,20 @@ String buildEnergyStatsHtml() {
   return html;
 }
 
+// Netzbezug/Kosten-Widget: nutzt Tibbers eigene Zaehlerauswertung
+// (tibberTodayCost/-ConsumptionKwh, tibberMonthCost - siehe updatePrices())
+// statt einer eigenen Naeherung, da Tibber den tatsaechlichen Netzbezug
+// direkt misst. Werte werden client-seitig ueber /kioskdata aktualisiert
+// (siehe efPriceRefresh() im Kiosk-2-JS), hier nur Platzhalter.
+String buildGridCostHtml() {
+  String html = "<div class='ef-stats-grid ef-gridcost-grid'>";
+  html += "<div class='ef-stat-tile'><div class='ef-stat-label'>Verbrauch heute (Netz)</div><div class='ef-stat-value' id='statTodayKwh'>--</div></div>";
+  html += "<div class='ef-stat-tile'><div class='ef-stat-label'>Kosten heute</div><div class='ef-stat-value' id='statTodayCost'>--</div></div>";
+  html += "<div class='ef-stat-tile'><div class='ef-stat-label'>Kosten Monat bisher</div><div class='ef-stat-value' id='statMonthCost'>--</div></div>";
+  html += "</div>";
+  return html;
+}
+
 // -----------------------------------------------------------------------------
 // Preis-Gauge
 // -----------------------------------------------------------------------------
@@ -9895,6 +9954,8 @@ String kioskLayoutJson(KioskWidgetLayout arr[], const char* const keys[], const 
       preview = (ankerPvW >= 0) ? ("&#9728;&#65039; " + String((int)ankerPvW) + " W &middot; &#127968; " + String((int)ankerHomeLoadW) + " W") : "&#9728;&#65039; -- W";
     } else if (key == "stats") {
       preview = (ankerTotalYieldKwh >= 0) ? ("Ertrag " + String((int)ankerTotalYieldKwh) + " kWh") : "Kennzahlen";
+    } else if (key == "gridcost") {
+      preview = (tibberMonthCost >= 0) ? ("Monat " + euroCostText(tibberMonthCost) + " " + tibberMonthCurrency) : "Netzkosten";
     }
     json += "{";
     json += "\"key\":\"" + key + "\",";
@@ -11578,6 +11639,16 @@ var _ghPollStart = 0;
 var _ghLastBytes = 0;
 var _ghLastBytesTime = 0;
 var _ghTimeoutMs = 5 * 60 * 1000;
+// Waehrend des Downloads ist die WebServer-Antwort manchmal ein paar Sekunden
+// verzoegert, weil der OTA-Task (TLS-Entschluesselung/Flash-Schreiben) die
+// CPU kurzzeitig stark auslastet - live beobachtet: einzelne /otaprogress-
+// Anfragen schlagen dabei fehl, obwohl der Download im Hintergrund normal
+// weiterlaeuft. EIN fehlgeschlagener Poll darf deshalb NICHT sofort als
+// "Geraet startet neu" gedeutet werden (das zeigte faelschlich eine
+// Erfolgsmeldung UND lud die Seite nach 8s neu, mitten in einem noch
+// laufenden Download) - erst nach mehreren Fehlversuchen IN FOLGE gilt die
+// Verbindung als wirklich unterbrochen.
+var _ghConsecutiveFailures = 0;
 function ghSetPhase(icon, lbl, sub) {
   var i=document.getElementById('ghPhaseIcon');
   var l=document.getElementById('ghPhaseLbl');
@@ -11604,6 +11675,7 @@ async function pollGhProgress() {
   try {
     const r = await fetch('/otaprogress', { cache: 'no-store' });
     const j = await r.json();
+    _ghConsecutiveFailures = 0;
 
     var hbAge = (typeof j.heartbeatAge === 'number') ? j.heartbeatAge : 0;
     if (j.percent < 0 || j.bytesTotal === 0) {
@@ -11646,6 +11718,16 @@ async function pollGhProgress() {
 
     setTimeout(pollGhProgress, 300);
   } catch (e) {
+    _ghConsecutiveFailures++;
+    // Erst nach mehreren Fehlversuchen IN FOLGE (nicht schon beim ersten) von
+    // einem echten Neustart/Verbindungsabbruch ausgehen - ein einzelner
+    // fehlgeschlagener Poll waehrend hoher CPU-Last durch den OTA-Task ist
+    // normal und kein Hinweis auf ein Problem (siehe Kommentar bei
+    // _ghConsecutiveFailures).
+    if (_ghConsecutiveFailures < 5) {
+      setTimeout(pollGhProgress, 300);
+      return;
+    }
     bar.style.width = '100%';
     ghBadge('okb', 'Neustart');
     ghSetPhase('&#10003;', 'Neustart laeuft...', 'Verbindung unterbrochen — das Geraet startet neu. Seite wird in 8 Sekunden geladen.');
