@@ -92,7 +92,7 @@ using namespace websockets;
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "4.6.0"
+#define FIRMWARE_VERSION "4.6.1"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -5738,7 +5738,7 @@ setInterval(updatePriceBadge,10000);
 var kwArrangeMode = false;
 var kwController = null;
 
-function kwGrid(){ return { cols: 8, rows: 13 }; }
+function kwGrid(){ return { cols: )JS" + String(HOME_GRID_COLS) + R"JS(, rows: )JS" + String(HOME_GRID_ROWS) + R"JS( }; }
 function kwGetEl(i){ return document.querySelector('.kw-canvas .kw[data-idx="' + i + '"]'); }
 
 function kwApplyLayout(i){
@@ -6850,11 +6850,14 @@ void handleKioskPage() {
   server.sendContent(html);
   html = "";
 
+  html += "<script>var kioskArrangeMode = false; var kioskArrangeController = null;";
+  // Direkt aus den C++-Konstanten interpoliert statt hart codiert - sonst
+  // klemmt der Anordnen-Modus (Drag/Resize) an einer veralteten Zeilenzahl,
+  // sobald KIOSK_GRID_ROWS_* sich aendert (live reproduziert: nach der
+  // Grid-Erweiterung fuer das gridcost-Widget blieb dieser Wert hier auf den
+  // alten 12/8 Zeilen stehen und liess die neuen Zeilen unbenutzbar).
+  html += "var KIOSK_ARRANGE_GRID = { portrait: { cols: " + String(KIOSK_GRID_COLS_PORTRAIT) + ", rows: " + String(KIOSK_GRID_ROWS_PORTRAIT) + " }, landscape: { cols: " + String(KIOSK_GRID_COLS_LANDSCAPE) + ", rows: " + String(KIOSK_GRID_ROWS_LANDSCAPE) + " } };</script>";
   html += R"JS(<script>
-var kioskArrangeMode = false;
-var kioskArrangeController = null;
-var KIOSK_ARRANGE_GRID = { portrait: { cols: 6, rows: 12 }, landscape: { cols: 12, rows: 8 } };
-
 function kioskArrangeOrientation(){
   return window.matchMedia('(orientation: landscape)').matches ? 'landscape' : 'portrait';
 }
@@ -7472,11 +7475,14 @@ setInterval(updateKioskClock, 1000);
   server.sendContent(html);
   html = "";
 
+  html += "<script>var kioskArrangeMode = false; var kioskArrangeController = null;";
+  // Direkt aus den C++-Konstanten interpoliert statt hart codiert - sonst
+  // klemmt der Anordnen-Modus (Drag/Resize) an einer veralteten Zeilenzahl,
+  // sobald KIOSK_GRID_ROWS_* sich aendert (live reproduziert: nach der
+  // Grid-Erweiterung fuer das gridcost-Widget blieb dieser Wert hier auf den
+  // alten 12/8 Zeilen stehen und liess die neuen Zeilen unbenutzbar).
+  html += "var KIOSK_ARRANGE_GRID = { portrait: { cols: " + String(KIOSK_GRID_COLS_PORTRAIT) + ", rows: " + String(KIOSK_GRID_ROWS_PORTRAIT) + " }, landscape: { cols: " + String(KIOSK_GRID_COLS_LANDSCAPE) + ", rows: " + String(KIOSK_GRID_ROWS_LANDSCAPE) + " } };</script>";
   html += R"JS(<script>
-var kioskArrangeMode = false;
-var kioskArrangeController = null;
-var KIOSK_ARRANGE_GRID = { portrait: { cols: 6, rows: 12 }, landscape: { cols: 12, rows: 8 } };
-
 function kioskArrangeOrientation(){
   return window.matchMedia('(orientation: landscape)').matches ? 'landscape' : 'portrait';
 }
@@ -8070,15 +8076,12 @@ void handleKioskLayoutPage() {
   server.sendContent(html);
   html = "";
 
+  html += "<script>var klPage = 'k1'; var klOrientation = 'portrait'; var klSelected = 0; var klController = null;";
+  // Aus den C++-Konstanten interpoliert statt hart codiert - siehe Kommentar
+  // bei KIOSK_ARRANGE_GRID auf den Kiosk-Seiten selbst (derselbe Bug hier im
+  // separaten Layout-Editor).
+  html += "var KL_GRID = { portrait: { cols: " + String(KIOSK_GRID_COLS_PORTRAIT) + ", rows: " + String(KIOSK_GRID_ROWS_PORTRAIT) + " }, landscape: { cols: " + String(KIOSK_GRID_COLS_LANDSCAPE) + ", rows: " + String(KIOSK_GRID_ROWS_LANDSCAPE) + " } };</script>";
   html += R"JS(<script>
-var klPage = 'k1';
-var klOrientation = 'portrait';
-var klSelected = 0;
-var klController = null;
-var KL_GRID = {
-  portrait:  { cols: 6,  rows: 12 },
-  landscape: { cols: 12, rows: 8  }
-};
 function klGrid(){ return KL_GRID[klOrientation]; }
 
 function klRenderCanvas(){
