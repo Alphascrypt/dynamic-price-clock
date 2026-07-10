@@ -92,7 +92,7 @@ using namespace websockets;
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "4.5.1"
+#define FIRMWARE_VERSION "4.5.2"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -6609,7 +6609,12 @@ void handleKioskPage() {
   // Schicht 2: bewegter Farb-Orb
   html += "body::after{content:'';position:fixed;width:60vmax;height:60vmax;left:50%;top:50%;transform:translate(-50%,-50%);background:radial-gradient(circle," + zoneColor1 + " 0%,transparent 70%);animation:bgRotate 20s ease infinite,bgPulse 12s ease-in-out infinite 4s;background-size:200% 200%;border-radius:50%;z-index:0;filter:blur(40px);opacity:.5}";
   html += ".kiosk-wrap{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;max-height:100vh;padding:clamp(8px,2.2vh,20px);box-sizing:border-box;text-align:center;overflow:hidden}";
-  html += ".kiosk-canvas{position:relative;display:grid;grid-template-columns:repeat(" + String(KIOSK_GRID_COLS_PORTRAIT) + ",1fr);grid-template-rows:repeat(" + String(KIOSK_GRID_ROWS_PORTRAIT) + ",1fr);gap:clamp(4px,1vh,10px);width:min(97vw,600px);height:min(94vh,1200px);box-sizing:border-box;margin:0 auto}";
+  // Die px-Obergrenze ist bewusst grosszuegig (bis knapp ueber 4K) statt am
+  // urspruenglich anvisierten Tablet-Format orientiert: min() greift auf
+  // kleineren Displays ohnehin ueber vw/vh, auf einem grossen TV soll die
+  // Kiosk-Flaeche aber wirklich den Bildschirm ausfuellen statt zentriert
+  // klein zu bleiben.
+  html += ".kiosk-canvas{position:relative;display:grid;grid-template-columns:repeat(" + String(KIOSK_GRID_COLS_PORTRAIT) + ",1fr);grid-template-rows:repeat(" + String(KIOSK_GRID_ROWS_PORTRAIT) + ",1fr);gap:clamp(4px,1vh,10px);width:min(97vw,2160px);height:min(94vh,3840px);box-sizing:border-box;margin:0 auto}";
   // Widget-Grundklasse: Glassmorphism
   html += ".kw{position:relative;container-type:inline-size;overflow:hidden;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;justify-content:center;min-width:0;min-height:0;border-radius:clamp(12px,2vh,24px);background:rgba(255,255,255,.07);backdrop-filter:blur(24px) saturate(160%);-webkit-backdrop-filter:blur(24px) saturate(160%);border:1px solid rgba(255,255,255,.12);transition:box-shadow .2s ease}";
   html += ".kw.wg-dragging,.kw.wg-resizing{box-shadow:0 20px 44px rgba(0,0,0,.5);z-index:50}";
@@ -6662,7 +6667,7 @@ void handleKioskPage() {
   html += ".actions{margin-top:clamp(6px,2vh,16px)!important;justify-content:center!important}";
   html += kioskWidgetCss(kioskPortrait);
   html += "@media (orientation:landscape){";
-  html += ".kiosk-canvas{grid-template-columns:repeat(" + String(KIOSK_GRID_COLS_LANDSCAPE) + ",1fr);grid-template-rows:repeat(" + String(KIOSK_GRID_ROWS_LANDSCAPE) + ",1fr);width:min(97vw,1400px);height:min(94vh,900px)}";
+  html += ".kiosk-canvas{grid-template-columns:repeat(" + String(KIOSK_GRID_COLS_LANDSCAPE) + ",1fr);grid-template-rows:repeat(" + String(KIOSK_GRID_ROWS_LANDSCAPE) + ",1fr);width:min(97vw,3840px);height:min(94vh,2160px)}";
   html += kioskWidgetCss(kioskLandscape);
   html += "}";
   html += "</style>";
@@ -7044,7 +7049,7 @@ void handleKiosk2Page() {
   html += "@keyframes efPulse{0%,100%{opacity:.7}50%{opacity:1}}";
   html += "body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellipse 80% 60% at 50% 0%,#00301f,transparent 70%),radial-gradient(ellipse 60% 80% at 20% 100%,#001a12,transparent 70%),#000;animation:efPulse 8s ease-in-out infinite;z-index:0}";
   html += ".kiosk-wrap{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;max-height:100vh;padding:clamp(8px,2.2vh,20px);box-sizing:border-box;text-align:center;overflow:hidden}";
-  html += ".kiosk-canvas{position:relative;display:grid;grid-template-columns:repeat(" + String(KIOSK_GRID_COLS_PORTRAIT) + ",1fr);grid-template-rows:repeat(" + String(KIOSK_GRID_ROWS_PORTRAIT) + ",1fr);gap:clamp(4px,1vh,10px);width:min(97vw,700px);height:min(94vh,1200px);box-sizing:border-box;margin:0 auto}";
+  html += ".kiosk-canvas{position:relative;display:grid;grid-template-columns:repeat(" + String(KIOSK_GRID_COLS_PORTRAIT) + ",1fr);grid-template-rows:repeat(" + String(KIOSK_GRID_ROWS_PORTRAIT) + ",1fr);gap:clamp(4px,1vh,10px);width:min(97vw,2160px);height:min(94vh,3840px);box-sizing:border-box;margin:0 auto}";
   html += ".kw{position:relative;container-type:inline-size;overflow:hidden;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;justify-content:center;min-width:0;min-height:0;border-radius:clamp(12px,2vh,24px);background:rgba(255,255,255,.07);backdrop-filter:blur(24px) saturate(160%);-webkit-backdrop-filter:blur(24px) saturate(160%);border:1px solid rgba(255,255,255,.12);padding:clamp(6px,1.4vh,14px);gap:4px;transition:box-shadow .2s ease}";
   html += ".kw.wg-dragging,.kw.wg-resizing{box-shadow:0 20px 44px rgba(0,0,0,.5);z-index:50}";
   html += ".kiosk-arrange-mode .kw{cursor:grab;user-select:none}";
@@ -7107,7 +7112,7 @@ void handleKiosk2Page() {
   html += ".kiosk-topbar:hover{opacity:1}";
   html += kioskWidgetCss(kiosk2Portrait, KIOSK2_WIDGET_KEYS, KIOSK2_WIDGET_COUNT);
   html += "@media (orientation:landscape){";
-  html += ".kiosk-canvas{grid-template-columns:repeat(" + String(KIOSK_GRID_COLS_LANDSCAPE) + ",1fr);grid-template-rows:repeat(" + String(KIOSK_GRID_ROWS_LANDSCAPE) + ",1fr);width:min(97vw,1400px);height:min(94vh,900px)}";
+  html += ".kiosk-canvas{grid-template-columns:repeat(" + String(KIOSK_GRID_COLS_LANDSCAPE) + ",1fr);grid-template-rows:repeat(" + String(KIOSK_GRID_ROWS_LANDSCAPE) + ",1fr);width:min(97vw,3840px);height:min(94vh,2160px)}";
   html += kioskWidgetCss(kiosk2Landscape, KIOSK2_WIDGET_KEYS, KIOSK2_WIDGET_COUNT);
   html += "}";
   html += "</style>";
