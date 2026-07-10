@@ -92,7 +92,7 @@ using namespace websockets;
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "4.6.1"
+#define FIRMWARE_VERSION "4.6.2"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -425,6 +425,11 @@ unsigned long ankerTokenObtainedMs = 0;
 const unsigned long ANKER_TOKEN_LIFETIME_MS = 20UL * 60UL * 60UL * 1000UL; // vorsorglich re-login nach 20h
 unsigned long lastAnkerPoll = 0;
 const unsigned long ANKER_POLL_INTERVAL_MS = 60UL * 1000UL; // Anker-Empfehlung: nicht schneller als 60s pollen
+
+// Stunde (0-23, lokale Zeit) fuer den taeglichen Selbst-Neustart gegen Heap-
+// Fragmentierung (siehe Kommentar in loop()) - 4 Uhr nachts als ruhigste,
+// am wenigsten stoerende Zeit.
+#define NIGHTLY_RESTART_HOUR 4
 float ankerPvW = -1;        // total_photovoltaic_power
 float ankerBatteryW = -1;   // total_battery_power (positiv=laden, negativ=entladen je nach API)
 float ankerOutputW = -1;    // total_output_power (Ausgang der Solarbank Richtung Haus)
@@ -1987,6 +1992,31 @@ void loop() {
     otaFail(ota.owner, "OTA-Vorgang haengen geblieben (kein Fortschritt seit 3 Minuten) - bitte Geraet manuell neu starten, bevor ein erneuter Versuch gestartet wird", false);
   }
 
+  // Naechtlicher Selbst-Neustart gegen Heap-Fragmentierung: live reproduziert,
+  // dass GitHub-/Anker-HTTPS-Aufrufe nach sehr langer Laufzeit (viele
+  // String-lastige HTML/JSON-Antworten) mit "Fehler -1" (Connection refused)
+  // fehlschlagen koennen, obwohl ESP.getFreeHeap() insgesamt genug freien
+  // Speicher zeigt - kein einzelner Block mehr gross genug fuer BearSSLs
+  // TLS-Puffer. Ein Neustart (frischer, unfragmentierter Heap) behebt das
+  // sofort; ein taeglicher Neustart zur ruhigsten Stunde verhindert, dass es
+  // ueberhaupt so weit kommt. Nur EIN Mal pro Kalendertag (lastNightlyRestartDate-
+  // Vergleich), unterdrueckt waehrend eines laufenden OTA-Updates. 30s-Drossel
+  // statt jeder loop()-Iteration, da getLocalTime() sonst unnoetig oft aufgerufen wuerde.
+  static unsigned long lastNightlyRestartCheckMs = 0;
+  static String lastNightlyRestartDate = "";
+  if (ota.owner == OtaOwner::None && millis() - lastNightlyRestartCheckMs >= 30000UL) {
+    lastNightlyRestartCheckMs = millis();
+    struct tm nightlyTimeinfo;
+    if (getLocalTime(&nightlyTimeinfo, 0) && nightlyTimeinfo.tm_hour == NIGHTLY_RESTART_HOUR) {
+      String today = getLocalDatePrefix();
+      if (today.length() > 0 && today != lastNightlyRestartDate) {
+        lastNightlyRestartDate = today;
+        delay(500);
+        ESP.restart();
+      }
+    }
+  }
+
   // Waehrend eines laufenden OTA-Downloads (manuell oder ueber GitHub) keine
   // weiteren TLS-Verbindungen aufbauen: Auf dem ESP32 konkurrieren mehrere
   // gleichzeitige HTTPS-Sitzungen um den knappen Heap, was den OTA-Download
@@ -2858,7 +2888,7 @@ bool otaCheckLatest(bool withRetryAndDiag) {
     if (attempt < maxAttempts) delay(1500);
   }
 
-  ota.checkError = "GitHub API Fehler " + String(code);
+  ota.checkError = "GitHub API Fehler " + String(code) + (withRetryAndDiag && ota.diag.length() > 0 ? " (" + ota.diag + ")" : "");
   return false;
 }
 
@@ -3296,7 +3326,16 @@ static String extractHostFromUrl(const String &url) {
 // fehlgeschlagenes Update ueber die Web-Oberflaeche nachvollziehbar ist, ohne
 // dass ein serieller Monitor angeschlossen werden muss.
 String otaPreflightDiag(const String &host) {
-  String diag = "RSSI " + String(WiFi.RSSI()) + " dBm, frei " + String(ESP.getFreeHeap() / 1024) + " KB";
+  // getMaxAllocHeap() zusaetzlich zu getFreeHeap(): "83 KB frei" klingt
+  // beruhigend, sagt aber nichts darueber aus, ob davon ein einzelner Block
+  // gross genug fuer BearSSL's TLS-Puffer zusammenhaengend verfuegbar ist.
+  // Live reproduziert: nach langer Laufzeit (viele HTML/JSON-String-
+  // Operationen fragmentieren den Heap) schlug ein GitHub-/Anker-HTTPS-Aufruf
+  // mit "Fehler -1" (Connection refused) fehl, obwohl getFreeHeap() genug
+  // freien Speicher insgesamt zeigte - ein Neustart (frischer, unfragmentierter
+  // Heap) behob es sofort. Dieser Wert macht das beim naechsten Auftreten
+  // direkt sichtbar, statt erneut raten zu muessen.
+  String diag = "RSSI " + String(WiFi.RSSI()) + " dBm, frei " + String(ESP.getFreeHeap() / 1024) + " KB (max. am Stueck " + String(ESP.getMaxAllocHeap() / 1024) + " KB)";
   if (host.length() > 0) {
     IPAddress resolvedIp;
     bool dnsOk = WiFi.hostByName(host.c_str(), resolvedIp) == 1;
