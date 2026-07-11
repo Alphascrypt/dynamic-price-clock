@@ -92,7 +92,7 @@ using namespace websockets;
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "4.6.5"
+#define FIRMWARE_VERSION "4.6.6"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -485,6 +485,17 @@ float ankerMoneySavedEur = -1;
 float pvYieldTodayKwh = 0;
 String pvYieldTodayDate = "";
 unsigned long lastPvIntegrationMs = 0;
+
+// Netzbezug heute (kWh/EUR), aus denselben 60s-Anker-Polls errechnet wie
+// pvYieldTodayKwh (siehe dort - gleiche Riemannsumme, gleicher Tages-/
+// Luecken-Umgang, teilt sich deshalb pvYieldTodayDate/lastPvIntegrationMs
+// statt eigener Kopien). Nutzt dieselbe "grid = Hausverbrauch - Solarbank-
+// Ausgang"-Formel wie das Energiefluss-Hub-Diagramm (siehe handleAnkerData()),
+// damit beide Anzeigen konsistent bleiben. Unabhaengig von Tibber Pulse -
+// funktioniert auch ohne Pulse-Hardware, da alle Eingangswerte ohnehin schon
+// fuer die Energiefluss-Seite gepollt werden.
+float gridEnergyTodayKwh = 0;
+float gridCostTodayEur = 0;
 
 String lastError = "Noch kein Update";
 String webInterfaceName = "Dynamic Price Clock";
@@ -3397,11 +3408,24 @@ void updateAnkerSolarData() {
     if (pvYieldTodayDate != todayStr) {
       pvYieldTodayDate = todayStr;
       pvYieldTodayKwh = 0;
+      gridEnergyTodayKwh = 0;
+      gridCostTodayEur = 0;
       lastPvIntegrationMs = millis();
     } else if (lastPvIntegrationMs > 0 && ankerPvW >= 0) {
       unsigned long dtMs = millis() - lastPvIntegrationMs;
       if (dtMs > 0 && dtMs < (unsigned long)ANKER_POLL_INTERVAL_MS * 3) {
-        pvYieldTodayKwh += ankerPvW * (dtMs / 3600000.0f) / 1000.0f;
+        float hoursElapsed = dtMs / 3600000.0f;
+        pvYieldTodayKwh += ankerPvW * hoursElapsed / 1000.0f;
+        // Gleiche "grid = Hausverbrauch - Solarbank-Ausgang"-Formel wie im
+        // Energiefluss-Hub-Diagramm (siehe handleAnkerData()) - negative Werte
+        // (Einspeisung ins Netz) zaehlen nicht als Verbrauch, deshalb bei 0
+        // gekappt statt den Netzbezug faelschlich zu verringern.
+        float gridW = ankerHomeLoadW - ankerOutputW;
+        if (gridW > 0) {
+          float gridKwh = gridW * hoursElapsed / 1000.0f;
+          gridEnergyTodayKwh += gridKwh;
+          if (currentPrice >= 0) gridCostTodayEur += gridKwh * currentPrice;
+        }
       }
       lastPvIntegrationMs = millis();
     } else {
@@ -8013,14 +8037,25 @@ void handleKioskData() {
   // stattdessen die Live-Hochrechnung gezeigt statt eines veralteten Tages.
   String todayPrefixNow = getLocalDatePrefix();
   bool finalizedIsToday = todayPrefixNow.length() > 0 && tibberTodayActualDate == todayPrefixNow;
-  bool liveEstimateUsable = !finalizedIsToday && tibberRealTimeEnabledKnown && tibberRealTimeEnabled &&
-                            todayPrefixNow.length() > 0 && liveEnergyDate == todayPrefixNow;
+  bool pulseLiveUsable = !finalizedIsToday && tibberRealTimeEnabledKnown && tibberRealTimeEnabled &&
+                         todayPrefixNow.length() > 0 && liveEnergyDate == todayPrefixNow;
+  // Zweite, von Tibber Pulse unabhaengige Live-Quelle: Netzbezug aus den
+  // ohnehin schon gepollten Anker-Werten selbst errechnet (siehe
+  // gridEnergyTodayKwh/updateAnkerSolarData()) - greift z.B. wenn kein Pulse
+  // verbaut ist oder die WebSocket-Verbindung gerade steht. Pulse wird
+  // bevorzugt, da es direkt am Zaehler misst (naeher an Tibbers spaeter
+  // eintreffendem finalen Wert) statt aus drei separat gemessenen Groessen
+  // (Hausverbrauch/PV/Batterie) abgeleitet zu sein.
+  bool ankerLiveUsable = !finalizedIsToday && !pulseLiveUsable && ankerConfigured && ankerHasEverPolled &&
+                         todayPrefixNow.length() > 0 && pvYieldTodayDate == todayPrefixNow;
   float effTodayKwh, effTodayCost;
   String todayMode;
   if (finalizedIsToday) {
     effTodayKwh = tibberTodayConsumptionKwh; effTodayCost = tibberTodayCost; todayMode = "final";
-  } else if (liveEstimateUsable) {
+  } else if (pulseLiveUsable) {
     effTodayKwh = liveEnergyTodayKwh; effTodayCost = liveCostTodayEur; todayMode = "live";
+  } else if (ankerLiveUsable) {
+    effTodayKwh = gridEnergyTodayKwh; effTodayCost = gridCostTodayEur; todayMode = "live";
   } else {
     effTodayKwh = tibberTodayConsumptionKwh; effTodayCost = tibberTodayCost; todayMode = "stale";
   }
