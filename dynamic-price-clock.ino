@@ -92,7 +92,7 @@ using namespace websockets;
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "4.6.7"
+#define FIRMWARE_VERSION "4.6.8"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -459,6 +459,14 @@ float ankerBatteryW = -1;   // total_battery_power (positiv=laden, negativ=entla
 float ankerOutputW = -1;    // total_output_power (Ausgang der Solarbank Richtung Haus)
 float ankerHomeLoadW = -1;  // home_load_power (Gesamt-Hausverbrauch)
 int ankerBatterySoc = -1;   // Batterie-Ladezustand in %, falls verfuegbar
+// Einzelne PV-Strings/MPPT-Eingaenge (Solarbank 3 Pro: bis zu 4). Namen
+// stecken in solarbank_list[0].pv_name (vom Nutzer in der Anker-App vergeben),
+// die Leistung je String NICHT dort (pv_power ist dort immer null), sondern
+// eine Ebene hoeher direkt in solarbank_info als solar_power_1..4 - beides per
+// Rohdaten-Abgleich ueber einen temporaeren Debug-Endpunkt verifiziert. Die
+// Anker-API liefert an keiner Stelle eine Spannung pro String, nur Leistung.
+String ankerPvStringNames[4];
+float ankerPvStringWatts[4] = {-1, -1, -1, -1};
 String ankerLastError = "";
 bool ankerConfigured = false;
 // Unterscheidet "noch nie erfolgreich gepollt" (ankerPvW/-BatteryW/-HomeLoadW
@@ -1927,6 +1935,10 @@ void setup() {
   server.on("/kioskdata", HTTP_GET, handleKioskData);
   server.on("/kiosk2", handleKiosk2Page);
   server.on("/ankerdata", HTTP_GET, handleAnkerData);
+  server.on("/ankerrawjson", HTTP_GET, []() {
+    if (!checkAuth()) return;
+    server.send(200, "text/plain", ankerLastRawJson);
+  });
   server.on("/gaugestatus", HTTP_GET, handleGaugeStatus);
   server.on("/kiosklayout", handleKioskLayoutPage);
   server.on("/savekiosklayoutajax", HTTP_POST, handleSaveKioskLayoutAjax);
@@ -3384,6 +3396,22 @@ void updateAnkerSolarData() {
   ankerBatteryW = battNet;
 
   ankerHomeLoadW = data["home_load_power"].as<String>().toFloat();
+
+  // PV-String-Details: Namen kommen vom ersten Solarbank-Geraet
+  // (pv_name.pv1_name..pv4_name), die zugehoerige Leistung eine Ebene hoeher
+  // aus solarbank_info.solar_power_1..4 - beide Ebenen muessen ueber den
+  // Index 1..4 miteinander verknuepft werden, da die API sie getrennt liefert.
+  // Ein leerer Name bedeutet "dieser String ist an dieser Anlage nicht
+  // konfiguriert" und wird deshalb uebersprungen statt eine leere Kachel
+  // anzuzeigen.
+  JsonObject pvNames = (!sbList.isNull() && sbList.size() > 0) ? sbList[0]["pv_name"] : JsonObject();
+  for (int p = 0; p < 4; p++) {
+    String nameKey = "pv" + String(p + 1) + "_name";
+    ankerPvStringNames[p] = pvNames.isNull() ? "" : String((const char*)(pvNames[nameKey] | ""));
+    String powerKey = "solar_power_" + String(p + 1);
+    String powerStr = solarbankInfo[powerKey] | "";
+    ankerPvStringWatts[p] = powerStr.length() > 0 ? powerStr.toFloat() : -1;
+  }
 
   // Lebenszeit-Statistik (Gesamtertrag/CO2/Geld gespart) - steckt in
   // "statistics", type je Eintrag: 1=kWh, 2=kg CO2, 3=Euro.
@@ -7394,7 +7422,13 @@ void handleKiosk2Page() {
   // aufleuchten und einen animierten Punkt in Fliessrichtung zeigen - macht
   // auf einen Blick sichtbar WER an WEN liefert, statt vier Zahlen einzeln
   // lesen und im Kopf verknuepfen zu muessen.
-  html += ".kw-energyflow svg{width:100%;height:100%}";
+  html += ".ef-flow-wrap{display:flex;flex-direction:column;width:100%;height:100%;min-height:0;gap:clamp(2px,1cqi,6px)}";
+  html += ".ef-flow-svgbox{flex:1;min-height:0}";
+  html += ".ef-flow-svgbox svg{width:100%;height:100%}";
+  html += ".ef-pvstrings{display:flex;flex-wrap:wrap;justify-content:center;gap:4px;flex:0 0 auto}";
+  html += ".ef-pvstrings:empty{display:none}";
+  html += ".ef-pvstring-chip{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:999px;padding:2px 10px;font-size:clamp(9px,2.6cqi,11px);color:rgba(255,255,255,.55);white-space:nowrap}";
+  html += ".ef-pvstring-chip b{color:#fff;font-weight:700}";
   html += ".ef-node-circle{fill:rgba(255,255,255,.07);stroke:rgba(255,255,255,.4);stroke-width:1.5}";
   html += ".ef-node-house{stroke:rgba(255,255,255,.65)}";
   html += ".ef-node-label{font-size:9.5px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;fill:rgba(255,255,255,.5)}";
@@ -7470,7 +7504,7 @@ void handleKiosk2Page() {
   server.sendContent(html);
   html = "";
 
-  html += "<div class='kw kw-energyflow' data-idx='3'>" + buildEnergyFlowSvg() + "<span class='kw-resize'></span></div>";
+  html += "<div class='kw kw-energyflow' data-idx='3'><div class='ef-flow-wrap'><div class='ef-flow-svgbox'>" + buildEnergyFlowSvg() + "</div><div class='ef-pvstrings' id='efPvStrings'></div></div><span class='kw-resize'></span></div>";
   html += "<div class='kw kw-stats' data-idx='4'>" + buildEnergyStatsHtml() + "<span class='kw-resize'></span></div>";
   html += "<div class='kw kw-gridcost' data-idx='5'>" + buildGridCostHtml() + "<span class='kw-resize'></span></div>";
   html += "</div>";
@@ -7600,6 +7634,25 @@ function efApply(d){
   if (co2El) co2El.textContent = (typeof d.co2SavedKg === 'number' && d.co2SavedKg >= 0) ? Math.round(d.co2SavedKg) + ' kg' : '--';
   var moneyEl = document.getElementById('statMoney');
   if (moneyEl) moneyEl.textContent = (typeof d.moneySavedEur === 'number' && d.moneySavedEur >= 0) ? Math.round(d.moneySavedEur) + ' €' : '--';
+
+  // PV-Strings (Namen kommen aus der Anker-Cloud, also aus nicht komplett
+  // vertrauenswuerdiger externer Quelle - deshalb per textContent statt
+  // innerHTML gesetzt, analog zum escHtml()-Fix bei den WLAN-Scan-Ergebnissen).
+  var pvStringsEl = document.getElementById('efPvStrings');
+  if (pvStringsEl) {
+    pvStringsEl.innerHTML = '';
+    if (Array.isArray(d.pvStrings)) {
+      d.pvStrings.forEach(function(s) {
+        var chip = document.createElement('span');
+        chip.className = 'ef-pvstring-chip';
+        chip.appendChild(document.createTextNode(s.name + ': '));
+        var b = document.createElement('b');
+        b.textContent = Math.round(s.watt) + ' W';
+        chip.appendChild(b);
+        pvStringsEl.appendChild(chip);
+      });
+    }
+  }
 }
 function efPoll(){
   fetch('/ankerdata').then(function(r){ return r.json(); }).then(efApply).catch(function(e){});
@@ -7975,7 +8028,19 @@ void handleAnkerData() {
     json += "\"yieldTotalKwh\":" + String(ankerTotalYieldKwh, 1) + ",";
     json += "\"co2SavedKg\":" + String(ankerCo2SavedKg, 1) + ",";
     json += "\"moneySavedEur\":" + String(ankerMoneySavedEur, 1) + ",";
-    json += "\"pvYieldTodayKwh\":" + String(pvYieldTodayKwh, 2);
+    json += "\"pvYieldTodayKwh\":" + String(pvYieldTodayKwh, 2) + ",";
+    // PV-Strings: nur Eintraege mit vergebenem Namen (leerer Name = an dieser
+    // Anlage nicht konfiguriert). Keine Spannung - liefert die Anker-API
+    // an keiner Stelle, nur Leistung je String (siehe updateAnkerSolarData()).
+    json += "\"pvStrings\":[";
+    bool firstPvString = true;
+    for (int p = 0; p < 4; p++) {
+      if (ankerPvStringNames[p].length() == 0) continue;
+      if (!firstPvString) json += ",";
+      firstPvString = false;
+      json += "{\"name\":\"" + jsonEscapeValue(ankerPvStringNames[p]) + "\",\"watt\":" + String(ankerPvStringWatts[p], 0) + "}";
+    }
+    json += "]";
   }
   json += "}";
 
