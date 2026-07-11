@@ -92,7 +92,7 @@ using namespace websockets;
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "4.6.4"
+#define FIRMWARE_VERSION "4.6.5"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -342,6 +342,17 @@ String tibberMonthPrefix = "";
 float tibberTodayCost = -1;
 float tibberTodayConsumptionKwh = -1;
 String tibberTodayActualDate = "";
+
+// Live-Hochrechnung fuer den heutigen, noch laufenden Tag (siehe
+// accumulateLiveEnergyToday()): integriert livePowerW (Tibber Pulse) ueber die
+// Zeit seit Mitternacht auf und bewertet sie mit dem jeweils gueltigen
+// Strompreis. Eine Schaetzung, kein Zaehlerwert - wird als Anzeige nur genutzt,
+// solange Tibbers eigener DAILY-Knoten fuer heute noch nicht vorliegt (siehe
+// tibberTodayActualDate) und Pulse verfuegbar ist (tibberRealTimeEnabled).
+float liveEnergyTodayKwh = 0.0f;
+float liveCostTodayEur = 0.0f;
+String liveEnergyDate = "";
+unsigned long liveEnergyLastMs = 0;
 
 // Monatliche Grundgebuehr (EUR) - die API liefert nur die reinen
 // Energiekosten, die tatsaechliche Rechnung enthaelt aber zusaetzlich die
@@ -648,12 +659,12 @@ const KioskWidgetLayout KIOSK_PORTRAIT_DEFAULTS[KIOSK_WIDGET_COUNT] = {
 
 // Landscape: 12 Spalten x 8 Reihen
 const KioskWidgetLayout KIOSK_LANDSCAPE_DEFAULTS[KIOSK_WIDGET_COUNT] = {
-  { 5, 4,  1, 1, true }, // clock:     mittig oben
-  { 1, 6,  2, 5, true }, // gauge:     linke Haelfte gross
-  { 1, 6,  7, 1, true }, // status:    linke Haelfte unten
-  { 1, 6,  8, 1, true }, // livepower: linke Haelfte ganz unten
-  { 7, 6,  2, 5, true }, // chart:     rechte Haelfte gross
-  { 7, 6,  7, 2, true }, // meta:      rechte Haelfte unten
+  { 5, 4,  1, 1, true },  // clock:     mittig oben
+  { 1, 6,  2, 5, true },  // gauge:     linke Haelfte gross
+  { 1, 3,  1, 1, false }, // status:    ausgeblendet (Preisstatus steht schon im Gauge)
+  { 1, 6,  7, 2, true },  // livepower: linke Haelfte unten, hoeher
+  { 7, 6,  2, 5, true },  // chart:     rechte Haelfte gross
+  { 7, 6,  7, 2, true },  // meta:      rechte Haelfte unten
 };
 
 KioskWidgetLayout kioskPortrait[KIOSK_WIDGET_COUNT];
@@ -691,10 +702,10 @@ const KioskWidgetLayout KIOSK2_PORTRAIT_DEFAULTS[KIOSK2_WIDGET_COUNT] = {
 // Landscape: 12 Spalten x 10 Reihen
 const KioskWidgetLayout KIOSK2_LANDSCAPE_DEFAULTS[KIOSK2_WIDGET_COUNT] = {
   { 5, 4,  1, 1, true }, // clock:      mittig oben
-  { 1, 5,  2, 4, true }, // pricegauge: linke Haelfte oben
-  { 6, 7,  2, 4, true }, // pricechart: rechte Haelfte oben
-  { 1, 7,  6, 3, true }, // energyflow: unten links, breiter
-  { 8, 5,  6, 3, true }, // stats:      unten rechts, schmaler
+  { 1, 3,  2, 4, true }, // pricegauge: linke Spalte oben
+  { 10, 3, 2, 7, true }, // pricechart: rechte Spalte, volle Hoehe
+  { 4, 6,  2, 7, true }, // energyflow: Mitte, gross, volle Hoehe
+  { 1, 3,  6, 3, true }, // stats:      linke Spalte unten, unter pricegauge
   { 1, 12, 9, 2, true }, // gridcost:   ganze Breite, unterste Reihen
 };
 
@@ -771,6 +782,7 @@ void updateTibber();
 void updateAwattarPrices();
 void updatePrices();
 void updateTibberLiveMeasurement();
+void accumulateLiveEnergyToday();
 void handleTibberWsEventCb(WebsocketsEvent event, String data);
 void handleTibberWsMessage(WebsocketsMessage message);
 String otaPreflightDiag(const String &host);
@@ -2056,6 +2068,7 @@ void loop() {
 
   if (!apMode && ota.owner == OtaOwner::None) {
     updateTibberLiveMeasurement();
+    accumulateLiveEnergyToday();
   }
 
   if (!apMode && ota.owner == OtaOwner::None && ankerConfigured && millis() - lastAnkerPoll >= ANKER_POLL_INTERVAL_MS) {
@@ -2512,6 +2525,37 @@ void updateTibberLiveMeasurement() {
       }
     }
   }
+}
+
+// Rechnet livePowerW (Momentanleistung von Tibber Pulse) ueber die seit dem
+// letzten Aufruf vergangene Zeit zu einer Energiemenge (kWh) auf und bewertet
+// sie mit dem aktuell gueltigen Strompreis - eine grobe, aber brauchbare
+// Naeherung fuer "wie viel habe ich heute schon verbraucht/bezahlt", solange
+// Tibbers eigener, abschliessend abgerechneter DAILY-Wert fuer heute noch
+// nicht vorliegt (siehe tibberTodayActualDate/tibberTodayCost). Setzt sich bei
+// Tageswechsel automatisch zurueck. Luecken (kein Pulse-Wert gerade, WLAN-
+// Ausfall, Neustart) werden NICHT nachtraeglich interpoliert - liveEnergyLastMs
+// wird auch waehrend einer Luecke fortgeschrieben, damit sie nicht so verrechnet
+// wird, als haette die zuletzt bekannte Leistung die ganze Luecke ueber angelegen.
+void accumulateLiveEnergyToday() {
+  String today = getLocalDatePrefix();
+  if (today.length() == 0) return; // Uhrzeit noch nicht synchronisiert
+  unsigned long now = millis();
+  if (today != liveEnergyDate) {
+    liveEnergyDate = today;
+    liveEnergyTodayKwh = 0.0f;
+    liveCostTodayEur = 0.0f;
+    liveEnergyLastMs = now;
+    return;
+  }
+  if (liveEnergyLastMs == 0) { liveEnergyLastMs = now; return; }
+  unsigned long deltaMs = now - liveEnergyLastMs;
+  liveEnergyLastMs = now;
+  if (livePowerW < 0 || deltaMs == 0 || deltaMs > 300000UL) return;
+  float hours = deltaMs / 3600000.0f;
+  float kwh = (livePowerW / 1000.0f) * hours;
+  liveEnergyTodayKwh += kwh;
+  if (currentPrice >= 0) liveCostTodayEur += kwh * currentPrice;
 }
 
 void handleTibberWsEventCb(WebsocketsEvent event, String data) {
@@ -7563,7 +7607,9 @@ function efPriceRefresh(){
     // welcher Tag tatsaechlich gemeint ist, Beschriftung wird entsprechend
     // angepasst statt faelschlich immer "heute" zu behaupten.
     var todayLabelSuffix = '';
-    if (typeof d.todayActualDate === 'string' && d.todayActualDate.length === 10) {
+    if (d.todayMode === 'live') {
+      todayLabelSuffix = ' heute (geschätzt)';
+    } else if (typeof d.todayActualDate === 'string' && d.todayActualDate.length === 10) {
       var now = new Date();
       var todayLocal = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
       if (d.todayActualDate === todayLocal) {
@@ -7961,9 +8007,27 @@ void handleKioskData() {
   json += "\"standText\":\"" + jsonEscapeValue(standText) + "\",";
   json += "\"monthCostText\":\"" + jsonEscapeValue(monthCostText) + "\",";
   json += "\"monthEstimateText\":\"" + jsonEscapeValue(monthEstimateText) + "\",";
-  json += "\"todayConsumptionKwh\":" + String(tibberTodayConsumptionKwh, 2) + ",";
-  json += "\"todayCostEur\":" + String(tibberTodayCost, 2) + ",";
+  // Tibbers eigener DAILY-Wert fuer "heute" liegt oft erst mit Verzoegerung vor
+  // (siehe tibberTodayActualDate) - solange das so ist, aber Pulse-Live-Daten
+  // fuer den heutigen Tag vorliegen (accumulateLiveEnergyToday()), wird
+  // stattdessen die Live-Hochrechnung gezeigt statt eines veralteten Tages.
+  String todayPrefixNow = getLocalDatePrefix();
+  bool finalizedIsToday = todayPrefixNow.length() > 0 && tibberTodayActualDate == todayPrefixNow;
+  bool liveEstimateUsable = !finalizedIsToday && tibberRealTimeEnabledKnown && tibberRealTimeEnabled &&
+                            todayPrefixNow.length() > 0 && liveEnergyDate == todayPrefixNow;
+  float effTodayKwh, effTodayCost;
+  String todayMode;
+  if (finalizedIsToday) {
+    effTodayKwh = tibberTodayConsumptionKwh; effTodayCost = tibberTodayCost; todayMode = "final";
+  } else if (liveEstimateUsable) {
+    effTodayKwh = liveEnergyTodayKwh; effTodayCost = liveCostTodayEur; todayMode = "live";
+  } else {
+    effTodayKwh = tibberTodayConsumptionKwh; effTodayCost = tibberTodayCost; todayMode = "stale";
+  }
+  json += "\"todayConsumptionKwh\":" + String(effTodayKwh, 2) + ",";
+  json += "\"todayCostEur\":" + String(effTodayCost, 2) + ",";
   json += "\"todayActualDate\":\"" + jsonEscapeValue(tibberTodayActualDate) + "\",";
+  json += "\"todayMode\":\"" + todayMode + "\",";
   json += "\"monthCostEur\":" + String(tibberMonthCost, 2);
   json += "}";
 
