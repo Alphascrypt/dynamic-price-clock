@@ -92,7 +92,7 @@ using namespace websockets;
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "4.6.10"
+#define FIRMWARE_VERSION "4.6.11"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -2252,6 +2252,7 @@ void updateTibber() {
 
   if (!http.begin(client, TIBBER_URL)) {
     lastError = "HTTP Fehler";
+    client.stop();
     showLayoutDisplays();
     return;
   }
@@ -2278,12 +2279,21 @@ void updateTibber() {
     }
     Serial.println(http.getString());
     http.end();
+    client.stop();
     showLayoutDisplays();
     return;
   }
 
   String payload = http.getString();
   http.end();
+  // client.stop() explizit statt nur auf den Destruktor bei Funktionsende zu
+  // vertrauen (gleiches Muster wie beim GitHub-OTA-Download, siehe dort) -
+  // ohne diesen Aufruf blieb der BearSSL-TLS-Speicher dieser Verbindung
+  // ueber das Funktionsende hinaus belegt. Live reproduziert: "JSON Fehler:
+  // NoMemory" trat bei jedem der folgenden updateTibber()-Laeufe wieder auf,
+  // mit sichtbar sinkendem freiem Heap (RSSI/Heap-Diagnose in der
+  // Fehlermeldung) - klares Leak-Muster statt blosser Fragmentierung.
+  client.stop();
 
   // Filter: nur die Felder deserialisieren die wir wirklich brauchen. Sonst
   // sprengt die DAILY-Konsum-Antwort mit 40 Nodes plus QUARTER_HOURLY-Preisen
@@ -2689,6 +2699,7 @@ void updateAwattarPrices() {
 
   if (!http.begin(client, url)) {
     lastError = "HTTP Fehler";
+    client.stop();
     showLayoutDisplays();
     return;
   }
@@ -2701,12 +2712,16 @@ void updateAwattarPrices() {
       lastError += " (" + String(http.errorToString(httpCode)) + ")";
     }
     http.end();
+    client.stop();
     showLayoutDisplays();
     return;
   }
 
   String payload = http.getString();
   http.end();
+  // client.stop() explizit (gleiches Leak-Muster wie bei updateTibber() -
+  // siehe dortigen Kommentar).
+  client.stop();
 
   DynamicJsonDocument doc(16384);
   DeserializationError error = deserializeJson(doc, payload);
@@ -3260,11 +3275,16 @@ bool ankerLogin() {
   if (code != 200) {
     ankerLastError = "Login HTTP-Fehler " + String(code);
     http.end();
+    client.stop();
     return false;
   }
 
   String resp = http.getString();
   http.end();
+  // client.stop() explizit (gleiches Leak-Muster wie bei updateTibber() -
+  // siehe dortigen Kommentar; deckt alle folgenden return-Pfade ab, da
+  // client danach nicht mehr benutzt wird).
+  client.stop();
 
   DynamicJsonDocument respDoc(2048);
   if (deserializeJson(respDoc, resp)) {
@@ -3320,11 +3340,17 @@ static bool ankerAuthedPost(const String &path, const String &bodyJson, DynamicJ
   if (code != 200) {
     ankerLastError = path + " HTTP-Fehler " + String(code);
     http.end();
+    client.stop();
     return false;
   }
 
   String resp = http.getString();
   http.end();
+  // client.stop() explizit (gleiches Leak-Muster wie bei updateTibber() -
+  // siehe dortigen Kommentar). ankerAuthedPost() laeuft alle 60s (Anker-
+  // Poll-Intervall) und war dadurch der staerkste Beitrag zum live
+  // beobachteten schnellen Heap-Verbrauch.
+  client.stop();
   if (path.indexOf("get_scen_info") >= 0) ankerLastRawJson = resp;
 
   if (deserializeJson(outDoc, resp)) {
@@ -3538,6 +3564,7 @@ static String resolveGithubDownloadUrl(const String &url) {
   http.setFollowRedirects(HTTPC_DISABLE_FOLLOW_REDIRECTS);
   http.setTimeout(10000);
   if (!http.begin(client, url)) {
+    client.stop();
     return url;
   }
   http.addHeader("User-Agent", "dynamic-price-clock-esp32");
@@ -3576,6 +3603,9 @@ static String resolveGithubDownloadUrl(const String &url) {
     resolved = "";
   }
   http.end();
+  // client.stop() explizit (gleiches Leak-Muster wie bei updateTibber() -
+  // siehe dortigen Kommentar).
+  client.stop();
   return resolved;
 }
 
