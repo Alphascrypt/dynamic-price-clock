@@ -92,7 +92,7 @@ using namespace websockets;
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "4.6.9"
+#define FIRMWARE_VERSION "4.6.10"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -2259,8 +2259,14 @@ void updateTibber() {
   http.addHeader("Content-Type", "application/json");
   http.addHeader("Authorization", "Bearer " + tibberToken);
 
+  // last: 31 statt frueher 40 - deckt jeden Kalendermonat vollstaendig ab
+  // (max. 31 Tage), reduziert aber die rohe Antwortgroesse spuerbar. Wurde
+  // reduziert, nachdem "JSON Fehler: NoMemory" live auftrat: die Antwort wird
+  // trotz Feld-Filter (siehe unten) erst komplett als String empfangen,
+  // bevor gefiltert werden kann - jeder ungenutzte Tag kostet also echten
+  // Speicher schon vor der Filterung.
   String body =
-    "{\"query\":\"{ viewer { homes { id appNickname features { realTimeConsumptionEnabled } currentSubscription { priceInfo(resolution: QUARTER_HOURLY) { current { total startsAt } today { total startsAt } tomorrow { total startsAt } } } consumption(resolution: DAILY, last: 40) { nodes { from cost consumption currency } } } } }\"}";
+    "{\"query\":\"{ viewer { homes { id appNickname features { realTimeConsumptionEnabled } currentSubscription { priceInfo(resolution: QUARTER_HOURLY) { current { total startsAt } today { total startsAt } tomorrow { total startsAt } } } consumption(resolution: DAILY, last: 31) { nodes { from cost consumption currency } } } } }\"}";
 
   int httpCode = http.POST(body);
 
@@ -2304,7 +2310,13 @@ void updateTibber() {
   DeserializationError error = deserializeJson(doc, payload, DeserializationOption::Filter(filter));
 
   if (error) {
-    lastError = "JSON Fehler: " + String(error.c_str());
+    // Heap-Diagnose anhaengen (siehe otaPreflightDiag()): "NoMemory" trotz
+    // Feld-Filter deutet auf denselben, in diesem Projekt schon mehrfach
+    // reproduzierten Heap-Fragmentierungs-Fall hin (genug freier Speicher
+    // insgesamt, aber kein ausreichend grosser zusammenhaengender Block
+    // fuer den Roh-Payload bzw. das JsonDocument) - macht das beim naechsten
+    // Auftreten direkt sichtbar statt erneut raten zu muessen.
+    lastError = "JSON Fehler: " + String(error.c_str()) + " (" + otaPreflightDiag("") + ", " + String(payload.length()) + " Bytes Antwort)";
     showLayoutDisplays();
     return;
   }
