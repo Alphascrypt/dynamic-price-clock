@@ -92,7 +92,7 @@ using namespace websockets;
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "4.6.8"
+#define FIRMWARE_VERSION "4.6.9"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -645,15 +645,15 @@ LayoutItem d2Layout[LAYOUT_ITEMS];
 // Reihen, Landscape = 12 Spalten x 10 Reihen. Widgets sind ueber grid-column
 // und grid-row platziert; das Grid selbst passt sich responsiv der verfuegbaren
 // Flaeche an (auch auf TV-Browsern die aspect-ratio nicht koennen).
-// Zeilenzahl auf beiden Achsen um 2 erhoeht (urspruenglich 12/8), um Platz
-// fuer das neue "gridcost"-Widget auf Kiosk 2 zu schaffen - dieselben
-// Konstanten werden auch von Kiosk 1 genutzt, dessen Widgets die zwei
+// Zeilenzahl auf beiden Achsen zweimal um je 2 erhoeht (urspruenglich 12/8,
+// dann 14/10 fuer "gridcost", jetzt 16/12 fuer "pvstrings") - dieselben
+// Konstanten werden auch von Kiosk 1 genutzt, dessen Widgets die
 // zusaetzlichen Reihen aktuell ungenutzt lassen (nur etwas mehr Rand unten,
 // kein Bruch).
 #define KIOSK_GRID_COLS_PORTRAIT 6
-#define KIOSK_GRID_ROWS_PORTRAIT 14
+#define KIOSK_GRID_ROWS_PORTRAIT 16
 #define KIOSK_GRID_COLS_LANDSCAPE 12
-#define KIOSK_GRID_ROWS_LANDSCAPE 10
+#define KIOSK_GRID_ROWS_LANDSCAPE 12
 
 struct KioskWidgetLayout {
   uint8_t colStart;  // 1-basiert, 1..gridCols
@@ -704,28 +704,34 @@ KioskWidgetLayout kioskLandscape[KIOSK_WIDGET_COUNT];
 // (tibberTodayCost/tibberMonthCost) statt einer eigenen Naeherung - separates
 // Widget statt weiterer Kacheln in "stats", da ausdruecklich eine eigene
 // Box gewuenscht war.
-#define KIOSK2_WIDGET_COUNT 6
-const char* KIOSK2_WIDGET_KEYS[KIOSK2_WIDGET_COUNT] = { "clock", "pricegauge", "pricechart", "energyflow", "stats", "gridcost" };
-const char* KIOSK2_WIDGET_LABELS[KIOSK2_WIDGET_COUNT] = { "Uhrzeit", "Preis-Gauge", "Preis-Diagramm", "Energiefluss", "Kennzahlen", "Netzkosten" };
+// "pvstrings" ergaenzt Name+Leistung je PV-String/MPPT-Eingang der Solarbank
+// (siehe buildPvStringsHtml()) - ebenfalls eine eigene, frei verschiebbare
+// Box statt fest im Energiefluss-Hub-Diagramm verankerter Chips, da
+// ausdruecklich eine eigene Box gewuenscht war.
+#define KIOSK2_WIDGET_COUNT 7
+const char* KIOSK2_WIDGET_KEYS[KIOSK2_WIDGET_COUNT] = { "clock", "pricegauge", "pricechart", "energyflow", "stats", "gridcost", "pvstrings" };
+const char* KIOSK2_WIDGET_LABELS[KIOSK2_WIDGET_COUNT] = { "Uhrzeit", "Preis-Gauge", "Preis-Diagramm", "Energiefluss", "Kennzahlen", "Netzkosten", "PV-Strings" };
 
-// Portrait: 6 Spalten x 14 Reihen
+// Portrait: 6 Spalten x 16 Reihen
 const KioskWidgetLayout KIOSK2_PORTRAIT_DEFAULTS[KIOSK2_WIDGET_COUNT] = {
   { 1, 6, 1,  1, true }, // clock:      ganze Breite, oberste Reihe
   { 1, 6, 2,  3, true }, // pricegauge: ganze Breite
   { 1, 6, 5,  3, true }, // pricechart: ganze Breite
   { 1, 6, 8,  3, true }, // energyflow: ganze Breite
   { 1, 6, 11, 2, true }, // stats:      ganze Breite
-  { 1, 6, 13, 2, true }, // gridcost:   ganze Breite, unterste Reihen
+  { 1, 6, 13, 2, true }, // gridcost:   ganze Breite
+  { 1, 6, 15, 2, true }, // pvstrings:  ganze Breite, unterste Reihen
 };
 
-// Landscape: 12 Spalten x 10 Reihen
+// Landscape: 12 Spalten x 12 Reihen
 const KioskWidgetLayout KIOSK2_LANDSCAPE_DEFAULTS[KIOSK2_WIDGET_COUNT] = {
   { 5, 4,  1, 1, true }, // clock:      mittig oben
   { 1, 3,  2, 4, true }, // pricegauge: linke Spalte oben
   { 10, 3, 2, 7, true }, // pricechart: rechte Spalte, volle Hoehe
   { 4, 6,  2, 7, true }, // energyflow: Mitte, gross, volle Hoehe
   { 1, 3,  6, 3, true }, // stats:      linke Spalte unten, unter pricegauge
-  { 1, 12, 9, 2, true }, // gridcost:   ganze Breite, unterste Reihen
+  { 1, 12, 9, 2, true }, // gridcost:   ganze Breite
+  { 1, 12, 11, 2, true }, // pvstrings: ganze Breite, unterste Reihen
 };
 
 KioskWidgetLayout kiosk2Portrait[KIOSK2_WIDGET_COUNT];
@@ -970,6 +976,7 @@ String buildPriceGaugeSvg();
 String buildEnergyFlowSvg();
 String buildEnergyStatsHtml();
 String buildGridCostHtml();
+String buildPvStringsHtml();
 void getKioskPriceStatus(String &statusText, String &statusColor);
 String kioskWidgetCss(KioskWidgetLayout arr[], const char* const keys[] = KIOSK_WIDGET_KEYS, int count = KIOSK_WIDGET_COUNT);
 String kioskLayoutJson(KioskWidgetLayout arr[], const char* const keys[] = KIOSK_WIDGET_KEYS, const char* const labels[] = KIOSK_WIDGET_LABELS, int count = KIOSK_WIDGET_COUNT);
@@ -7422,13 +7429,12 @@ void handleKiosk2Page() {
   // aufleuchten und einen animierten Punkt in Fliessrichtung zeigen - macht
   // auf einen Blick sichtbar WER an WEN liefert, statt vier Zahlen einzeln
   // lesen und im Kopf verknuepfen zu muessen.
-  html += ".ef-flow-wrap{display:flex;flex-direction:column;width:100%;height:100%;min-height:0;gap:clamp(2px,1cqi,6px)}";
-  html += ".ef-flow-svgbox{flex:1;min-height:0}";
-  html += ".ef-flow-svgbox svg{width:100%;height:100%}";
-  html += ".ef-pvstrings{display:flex;flex-wrap:wrap;justify-content:center;gap:4px;flex:0 0 auto}";
-  html += ".ef-pvstrings:empty{display:none}";
-  html += ".ef-pvstring-chip{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:999px;padding:2px 10px;font-size:clamp(9px,2.6cqi,11px);color:rgba(255,255,255,.55);white-space:nowrap}";
-  html += ".ef-pvstring-chip b{color:#fff;font-weight:700}";
+  html += ".kw-energyflow svg{width:100%;height:100%}";
+  // PV-Strings: eigene Box (siehe buildPvStringsHtml()), damit sie wie jedes
+  // andere Kiosk2-Widget im Anordnen-Modus frei verschiebbar/grosser-ziehbar
+  // ist - bewusst NICHT als Chip-Leiste im Energiefluss-Diagramm, das war
+  // dort fest verankert statt frei positionierbar.
+  html += ".ef-pvstrings-grid{display:grid;grid-template-columns:repeat(2,1fr);grid-template-rows:repeat(2,1fr);gap:clamp(4px,2cqi,10px);width:100%;height:100%}";
   html += ".ef-node-circle{fill:rgba(255,255,255,.07);stroke:rgba(255,255,255,.4);stroke-width:1.5}";
   html += ".ef-node-house{stroke:rgba(255,255,255,.65)}";
   html += ".ef-node-label{font-size:9.5px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;fill:rgba(255,255,255,.5)}";
@@ -7458,7 +7464,7 @@ void handleKiosk2Page() {
   // Groesse per cqi an die tatsaechliche Widget-Groesse gekoppelt (nicht an
   // die Bildschirmhoehe), da das Widget in Hoch- und Querformat sehr
   // unterschiedlich breit/hoch sein kann (siehe KIOSK2_*_DEFAULTS).
-  html += ".kw-stats,.kw-gridcost{padding:clamp(6px,2cqi,14px)}";
+  html += ".kw-stats,.kw-gridcost,.kw-pvstrings{padding:clamp(6px,2cqi,14px)}";
   html += ".ef-stats-grid{display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(2,1fr);gap:clamp(4px,2cqi,10px);width:100%;height:100%}";
   // gridcost hat nur 3 statt 6 Kacheln - eine Reihe statt zwei, sonst waeren
   // die Kacheln nur halb so hoch wie in "stats" und unnoetig gestaucht.
@@ -7504,9 +7510,10 @@ void handleKiosk2Page() {
   server.sendContent(html);
   html = "";
 
-  html += "<div class='kw kw-energyflow' data-idx='3'><div class='ef-flow-wrap'><div class='ef-flow-svgbox'>" + buildEnergyFlowSvg() + "</div><div class='ef-pvstrings' id='efPvStrings'></div></div><span class='kw-resize'></span></div>";
+  html += "<div class='kw kw-energyflow' data-idx='3'>" + buildEnergyFlowSvg() + "<span class='kw-resize'></span></div>";
   html += "<div class='kw kw-stats' data-idx='4'>" + buildEnergyStatsHtml() + "<span class='kw-resize'></span></div>";
   html += "<div class='kw kw-gridcost' data-idx='5'>" + buildGridCostHtml() + "<span class='kw-resize'></span></div>";
+  html += "<div class='kw kw-pvstrings' data-idx='6'>" + buildPvStringsHtml() + "<span class='kw-resize'></span></div>";
   html += "</div>";
   html += "<script>var _r=document.querySelector('#efGaugeCard .priceRing');if(_r)_r.classList.add('kiosk');</script>";
   if (!ankerConfigured) {
@@ -7635,22 +7642,34 @@ function efApply(d){
   var moneyEl = document.getElementById('statMoney');
   if (moneyEl) moneyEl.textContent = (typeof d.moneySavedEur === 'number' && d.moneySavedEur >= 0) ? Math.round(d.moneySavedEur) + ' €' : '--';
 
-  // PV-Strings (Namen kommen aus der Anker-Cloud, also aus nicht komplett
-  // vertrauenswuerdiger externer Quelle - deshalb per textContent statt
-  // innerHTML gesetzt, analog zum escHtml()-Fix bei den WLAN-Scan-Ergebnissen).
+  // PV-Strings-Box (siehe buildPvStringsHtml()): Namen kommen aus der Anker-
+  // Cloud, also aus nicht komplett vertrauenswuerdiger externer Quelle -
+  // deshalb per textContent statt innerHTML-Interpolation gesetzt, analog
+  // zum escHtml()-Fix bei den WLAN-Scan-Ergebnissen.
   var pvStringsEl = document.getElementById('efPvStrings');
   if (pvStringsEl) {
     pvStringsEl.innerHTML = '';
-    if (Array.isArray(d.pvStrings)) {
+    if (Array.isArray(d.pvStrings) && d.pvStrings.length > 0) {
       d.pvStrings.forEach(function(s) {
-        var chip = document.createElement('span');
-        chip.className = 'ef-pvstring-chip';
-        chip.appendChild(document.createTextNode(s.name + ': '));
-        var b = document.createElement('b');
-        b.textContent = Math.round(s.watt) + ' W';
-        chip.appendChild(b);
-        pvStringsEl.appendChild(chip);
+        var tile = document.createElement('div');
+        tile.className = 'ef-stat-tile';
+        var lbl = document.createElement('div');
+        lbl.className = 'ef-stat-label';
+        lbl.textContent = s.name;
+        var val = document.createElement('div');
+        val.className = 'ef-stat-value';
+        val.textContent = Math.round(s.watt) + ' W';
+        tile.appendChild(lbl);
+        tile.appendChild(val);
+        pvStringsEl.appendChild(tile);
       });
+    } else {
+      var empty = document.createElement('p');
+      empty.className = 'small';
+      empty.style.textAlign = 'center';
+      empty.style.gridColumn = '1/-1';
+      empty.textContent = 'Keine PV-Strings konfiguriert.';
+      pvStringsEl.appendChild(empty);
     }
   }
 }
@@ -10231,6 +10250,16 @@ String buildGridCostHtml() {
   return html;
 }
 
+// PV-String-Widget: Name+Leistung pro MPPT-Eingang der Solarbank (siehe
+// ankerPvStringNames/-Watts in updateAnkerSolarData()) - eigene, im
+// Anordnen-Modus frei verschiebbare Box statt Chips im Energiefluss-
+// Diagramm. Anzahl konfigurierter Strings ist erst zur Laufzeit bekannt
+// (0-4), deshalb hier nur ein leerer Platzhalter-Container - die Kacheln
+// selbst baut efApply() im Kiosk-2-JS aus der /ankerdata-Antwort.
+String buildPvStringsHtml() {
+  return "<div class='ef-stats-grid ef-pvstrings-grid' id='efPvStrings'><p class='small' style='text-align:center;grid-column:1/-1'>Lade PV-Strings...</p></div>";
+}
+
 // -----------------------------------------------------------------------------
 // Preis-Gauge
 // -----------------------------------------------------------------------------
@@ -10368,6 +10397,10 @@ String kioskLayoutJson(KioskWidgetLayout arr[], const char* const keys[], const 
       preview = (ankerTotalYieldKwh >= 0) ? ("Ertrag " + String((int)ankerTotalYieldKwh) + " kWh") : "Kennzahlen";
     } else if (key == "gridcost") {
       preview = (tibberMonthCost >= 0) ? ("Monat " + euroCostText(tibberMonthCost) + " " + tibberMonthCurrency) : "Netzkosten";
+    } else if (key == "pvstrings") {
+      int pvStringCount = 0;
+      for (int p = 0; p < 4; p++) if (ankerPvStringNames[p].length() > 0) pvStringCount++;
+      preview = pvStringCount > 0 ? (String(pvStringCount) + " PV-Strings") : "PV-Strings";
     }
     json += "{";
     json += "\"key\":\"" + key + "\",";
