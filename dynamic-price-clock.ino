@@ -92,7 +92,7 @@ using namespace websockets;
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "4.6.6"
+#define FIRMWARE_VERSION "4.6.7"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -8625,8 +8625,19 @@ document.addEventListener('DOMContentLoaded',()=>{refreshStatus();scanWifi();set
 void handleDisplaysPage() {
   if (!checkAuth()) return;
 
+  // Arduino-String verwirft beim Anhaengen (+=) still und leise Daten, wenn
+  // dafuer eine Speichererweiterung noetig ist und der Heap gerade keinen
+  // ausreichend grossen zusammenhaengenden Block frei hat (live reproduzierbar:
+  // /displays brach hier immer mitten im Item-Feld-Loop bei ca. 28 KB ab, egal
+  // wie gross html.reserve() war - siehe identische Diagnose/Loesung bereits in
+  // handleRoot()). Deshalb wie dort in kleinen Chunks per server.sendContent()
+  // senden statt eines einzigen, sehr grossen String-Blocks.
+  server.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+  server.setContentLength(CONTENT_LENGTH_UNKNOWN);
+  server.send(200, "text/html", "");
+
   String html;
-  html.reserve(68000);
+  html.reserve(4000);
 
   html += htmlHeader("Displays");
   html += "<section class='hero'><h1>Displays</h1><p>Anzeigemodi, feste Overlays und der freie Layout-Editor fuer Display 1 und Display 2 - an einem Ort.</p></section>";
@@ -8642,6 +8653,9 @@ void handleDisplaysPage() {
   html += ".dpTab.active{background:var(--card)!important;color:var(--text)!important;box-shadow:0 1px 2px var(--shadow-soft)!important}";
   html += ".dpTab:hover:not(.active){color:var(--text)!important}";
   html += "</style>";
+
+  server.sendContent(html);
+  html = "";
 
   html += "<div id='tabOverlays'>";
 
@@ -8697,6 +8711,9 @@ void handleDisplaysPage() {
 
   html += "</div>";
 
+  server.sendContent(html);
+  html = "";
+
   html += "<section class='formSection'><h3>Preisbalken am Bildschirmrand</h3><p class='small'>Schmaler Farbbalken am Rand von Display 1, der den aktuellen Preis anzeigt.</p><div class='formGrid'>";
   html += "<div class='field'><label>Preisbalken anzeigen</label><select name='priceBarOn'>";
   html += "<option value='1'";
@@ -8741,6 +8758,9 @@ void handleDisplaysPage() {
   html += "<p class='small'>Ziehe das Diagramm in der runden Vorschau. X/Y werden automatisch gespeichert. Breite und Höhe kannst du oben ueber die Felder einstellen.</p></div>";
   html += "</section>";
 
+  server.sendContent(html);
+  html = "";
+
   html += "<section class='formSection'><h3>Preis-Uhr auf Display 2 (24h-Ring)</h3><p class='small'>Ringfoermige Anzeige, die die guenstigen und teuren Stunden des Tages farbig um das Display herum darstellt.</p><div class='formGrid'>";
   html += "<div class='field'><label>Preis-Uhr aktivieren</label><select name='d2ClockRing'>";
   html += "<option value='1'";
@@ -8771,6 +8791,10 @@ void handleDisplaysPage() {
   html += "</div></section>";
 
   html += "<div class='actions'><button type='submit'>Display-Einstellungen speichern</button><span id='displayAutoSaveState' class='badge warnb'>Bereit</span></div>";
+
+  server.sendContent(html);
+  html = "";
+
   html += R"JS(
 <script>
 let displayAutoSaveTimer=null;
@@ -8898,6 +8922,9 @@ document.addEventListener('DOMContentLoaded',()=>{
   html += "</form></section>";
   html += "</div>";
 
+  server.sendContent(html);
+  html = "";
+
   html += "<div id='tabLayout' style='display:none'>";
   html += R"JS(
 <style>
@@ -8953,12 +8980,18 @@ document.addEventListener('DOMContentLoaded',()=>{
 </style>
 )JS";
 
+  server.sendContent(html);
+  html = "";
+
   html += "<section class='card'><div class='panelTitle'><h2>Aktionen</h2><span id='saveState' class='badge warnb'>Bereit</span></div>";
   html += "<div class='layout-actions'>";
   html += "<div class='layout-box'><h3>Speichern</h3><p>Speichert per AJAX und aktualisiert die Displays direkt.</p><button class='btnSuccess' type='button' onclick='saveLayoutNow()'>Jetzt speichern</button></div>";
   html += "<div class='layout-box'><h3>Export</h3><p>Layout als JSON sichern.</p><form action='/exportlayout' method='get'><button class='btnMuted' type='submit'>Layout exportieren</button></form></div>";
   html += "<div class='layout-box dangerZone'><h3>Zuruecksetzen</h3><p>Standardlayout wiederherstellen.</p><form action='/resetlayout' method='post'><button class='danger' type='submit'>Layout zuruecksetzen</button></form></div>";
   html += "</div></section>";
+
+  server.sendContent(html);
+  html = "";
 
   html += "<section class='card'><h2>Presets</h2><div class='presetGrid'>";
   html += "<form action='/presetlayout' method='post'><input type='hidden' name='preset' value='price'><button type='submit'>Preset: Preis gross</button></form>";
@@ -8970,7 +9003,17 @@ document.addEventListener('DOMContentLoaded',()=>{
   html += "<textarea name='json' rows='5' placeholder='Exportiertes Layout-JSON hier einfuegen'></textarea>";
   html += "<div class='actions'><button type='submit'>Layout importieren</button></div></form></section>";
 
+  server.sendContent(html);
+  html = "";
+
   html += "<form id='layoutForm' action='/savelayout' method='post'>";
+  server.sendContent(html);
+  html = "";
+  // Live reproduzierbar: genau dieser Loop (160 versteckte Felder ueber 2
+  // Displays x 8 Items) war die Stelle, an der die Seite bisher abbrach - der
+  // "html"-String haette hierfuer als EIN Block weiterwachsen muessen, was
+  // beim aktuellen Heap-Zustand nicht zuverlaessig moeglich war. Deshalb pro
+  // Item flushen, statt alle 160 Felder in einem Rutsch anzuhaengen.
   for (int d = 1; d <= 2; d++) {
     LayoutItem* layout = (d == 1) ? d1Layout : d2Layout;
     for (int i = 0; i < LAYOUT_ITEMS; i++) {
@@ -8985,6 +9028,8 @@ document.addEventListener('DOMContentLoaded',()=>{
       html += "<input type='hidden' id='" + id + "a' name='" + id + "a' value='" + String(layout[i].autoScale ? 1 : 0) + "'>";
       html += "<input type='hidden' id='" + id + "al' name='" + id + "al' value='" + String(layout[i].align) + "'>";
       html += "<input type='hidden' id='" + id + "v' name='" + id + "v' value='" + String(layout[i].visible ? 1 : 0) + "'>";
+      server.sendContent(html);
+      html = "";
     }
   }
   html += "</form>";
@@ -8995,6 +9040,9 @@ document.addEventListener('DOMContentLoaded',()=>{
 
 
   html += "</div>";
+
+  server.sendContent(html);
+  html = "";
 
   html += R"JS(
 <script>
@@ -9026,8 +9074,13 @@ function switchDpTab(name){
 )JS";
 
   html += htmlFooter();
-  server.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
-  server.send(200, "text/html", html);
+
+  // Letzter Inhalts-Chunk, dann ein leerer Chunk zum Abschluss der Chunked
+  // Transfer Encoding (siehe handleRoot() - identisches Muster). sendHeader()
+  // waere hier zu spaet, die Kopfzeilen wurden bereits ganz am Anfang der
+  // Funktion mit dem ersten server.send() verschickt.
+  server.sendContent(html);
+  server.sendContent("");
 }
 
 void handleSaveDisplays() {
