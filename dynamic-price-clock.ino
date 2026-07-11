@@ -92,7 +92,7 @@ using namespace websockets;
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "4.6.3"
+#define FIRMWARE_VERSION "4.6.4"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -322,6 +322,10 @@ float tibberMonthCost = -1;
 float tibberMonthConsumptionKwh = -1;
 String tibberMonthCurrency = "";
 int tibberMonthDaysCounted = 0;
+// Merkt sich, fuer welchen Monat (YYYY-MM) obige Werte zuletzt befuellt
+// wurden - noetig, um bei Monatswechsel korrekt auf "keine Daten" zurueckzu-
+// setzen (siehe Kommentar in updatePrices()/updateTibber()).
+String tibberMonthPrefix = "";
 
 // Heutiger Tag: derselbe DAILY-Knoten (siehe oben), dessen "from"-Datum auf
 // heute faellt - ist bei laufendem Tag ein noch unvollstaendiger, von Tibber
@@ -446,6 +450,11 @@ float ankerHomeLoadW = -1;  // home_load_power (Gesamt-Hausverbrauch)
 int ankerBatterySoc = -1;   // Batterie-Ladezustand in %, falls verfuegbar
 String ankerLastError = "";
 bool ankerConfigured = false;
+// Unterscheidet "noch nie erfolgreich gepollt" (ankerPvW/-BatteryW/-HomeLoadW
+// stehen noch auf ihrem -1-Initialwert) von einem echten, erfolgreichen Poll -
+// ankerLastError ist in beiden Faellen "", die Werte waeren also sonst nicht
+// unterscheidbar (siehe handleAnkerData()).
+bool ankerHasEverPolled = false;
 String ankerLastRawJson = ""; // letzte rohe Antwort von get_scen_info, zur Fehlersuche auf der Konto-Seite
 
 // Lebenszeit-Summen aus dem bisher ungenutzten "statistics"-Array der
@@ -1769,7 +1778,12 @@ void setup() {
   gaugeMinCent = prefs.getInt("gaugeMin", 0);
   gaugeMaxCent = prefs.getInt("gaugeMax", 60);
   if (ledYellowCent < 0) ledYellowCent = 0;
-  if (ledRedCent < ledYellowCent) ledRedCent = ledYellowCent + 1;
+  // <= statt < : bei Gleichheit waere die Gelb-Zone (>= ledYellowCent, aber
+  // < ledRedCent) leer, da priceToLedColor()/tftPriceRingColor() zuerst auf
+  // ledRedCent pruefen - ein Preis kann dann nie als "Mittel" gelten, obwohl
+  // die UI (siehe Zeile ~8105) genau diese Zone anzeigt. Muss mit der
+  // strengeren Pruefung in handleSave() (siehe dort) uebereinstimmen.
+  if (ledRedCent <= ledYellowCent) ledRedCent = ledYellowCent + 1;
 
   loadLayoutDefaults();
   loadLayoutFromPrefs();
@@ -1914,23 +1928,29 @@ void setup() {
   server.on("/connectwifiajax", HTTP_POST, handleConnectWifiAjax);
   server.on("/displays", handleDisplaysPage);
   server.on("/savedisplaychartajax", HTTP_POST, handleSaveDisplayChartAjax);
-  server.on("/savedisplays", handleSaveDisplays);
+  // Alle zustandsaendernden Routen unten explizit auf HTTP_POST beschraenkt
+  // (vorher teils per 2-Arg-Overload = HTTP_ANY, akzeptierte also auch GET) -
+  // ein einfacher <img src="http://geraet/resetwifi"> auf einer fremden
+  // Webseite haette sonst z.B. die WLAN-Zugangsdaten loeschen koennen, ganz
+  // ohne JavaScript oder Nutzerinteraktion (CSRF via GET). Alle zugehoerigen
+  // Formulare nutzen bereits method='post', dieser Wechsel aendert also kein
+  // beobachtbares Verhalten der UI.
+  server.on("/savedisplays", HTTP_POST, handleSaveDisplays);
   server.on("/ring", handleLedRingPage);
   server.on("/matrix", handleMatrixPage);
   server.on("/savematrix", HTTP_POST, handleSaveMatrix);
   server.on("/savematrixajax", HTTP_POST, handleSaveMatrixAjax);
   server.on("/savering", HTTP_POST, handleSaveLedRing);
   server.on("/saveringajax", HTTP_POST, handleSaveLedRingAjax);
-  server.on("/resetwifi", handleResetWifi);
-  server.on("/save", handleSave);
+  server.on("/resetwifi", HTTP_POST, handleResetWifi);
+  server.on("/save", HTTP_POST, handleSave);
   server.on("/layout", handleDisplaysPage);
   server.on("/savelayout", HTTP_POST, handleSaveLayout);
   server.on("/savelayoutajax", HTTP_POST, handleSaveLayoutAjax);
-  server.on("/savelayoutajax", HTTP_GET, handleSaveLayoutAjax);
-  server.on("/resetlayout", handleResetLayout);
-  server.on("/presetlayout", handlePresetLayout);
+  server.on("/resetlayout", HTTP_POST, handleResetLayout);
+  server.on("/presetlayout", HTTP_POST, handlePresetLayout);
   server.on("/exportlayout", handleExportLayout);
-  server.on("/importlayout", handleImportLayout);
+  server.on("/importlayout", HTTP_POST, handleImportLayout);
   server.on("/refresh", handleRefresh);
   server.on("/json", handleJson);
   server.on("/style.css", handleStyleCss);
@@ -2323,6 +2343,19 @@ void updateTibber() {
         tibberMonthConsumptionKwh = sumKwh;
         tibberMonthCurrency = curr;
         tibberMonthDaysCounted = daysCounted;
+        tibberMonthPrefix = monthPrefix;
+      } else if (tibberMonthPrefix != monthPrefix) {
+        // Direkt nach Monatswechsel hat Tibber fuer den neuen Monat oft noch
+        // keinen einzigen Tages-Knoten geliefert (daysCounted==0) - ohne
+        // diesen Reset wuerden die alten Werte des VORHERIGEN Monats
+        // (tibberMonthPrefix haelt fest, fuer welchen Monat sie tatsaechlich
+        // gelten) unveraendert stehen bleiben und faelschlich als "dieser
+        // Monat" angezeigt/hochgerechnet werden (siehe estimateFullMonthCost()).
+        tibberMonthCost = -1;
+        tibberMonthConsumptionKwh = -1;
+        tibberMonthCurrency = "";
+        tibberMonthDaysCounted = 0;
+        tibberMonthPrefix = monthPrefix;
       }
       tibberTodayCost = recentCost;
       tibberTodayConsumptionKwh = recentKwh;
@@ -3260,6 +3293,16 @@ void updateAnkerSolarData() {
   // data.solarbank_info - siehe reale Beispielantwort in ankerLastRawJson.
   JsonObject data = doc["data"];
   JsonObject solarbankInfo = data["solarbank_info"];
+  // Ohne diese Pruefung wuerde eine degradierte/unvollstaendige (aber HTTP
+  // 200) Antwort ohne "solarbank_info" stillschweigend 0 W fuer PV/Ausgang
+  // liefern (leerer JsonObject-Zugriff -> leerer String -> toFloat()==0) und
+  // als echte "0 W Erzeugung"-Messung durchgehen, statt als Fehler erkannt zu
+  // werden - inkonsistent mit der isNull()-Pruefung fuer solarbank_list
+  // direkt darunter.
+  if (data.isNull() || solarbankInfo.isNull()) {
+    ankerLastError = "Anker-Antwort ohne solarbank_info";
+    return;
+  }
   ankerPvW = solarbankInfo["total_photovoltaic_power"].as<String>().toFloat();
   ankerOutputW = solarbankInfo["total_output_power"].as<String>().toFloat();
 
@@ -3323,6 +3366,7 @@ void updateAnkerSolarData() {
   }
 
   ankerLastError = "";
+  ankerHasEverPolled = true;
 }
 
 // Extrahiert den Host-Teil aus einer https://host/pfad-URL, um DNS/Praeflight-
@@ -3390,8 +3434,20 @@ static String resolveGithubDownloadUrl(const String &url) {
   String resolved = url;
   if (code == HTTP_CODE_FOUND || code == HTTP_CODE_MOVED_PERMANENTLY || code == HTTP_CODE_TEMPORARY_REDIRECT || code == 303) {
     String loc = http.getLocation();
-    if (loc.length() > 0) {
-      resolved = loc;
+    // Host+Schema des Redirect-Ziels pruefen, bevor es fuer den eigentlichen
+    // Firmware-Download uebernommen wird: die Vorab-Anfrage laeuft ueber
+    // setInsecure() (keine Zertifikatspruefung), ein Angreifer im Netzwerkpfad
+    // (MITM/DNS-Spoofing) koennte sonst ueber einen gefaelschten Location-
+    // Header den Download+Flash-Vorgang auf einen beliebigen Host umleiten.
+    // Nur bekannte GitHub-Download-Hosts akzeptieren, alles andere verwirft
+    // den Redirect (faellt zurueck auf die urspruengliche, unaufgeloeste URL).
+    if (loc.length() > 0 && loc.startsWith("https://")) {
+      String locHost = extractHostFromUrl(loc);
+      bool trustedHost = locHost == "github.com" ||
+                          locHost.endsWith(".githubusercontent.com");
+      if (trustedHost) {
+        resolved = loc;
+      }
     }
   } else if (code <= 0) {
     // Live beobachtet: schlaegt schon diese leichte Vorab-Anfrage mit einem
@@ -6103,6 +6159,14 @@ void handleSaveAccount() {
       githubToken = newToken;
       prefs.putString("ghToken", githubToken);
     }
+
+    // handleGithubUpdate() ruft otaCheckLatest() nur auf, wenn ota.latestUrl
+    // noch leer ist - ohne diesen Reset wuerde nach einem Repo-/Token-Wechsel
+    // ein alter Check-Treffer vom VORHERIGEN Repo weiterverwendet und
+    // "Update jetzt" wuerde die falsche (nicht mehr konfigurierte) Firmware
+    // herunterladen und flashen.
+    ota.latestUrl = "";
+    ota.latestVersion = "";
   } else if (formType == "anker") {
     String newEmail = server.hasArg("ankerEmail") ? server.arg("ankerEmail") : "";
     newEmail.trim();
@@ -6348,8 +6412,17 @@ void handleSaveTibberAjax() {
   }
 
   if (server.hasArg("homeId")) {
-    selectedHomeId = server.arg("homeId");
-    prefs.putString("homeId", selectedHomeId);
+    String newHomeId = server.arg("homeId");
+    if (newHomeId != selectedHomeId) {
+      selectedHomeId = newHomeId;
+      prefs.putString("homeId", selectedHomeId);
+      // Ohne diesen Reset wuerden currentPrice/quarterPrices/tibberTodayCost/
+      // tibberMonthCost etc. bis zu apiUpdateMinutes lang (Default 5, bis zu
+      // 60 einstellbar) noch das VORHERIGE Home zeigen - inkonsistent mit dem
+      // Provider-Wechsel (siehe handleSaveAccount()/handleSaveProviderAjax()),
+      // der genau aus diesem Grund bereits denselben lastUpdate=0-Trick nutzt.
+      lastUpdate = 0;
+    }
   }
 
   if (server.hasArg("baseFee")) {
@@ -6386,6 +6459,12 @@ String wifiQualityLabel(int quality) {
 
 String jsonEscapeValue(String s) {
   String out = "";
+  // Ohne reserve() waechst out bei den grossen SVG-Strings (Preis-Gauge/
+  // -Diagramm, mehrfach pro Sekunde ueber /kioskdata abgefragt) per
+  // wiederholter Reallokation ein Zeichen nach dem anderen - zusaetzlicher,
+  // vermeidbarer Heap-Druck auf einem Geraet, das ohnehin schon eine
+  // naechtliche Neustart-Massnahme gegen Fragmentierung braucht.
+  out.reserve(s.length() + 16);
 
   for (unsigned int i = 0; i < s.length(); i++) {
     uint8_t c = (uint8_t)s.charAt(i);
@@ -6506,9 +6585,21 @@ void handleSaveWifiAjax() {
     prefs.putString("wifiSsid", wifiSsid);
   }
 
+  bool passTooShort = false;
   if (server.hasArg("pass")) {
-    wifiPassword = server.arg("pass");
-    prefs.putString("wifiPass", wifiPassword);
+    String newPass = server.arg("pass");
+    // wifiConnectStart() (siehe dort) lehnt ein Passwort mit 1-7 Zeichen als
+    // "zu kurz" ab und verbindet gar nicht erst - ohne diese Pruefung hier
+    // meldete /savewifiajax trotzdem sofort Erfolg, und der eigentliche
+    // Fehlschlag zeigte sich dem Nutzer erst Sekunden spaeter beim
+    // fehlgeschlagenen Verbindungsversuch, ohne erkennbaren Zusammenhang zur
+    // gerade eingegebenen Eingabe.
+    if (newPass.length() > 0 && newPass.length() < 8) {
+      passTooShort = true;
+    } else {
+      wifiPassword = newPass;
+      prefs.putString("wifiPass", wifiPassword);
+    }
   }
 
   if (server.hasArg("setupSsid")) {
@@ -6587,7 +6678,9 @@ void handleSaveWifiAjax() {
   lastError = "WLAN gespeichert, Verbindung startet gleich";
   showWifiBootStatus("WLAN gespeichert", wifiSsid, "Verbinde gleich");
 
-  String response = "{\"ok\":true,\"message\":\"gespeichert\"}";
+  String response = passTooShort
+    ? "{\"ok\":true,\"message\":\"gespeichert, aber Passwort war zu kurz (min. 8 Zeichen) und wurde NICHT uebernommen\",\"passRejected\":true}"
+    : "{\"ok\":true,\"message\":\"gespeichert\"}";
   server.send(200, "application/json", response);
 }
 
@@ -7065,7 +7158,16 @@ function refreshKioskData(){
     var statusEl = document.getElementById('kioskStatus');
     if (statusEl) { statusEl.innerText = data.statusText; statusEl.style.color = data.statusColor; }
 
-    if (kioskGaugeWrapEl) kioskGaugeWrapEl.innerHTML = data.gaugeSvg;
+    if (kioskGaugeWrapEl) {
+      kioskGaugeWrapEl.innerHTML = data.gaugeSvg;
+      // buildPriceGaugeSvg() rendert serverseitig nie die 'kiosk'-Klasse
+      // (siehe efPriceRefresh() auf kiosk2, das dieselbe Nachbearbeitung
+      // schon macht) - ohne das hier faellt der Ring nach diesem Refresh auf
+      // die helle Standard-Ringfarbe zurueck, kaum sichtbar auf dunklem
+      // Kiosk-Hintergrund.
+      var r1 = kioskGaugeWrapEl.querySelector('.priceRing');
+      if (r1) r1.classList.add('kiosk');
+    }
 
     if (kioskChartWrapEl) {
       kioskChartWrapEl.innerHTML = data.chartSvg + "<div class='kiosk-tooltip' id='kioskTooltip'></div>";
@@ -7771,6 +7873,14 @@ void handleAnkerData() {
   json += "\"priceColor\":\"" + jsonEscapeValue(zoneColor) + "\",";
   if (!ankerConfigured) {
     json += "\"ok\":false,\"error\":\"Keine Anker-Zugangsdaten hinterlegt\"";
+  } else if (!ankerHasEverPolled) {
+    // Kurzes Fenster zwischen Serverstart und dem ersten erfolgreichen Poll:
+    // ankerLastError ist hier noch "" (kein Fehler AUFGETRETEN), aber
+    // ankerPvW/-BatteryW/-HomeLoadW stehen noch auf ihrem -1-Sentinel - ohne
+    // diese Pruefung wuerde unten faelschlich "ok":true mit "-1 W"-Werten
+    // gemeldet (das allgemeine -1-Sentinel-Muster, das jede andere
+    // Formatierungsfunktion in dieser Datei sonst konsequent einhaelt).
+    json += "\"ok\":false,\"error\":\"Noch keine Daten - erster Abruf laeuft\"";
   } else if (ankerLastError.length() > 0) {
     // ankerLastError wird bei jedem Poll entweder auf "" gesetzt (Erfolg) oder
     // auf die aktuelle Fehlermeldung (siehe updateAnkerSolarData()/ankerAuthedPost())
@@ -7869,7 +7979,8 @@ void handleGaugeStatus() {
   else if (nowCent >= ledRedCent) { zone = "err"; label = "Jetzt teuer"; }
   else if (nowCent >= ledYellowCent) { zone = "warn"; label = "Jetzt mittel"; }
   String pgClass = "pg-good", pgLabel = "Guenstig";
-  if (nowCent >= ledRedCent) { pgClass = "pg-bad"; pgLabel = "Teuer"; }
+  if (nowCent < 0) { pgClass = ""; pgLabel = "Keine Daten"; }
+  else if (nowCent >= ledRedCent) { pgClass = "pg-bad"; pgLabel = "Teuer"; }
   else if (nowCent >= ledYellowCent) { pgClass = "pg-mid"; pgLabel = "Mittel"; }
   String json = "{";
   json += "\"badgeClass\":\"" + zone + "b\",";
@@ -8397,9 +8508,10 @@ function $(id){return document.getElementById(id);}
 function setMsg(t){$('wifiMessage').innerText=t;}
 function bars(q){let n=0;if(q>=80)n=5;else if(q>=60)n=4;else if(q>=40)n=3;else if(q>=20)n=2;else if(q>0)n=1;let h='';for(let i=1;i<=5;i++){h+='<span'+(i<=n?' class="on"':'')+'></span>';}return h;}
 function authText(a){if(a===0)return 'offen';if(a===1)return 'WEP';if(a===2)return 'WPA';if(a===3)return 'WPA2';if(a===4)return 'WPA/WPA2';if(a===5)return 'WPA2 Enterprise';if(a===6)return 'WPA3';if(a===7)return 'WPA2/WPA3';return 'Auth '+a;}
+function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
 async function refreshStatus(){try{const r=await fetch('/wifistatusjson',{cache:'no-store'});const s=await r.json();$('wifiStateBadge').className='badge '+(s.connected?'okb':'errb');$('wifiStateBadge').innerText=s.connected?'Verbunden':'Nicht verbunden';$('wifiDot').className='status-dot pulse '+(s.connected?'ok':'warn');$('wifiStatusText').innerText=s.connected?(s.activeSsid||s.savedSsid):s.status;$('wifiIpText').innerText='IP: '+(s.ip||'--')+' | Kanal: '+(s.channel||'--');$('wifiMacText').innerText='MAC: '+(s.mac||'--')+' | Chip: '+(s.chip||'--');$('wifiBars').innerHTML=bars(s.quality||0);$('wifiQualityText').innerText=(s.quality||0)+'% | RSSI '+(s.rssi||'--')+' dBm';$('setupText').innerText=s.setupSsid||'--';$('setupIpText').innerText=(s.setupActive?'aktiv ':'aus ')+(s.setupIp||'');$('wifiSsid').value=$('wifiSsid').value||s.savedSsid||'';$('setupSsid').value=$('setupSsid').value||s.setupSsid||'Tibber Strompreis';$('macRotate').checked=!!s.macRotate;$('wifiBand').value=String(s.wifiBand||0);$('staticIpOn').checked=!!s.staticIpOn;$('auto5thIp').checked=!!s.auto5thIp;$('staticIp').value=$('staticIp').value||s.staticIp||'';$('gateway').value=$('gateway').value||s.gateway||'';$('subnet').value=$('subnet').value||s.subnet||'255.255.255.0';$('dns1').value=$('dns1').value||s.dns1||'';$('dns2').value=$('dns2').value||s.dns2||'';}catch(e){setMsg('Status Fehler: '+e);}}
-async function scanWifi(){const btn=$('wifiScanBtn');if(btn){btn.classList.add('scanning');btn.innerText='Scanne...';}setMsg('Scanne WLANs...');$('wifiList').innerHTML='<div class="wifi-scanning"><div class="wifi-radar"></div><p class="small">Suche nach WLANs in der Umgebung...</p></div>';try{const r=await fetch('/wifiscanjson',{cache:'no-store'});const data=await r.json();const list=data.networks||[];if(!list.length){$('wifiList').innerHTML='<p class="small">Keine WLANs gefunden.</p>';setMsg('Keine WLANs gefunden.');return;}list.sort((a,b)=>b.rssi-a.rssi);$('wifiList').innerHTML='';list.forEach((n,idx)=>{const row=document.createElement('div');row.className='wifi-row';row.innerHTML='<div><div class="ssid">'+(n.ssid||'<versteckt>')+'</div><div class="meta">BSSID '+n.bssid+' | '+authText(n.auth)+'</div></div><div class="meta">'+n.rssi+' dBm / '+n.quality+'%</div><div class="meta">Kanal '+n.channel+'</div>';row.onclick=()=>{document.querySelectorAll('.wifi-row').forEach(x=>x.classList.remove('selected'));row.classList.add('selected');selectedSsid=n.ssid;$('wifiSsid').value=n.ssid;setMsg('Ausgewählt: '+n.ssid);};$('wifiList').appendChild(row);});setMsg(list.length+' WLANs gefunden.');}catch(e){$('wifiList').innerHTML='<p class="small">Scan fehlgeschlagen.</p>';setMsg('Scan Fehler: '+e);}finally{if(btn){btn.classList.remove('scanning');btn.innerText='WLAN scannen';}}}
-async function saveWifi(){const ssid=$('wifiSsid').value.trim();const pass=$('wifiPass').value;const setup=$('setupSsid').value.trim()||'Tibber Strompreis';if(!ssid){setMsg('Bitte SSID auswählen oder eingeben.');return;}const body=new URLSearchParams();body.set('ssid',ssid);body.set('pass',pass);body.set('setupSsid',setup);body.set('macRotate',$('macRotate').checked?'1':'0');body.set('wifiBand',$('wifiBand').value);body.set('staticIpOn',$('staticIpOn').checked?'1':'0');body.set('auto5thIp',$('auto5thIp').checked?'1':'0');body.set('staticIp',$('staticIp').value.trim());body.set('gateway',$('gateway').value.trim());body.set('subnet',$('subnet').value.trim());body.set('dns1',$('dns1').value.trim());body.set('dns2',$('dns2').value.trim());setMsg('Speichere und starte Verbindung...');try{const r=await fetch('/savewifiajax',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'},body:body.toString()});const j=await r.json();setMsg(j.ok?'Gespeichert. Verbindung startet...':'Fehler beim Speichern.');showToast(j.ok?'Gespeichert, WLAN-Verbindung startet':'Fehler beim Speichern',j.ok?'ok':'err');setTimeout(refreshStatus,1000);}catch(e){setMsg('Speicher Fehler: '+e);showToast('Speicher Fehler','err');}}
+async function scanWifi(){const btn=$('wifiScanBtn');if(btn){btn.classList.add('scanning');btn.innerText='Scanne...';}setMsg('Scanne WLANs...');$('wifiList').innerHTML='<div class="wifi-scanning"><div class="wifi-radar"></div><p class="small">Suche nach WLANs in der Umgebung...</p></div>';try{const r=await fetch('/wifiscanjson',{cache:'no-store'});const data=await r.json();const list=data.networks||[];if(!list.length){$('wifiList').innerHTML='<p class="small">Keine WLANs gefunden.</p>';setMsg('Keine WLANs gefunden.');return;}list.sort((a,b)=>b.rssi-a.rssi);$('wifiList').innerHTML='';list.forEach((n,idx)=>{const row=document.createElement('div');row.className='wifi-row';row.innerHTML='<div><div class="ssid">'+(n.ssid?escHtml(n.ssid):'&lt;versteckt&gt;')+'</div><div class="meta">BSSID '+escHtml(n.bssid)+' | '+authText(n.auth)+'</div></div><div class="meta">'+n.rssi+' dBm / '+n.quality+'%</div><div class="meta">Kanal '+n.channel+'</div>';row.onclick=()=>{document.querySelectorAll('.wifi-row').forEach(x=>x.classList.remove('selected'));row.classList.add('selected');selectedSsid=n.ssid;$('wifiSsid').value=n.ssid;setMsg('Ausgewählt: '+n.ssid);};$('wifiList').appendChild(row);});setMsg(list.length+' WLANs gefunden.');}catch(e){$('wifiList').innerHTML='<p class="small">Scan fehlgeschlagen.</p>';setMsg('Scan Fehler: '+e);}finally{if(btn){btn.classList.remove('scanning');btn.innerText='WLAN scannen';}}}
+async function saveWifi(){const ssid=$('wifiSsid').value.trim();const pass=$('wifiPass').value;const setup=$('setupSsid').value.trim()||'Tibber Strompreis';if(!ssid){setMsg('Bitte SSID auswählen oder eingeben.');return;}const body=new URLSearchParams();body.set('ssid',ssid);body.set('pass',pass);body.set('setupSsid',setup);body.set('macRotate',$('macRotate').checked?'1':'0');body.set('wifiBand',$('wifiBand').value);body.set('staticIpOn',$('staticIpOn').checked?'1':'0');body.set('auto5thIp',$('auto5thIp').checked?'1':'0');body.set('staticIp',$('staticIp').value.trim());body.set('gateway',$('gateway').value.trim());body.set('subnet',$('subnet').value.trim());body.set('dns1',$('dns1').value.trim());body.set('dns2',$('dns2').value.trim());setMsg('Speichere und starte Verbindung...');try{const r=await fetch('/savewifiajax',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'},body:body.toString()});const j=await r.json();if(j.passRejected){setMsg('Passwort zu kurz (min. 8 Zeichen) - NICHT uebernommen, Rest gespeichert.');showToast('Passwort zu kurz, nicht übernommen','err');}else{setMsg(j.ok?'Gespeichert. Verbindung startet...':'Fehler beim Speichern.');showToast(j.ok?'Gespeichert, WLAN-Verbindung startet':'Fehler beim Speichern',j.ok?'ok':'err');}setTimeout(refreshStatus,1000);}catch(e){setMsg('Speicher Fehler: '+e);showToast('Speicher Fehler','err');}}
 async function startConnect(){setMsg('Verbindung wird gestartet...');try{await fetch('/connectwifiajax',{method:'POST'});setMsg('Verbindungsversuch gestartet.');showToast('Verbindungsversuch gestartet','info');setTimeout(refreshStatus,1000);}catch(e){setMsg('Connect Fehler: '+e);showToast('Verbindungsfehler','err');}}
 function togglePass(){const p=$('wifiPass');p.type=p.type==='password'?'text':'password';}
 document.addEventListener('DOMContentLoaded',()=>{refreshStatus();scanWifi();setInterval(refreshStatus,5000);});
@@ -9256,7 +9368,10 @@ void saveLedRingFromRequest() {
     if (ledRedCent > 200) ledRedCent = 200;
   }
 
-  if (ledRedCent < ledYellowCent) ledRedCent = ledYellowCent + 1;
+  // <= statt < (siehe Kommentar bei derselben Pruefung in setup()) - muss mit
+  // handleSave() uebereinstimmen, sonst wird je nach Speicherpfad eine leere
+  // Gelb-Zone zugelassen.
+  if (ledRedCent <= ledYellowCent) ledRedCent = ledYellowCent + 1;
   if (ledRedCent > 200) ledRedCent = 200;
   prefs.putInt("ledRed", ledRedCent);
 
@@ -10186,6 +10301,10 @@ String buildSvgChart(String lineColor, String fillColor) {
   }
 
   String linePoints;
+  // Bis zu MAX_QUARTERS (192) Punkte, je ~9 Zeichen ("123,456 ") - reserve()
+  // vermeidet wiederholte Reallokation waehrend der Schleife (dieselbe
+  // Fragmentierungs-Ueberlegung wie bei jsonEscapeValue()).
+  linePoints.reserve(quarterCount * 10 + 8);
   for (int i = 0; i < quarterCount; i++) {
     linePoints += String(xs[i]) + "," + String(ys[i]) + " ";
   }
