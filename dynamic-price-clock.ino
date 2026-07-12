@@ -92,7 +92,7 @@ using namespace websockets;
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "4.6.11"
+#define FIRMWARE_VERSION "4.6.12"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -4661,12 +4661,29 @@ void loadKioskLayoutFromPrefs() {
   }
 }
 
+// Live reproduziert: eine korrigierte Kiosk2-Landscape-Position (pricegauge/
+// pricechart, siehe Debug-Durchlauf) wurde per /savekiosklayoutajax
+// scheinbar erfolgreich gespeichert (Antwort "ok":true, In-RAM-Array sofort
+// korrekt), stand aber nach einem Neustart wieder auf dem alten,
+// ueberlappenden Wert. Gleiche Ursache wie beim frueher gefundenen
+// efNodePos2-Bug (siehe saveEfNodePosToPrefs()): ein Overwrite eines
+// bestehenden NVS-Keys legt intern einen neuen Eintrag an und markiert den
+// alten nur als "erloescht", nicht sofort freigegeben - nach den vielen
+// Overwrites auf dieselben Kiosk-Widget-Keys in dieser Sitzung schlug ein
+// Schreibversuch mit ESP_ERR_NVS_NOT_ENOUGH_SPACE fehl (putUChar()/putBool()
+// geben dabei 0 zurueck statt der geschriebenen Bytes), ohne dass das bisher
+// geprueft wurde. Anders als bei efNodePos2 war das nie auf DIESE Funktion
+// uebertragen worden, obwohl sie durch jede einzelne Drag/Resize-Geste im
+// Anordnen-Modus (kiosk1 UND kiosk2, deutlich haeufiger als die Energiefluss-
+// Knoten) am staerksten betroffen ist. Erase-dann-Retry stoesst die noetige
+// Seiten-Kompaktierung an.
 static void saveKioskWidgetGeneric(const String &prefix, KioskWidgetLayout item) {
-  prefs.putUChar((prefix + "c").c_str(), item.colStart);
-  prefs.putUChar((prefix + "s").c_str(), item.colSpan);
-  prefs.putUChar((prefix + "r").c_str(), item.rowStart);
-  prefs.putUChar((prefix + "p").c_str(), item.rowSpan);
-  prefs.putBool((prefix + "v").c_str(), item.visible);
+  String kc = prefix + "c", ks = prefix + "s", kr = prefix + "r", kp = prefix + "p", kv = prefix + "v";
+  if (prefs.putUChar(kc.c_str(), item.colStart) == 0) { prefs.remove(kc.c_str()); prefs.putUChar(kc.c_str(), item.colStart); }
+  if (prefs.putUChar(ks.c_str(), item.colSpan) == 0) { prefs.remove(ks.c_str()); prefs.putUChar(ks.c_str(), item.colSpan); }
+  if (prefs.putUChar(kr.c_str(), item.rowStart) == 0) { prefs.remove(kr.c_str()); prefs.putUChar(kr.c_str(), item.rowStart); }
+  if (prefs.putUChar(kp.c_str(), item.rowSpan) == 0) { prefs.remove(kp.c_str()); prefs.putUChar(kp.c_str(), item.rowSpan); }
+  if (prefs.putBool(kv.c_str(), item.visible) == 0) { prefs.remove(kv.c_str()); prefs.putBool(kv.c_str(), item.visible); }
 }
 
 void saveKioskWidget(bool landscape, int i, KioskWidgetLayout item) {
@@ -4679,7 +4696,15 @@ void saveKiosk2Widget(bool landscape, int i, KioskWidgetLayout item) {
 }
 
 void saveHomeLayoutToPrefs() {
-  prefs.putBytes("homeLay", (uint8_t*)homeLayout, sizeof(homeLayout));
+  // Gleiches Erase-dann-Retry-Muster wie saveEfNodePosToPrefs()/
+  // saveKioskWidgetGeneric() - ein Blob-Overwrite auf denselben Key kann bei
+  // fragmentierter NVS-Seite fehlschlagen (putBytes() gibt dann 0 statt der
+  // geschriebenen Byteanzahl zurueck), ohne dass das bisher geprueft wurde.
+  size_t written = prefs.putBytes("homeLay", (uint8_t*)homeLayout, sizeof(homeLayout));
+  if (written != sizeof(homeLayout)) {
+    prefs.remove("homeLay");
+    prefs.putBytes("homeLay", (uint8_t*)homeLayout, sizeof(homeLayout));
+  }
 }
 
 void saveEfNodePosToPrefs() {
@@ -11468,21 +11493,33 @@ function wgRectsOverlap(a, b) {
 // `items` direkt, gibt die Indizes der tatsaechlich veraenderten Eintraege zurueck.
 function wgResolveCollisions(items, movingIndex, cols, rows) {
   var changed = {};
-  var moving = items[movingIndex];
-  for (var pass = 0; pass < 3; pass++) {
+  // Live reproduziert (Kiosk2 Landscape): die fruehere Fassung prüfte in
+  // jedem Durchgang nur "geschobenes Widget vs. das aktiv gezogene Widget"
+  // - schob ein Durchgang Nachbar B aus dem Weg von A, wurde NIE geprüft, ob
+  // B danach mit einem dritten Widget C kollidiert. Ergebnis: zwei
+  // Nachbarwidgets blieben dauerhaft ueberlappend gespeichert, nachdem ein
+  // drittes Widget vergroessert wurde. Jetzt werden in jedem Durchgang ALLE
+  // Paare geprüft (ausser Paaren, die das aktiv gezogene Widget selbst
+  // enthalten - das bewegt sich nur durch die Nutzergeste, nie durch einen
+  // Schubs) - so faellt eine durch das Wegschieben neu entstandene
+  // Kollision noch im selben oder naechsten Durchgang auf.
+  for (var pass = 0; pass < 6; pass++) {
     var any = false;
-    for (var i = 0; i < items.length; i++) {
-      if (i === movingIndex) continue;
-      var it = items[i];
-      if (!wgRectsOverlap(moving, it)) continue;
-      var newRowStart = moving.rowStart + moving.rowSpan;
-      if (newRowStart + it.rowSpan - 1 <= rows) {
-        it.rowStart = newRowStart;
-      } else {
-        it.colStart = wgClamp(moving.colStart + moving.colSpan, 1, cols - it.colSpan + 1);
+    for (var a = 0; a < items.length; a++) {
+      for (var b = 0; b < items.length; b++) {
+        if (a === b || b === movingIndex) continue;
+        var pusher = items[a];
+        var it = items[b];
+        if (!wgRectsOverlap(pusher, it)) continue;
+        var newRowStart = pusher.rowStart + pusher.rowSpan;
+        if (newRowStart + it.rowSpan - 1 <= rows) {
+          it.rowStart = newRowStart;
+        } else {
+          it.colStart = wgClamp(pusher.colStart + pusher.colSpan, 1, cols - it.colSpan + 1);
+        }
+        changed[b] = true;
+        any = true;
       }
-      changed[i] = true;
-      any = true;
     }
     if (!any) break;
   }
