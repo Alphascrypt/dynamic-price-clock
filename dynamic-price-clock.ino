@@ -92,7 +92,7 @@ using namespace websockets;
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "4.6.12"
+#define FIRMWARE_VERSION "4.6.13"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -467,6 +467,16 @@ int ankerBatterySoc = -1;   // Batterie-Ladezustand in %, falls verfuegbar
 // Anker-API liefert an keiner Stelle eine Spannung pro String, nur Leistung.
 String ankerPvStringNames[4];
 float ankerPvStringWatts[4] = {-1, -1, -1, -1};
+// Wallbox (Anker "Ladepunkt"): steckt unter data.charging_pile_info.
+// charging_pile_list[0], per Rohdaten-Abgleich verifiziert. Liefert nur
+// Namen/Verbindungsstatus - "power" blieb auch waehrend eines echten,
+// live beobachteten Ladevorgangs ein leerer String und operating_state/
+// communicating_state blieben auf 0 stehen. Live-Ladeleistung scheint also
+// ueber einen anderen, bisher nicht bekannten Anker-Endpunkt zu laufen -
+// deshalb hier bewusst NUR Name+Verbindungsstatus, keine erfundene Leistung.
+String ankerWallboxName = "";
+bool ankerWallboxPresent = false;
+bool ankerWallboxBound = false;
 String ankerLastError = "";
 bool ankerConfigured = false;
 // Unterscheidet "noch nie erfolgreich gepollt" (ankerPvW/-BatteryW/-HomeLoadW
@@ -3456,6 +3466,23 @@ void updateAnkerSolarData() {
     String powerKey = "solar_power_" + String(p + 1);
     String powerStr = solarbankInfo[powerKey] | "";
     ankerPvStringWatts[p] = powerStr.length() > 0 ? powerStr.toFloat() : -1;
+  }
+
+  // Wallbox (siehe Kommentar bei den globalen Variablen) - nur Name und
+  // Verbindungsstatus, keine Leistung (die API liefert dafuer keinen
+  // brauchbaren Wert, auch nicht waehrend eines echten Ladevorgangs).
+  JsonArray chargingPiles = data["charging_pile_info"]["charging_pile_list"].as<JsonArray>();
+  if (!chargingPiles.isNull() && chargingPiles.size() > 0) {
+    JsonObject pile = chargingPiles[0];
+    ankerWallboxPresent = true;
+    ankerWallboxName = String((const char*)(pile["device_name"] | ""));
+    String status = pile["status"] | "";
+    String bindStatus = pile["bind_site_status"] | "";
+    ankerWallboxBound = (status == "1" && bindStatus == "1");
+  } else {
+    ankerWallboxPresent = false;
+    ankerWallboxName = "";
+    ankerWallboxBound = false;
   }
 
   // Lebenszeit-Statistik (Gesamtertrag/CO2/Geld gespart) - steckt in
@@ -7507,6 +7534,8 @@ void handleKiosk2Page() {
   html += ".ef-node-label{font-size:9.5px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;fill:rgba(255,255,255,.5)}";
   html += ".ef-node-value{font-size:17px;font-weight:700;fill:#fff;font-variant-numeric:tabular-nums}";
   html += ".ef-node-sub{font-size:9px;fill:rgba(255,255,255,.4)}";
+  html += ".ef-wallbox-status{font-size:11px;font-weight:600;fill:rgba(255,255,255,.5)}";
+  html += ".ef-wallbox-status.bound{fill:#34C759}";
   html += ".ef-house-value{font-size:20px;font-weight:700;fill:#fff;font-variant-numeric:tabular-nums}";
   html += ".ef-house-label{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;fill:rgba(255,255,255,.65)}";
   html += ".ef-soc-bg{fill:none;stroke:rgba(255,255,255,.12);stroke-width:4}";
@@ -7737,6 +7766,20 @@ function efApply(d){
       empty.style.gridColumn = '1/-1';
       empty.textContent = 'Keine PV-Strings konfiguriert.';
       pvStringsEl.appendChild(empty);
+    }
+  }
+
+  // Wallbox-Status (siehe Kommentar bei buildEnergyFlowSvg()) - nur Name+
+  // Verbindung, keine Leistung (von der Anker-API dafuer nicht verfuegbar,
+  // auch nicht waehrend eines echten Ladevorgangs). textContent statt
+  // innerHTML, da der Geraetename aus der Anker-Cloud kommt.
+  var wallboxEl = document.getElementById('efWallboxStatus');
+  if (wallboxEl) {
+    if (d.wallboxPresent) {
+      wallboxEl.textContent = '\u{1F697} ' + (d.wallboxName || 'Wallbox') + (d.wallboxBound ? '' : ' (getrennt)');
+      wallboxEl.setAttribute('class', 'ef-wallbox-status' + (d.wallboxBound ? ' bound' : ''));
+    } else {
+      wallboxEl.textContent = '';
     }
   }
 }
@@ -8126,7 +8169,10 @@ void handleAnkerData() {
       firstPvString = false;
       json += "{\"name\":\"" + jsonEscapeValue(ankerPvStringNames[p]) + "\",\"watt\":" + String(ankerPvStringWatts[p], 0) + "}";
     }
-    json += "]";
+    json += "],";
+    json += "\"wallboxPresent\":" + String(ankerWallboxPresent ? "true" : "false") + ",";
+    json += "\"wallboxName\":\"" + jsonEscapeValue(ankerWallboxName) + "\",";
+    json += "\"wallboxBound\":" + String(ankerWallboxBound ? "true" : "false");
   }
   json += "}";
 
@@ -10277,6 +10323,14 @@ String buildEnergyFlowSvg() {
   svg += "<circle class='ef-node-circle ef-node-house' r='56'/>";
   svg += "<text y='-12' text-anchor='middle' class='ef-house-label'>Haus</text>";
   svg += "<text y='11' text-anchor='middle' class='ef-house-value' id='efHouseVal'>-- W</text></g>";
+
+  // Wallbox-Statuszeile (Name+Verbindung, keine Leistung - siehe Kommentar
+  // bei den globalen ankerWallbox*-Variablen) - unaufdringlich in der oberen
+  // linken Ecke, ein freier Bereich zwischen den vier Hub-Knoten. Startet
+  // ausgeblendet (Text leer), efApply() setzt Inhalt+Sichtbarkeit anhand der
+  // /ankerdata-Antwort per textContent (kein innerHTML), da der Geraetename
+  // aus der Anker-Cloud kommt.
+  svg += "<text x='14' y='24' text-anchor='start' class='ef-wallbox-status' id='efWallboxStatus'></text>";
 
   svg += "</svg>";
   return svg;
