@@ -92,7 +92,7 @@ using namespace websockets;
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "4.6.13"
+#define FIRMWARE_VERSION "4.6.14"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -6163,8 +6163,20 @@ function kwResetLayout(){
 void handleAccountPage() {
   if (!checkAuth()) return;
 
+  // Arduino-String verwirft beim Anhaengen still Daten, wenn der Heap gerade
+  // keinen ausreichend grossen zusammenhaengenden Block frei hat (siehe
+  // Kommentar in handleRoot()) - live reproduzierbar: das Anhaengen der
+  // rohen Anker-JSON-Antwort (mehrere KB) an das bereits gewachsene "html"
+  // liess den Debug-<pre>-Block komplett verschwinden (Rest der Seite kam
+  // trotzdem an, da die einzelnen HTML-Fragmente davor/danach klein genug
+  // blieben). Gleiche Loesung wie bei handleRoot()/handleDisplaysPage(): in
+  // kleinen Chunks senden statt eines einzigen grossen String-Blocks.
+  server.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+  server.setContentLength(CONTENT_LENGTH_UNKNOWN);
+  server.send(200, "text/html", "");
+
   String html;
-  html.reserve(17500);
+  html.reserve(4000);
 
   html += htmlHeader("Konto");
   html += "<section class='hero'><h1>Konto &amp; Sicherheit</h1><p>Admin-Login, Setup-WLAN-Passwort, allgemeine Geraeteeinstellungen und Firmware-Updates.</p></section>";
@@ -6215,6 +6227,9 @@ void handleAccountPage() {
   html += "<div class='actions'><button type='submit'>Einstellungen speichern</button></div>";
   html += "</form></section>";
 
+  server.sendContent(html);
+  html = "";
+
   html += "<section class='card'><div class='panelTitle'><h2>Setup-WLAN-Passwort</h2><span class='badge ";
   html += setupApActive ? "warnb'>Aktiv" : "okb'>Inaktiv";
   html += "</span></div>";
@@ -6225,6 +6240,9 @@ void handleAccountPage() {
   html += "</div>";
   html += "<div class='actions'><button type='submit' name='formType' value='appass'>Setup-Passwort speichern</button></div>";
   html += "</form></section>";
+
+  server.sendContent(html);
+  html = "";
 
   html += "<section class='card'><div class='panelTitle'><h2>Firmware-Update ueber GitHub</h2><span class='badge ";
   html += (githubRepo.length() == 0) ? "errb'>Nicht eingerichtet" : "okb'>Eingerichtet";
@@ -6264,6 +6282,9 @@ void handleAccountPage() {
   html += "</form>";
   html += "</div></section>";
 
+  server.sendContent(html);
+  html = "";
+
   html += "<section class='card'><div class='panelTitle'><h2>Anker Solarbank (PV-Erzeugung)</h2><span class='badge ";
   html += ankerConfigured ? "okb'>Eingerichtet" : "errb'>Nicht eingerichtet";
   html += "</span></div>";
@@ -6288,7 +6309,17 @@ void handleAccountPage() {
     }
     if (ankerLastRawJson.length() > 0) {
       html += "<details style='margin-top:8px'><summary class='small' style='cursor:pointer'>Rohdaten der letzten Anker-Antwort (Debug)</summary>";
+      // Flush unmittelbar VOR dem grossen Blob: "html" ist hier fast leer,
+      // das anschliessende Anhaengen der (oft mehrere KB grossen) escapten
+      // Rohantwort braucht dadurch nur einen kleinen, viel eher verfuegbaren
+      // zusammenhaengenden Speicherblock statt eines auf den bereits
+      // gewachsenen Seiteninhalt aufgesetzten noch groesseren Blocks - genau
+      // das liess das <pre> bisher live reproduzierbar verschwinden.
+      server.sendContent(html);
+      html = "";
       html += "<pre style='white-space:pre-wrap;word-break:break-all;font-size:11px;background:var(--overlay-faint);border-radius:10px;padding:8px;margin-top:6px'>" + htmlEscape(ankerLastRawJson) + "</pre>";
+      server.sendContent(html);
+      html = "";
       html += "</details>";
     }
     html += "</div>";
@@ -6298,8 +6329,13 @@ void handleAccountPage() {
   html += "<script src='/account-update.js'></script>";
 
   html += htmlFooter();
-  server.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
-  server.send(200, "text/html", html);
+
+  // Letzter Inhalts-Chunk, dann ein leerer Chunk zum Abschluss der Chunked
+  // Transfer Encoding (siehe handleRoot() - identisches Muster). sendHeader()
+  // waere hier zu spaet, die Kopfzeilen wurden bereits ganz am Anfang der
+  // Funktion mit dem ersten server.send() verschickt.
+  server.sendContent(html);
+  server.sendContent("");
 }
 
 void handleSaveAccount() {
