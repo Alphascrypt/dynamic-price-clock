@@ -92,7 +92,7 @@ using namespace websockets;
 
 // Aktuelle Firmware-Version. Vor jedem GitHub-Release von Hand erhoehen -
 // der Update-Check vergleicht dies gegen den neuesten Release-Tag.
-#define FIRMWARE_VERSION "4.6.14"
+#define FIRMWARE_VERSION "4.6.15"
 
 // TFT_SCLK_PIN, TFT_MOSI_PIN, LED_RING_PIN und MATRIX_CS_PIN sind ueber
 // Preferences (NVS) veraenderbar und werden in setup() geladen, bevor sie
@@ -7423,6 +7423,18 @@ function refreshKioskData(){
 }
 setInterval(refreshKioskData, 30000);
 
+// Browser cachen Tab-Favicons hartnaeckiger als normale Ressourcen und
+// pruefen sie nur bei echter Navigation neu - diese Kiosk-Seite laedt nie
+// neu, das im Tab gezeigte Icon blieb deshalb auf der Preisfarbe vom
+// letzten Aufruf stehen (siehe app.js fuer die gleiche Loesung auf den
+// anderen Seiten).
+(function(){
+  var link = document.querySelector("link[rel='icon']");
+  if (!link) return;
+  var baseHref = link.getAttribute('href').split('?')[0];
+  setInterval(function(){ link.href = baseHref + '?t=' + Date.now(); }, 30000);
+})();
+
 // Eigener, schnellerer Poller nur fuer den Tibber-Pulse-Verbrauch - der
 // aendert sich alle paar Sekunden, waehrend Gauge/Diagramm/Preise nur alle
 // 30s aktualisiert werden muessen.
@@ -7873,6 +7885,18 @@ function efPriceRefresh(){
   }).catch(function(e){});
 }
 setInterval(efPriceRefresh, 30000);
+
+// Browser cachen Tab-Favicons hartnaeckiger als normale Ressourcen und
+// pruefen sie nur bei echter Navigation neu - diese Kiosk-Seite laedt nie
+// neu, das im Tab gezeigte Icon blieb deshalb auf der Preisfarbe vom
+// letzten Aufruf stehen (siehe app.js fuer die gleiche Loesung auf den
+// anderen Seiten).
+(function(){
+  var link = document.querySelector("link[rel='icon']");
+  if (!link) return;
+  var baseHref = link.getAttribute('href').split('?')[0];
+  setInterval(function(){ link.href = baseHref + '?t=' + Date.now(); }, 30000);
+})();
 
 var efCrosshair = WidgetGridEngine.createChartCrosshair('priceChartSvg', 'efChartCard', 'efTooltip', function(){ return kioskChartPoints; });
 
@@ -11418,6 +11442,21 @@ details summary{cursor:pointer;color:var(--text);list-style:none}details summary
 
 void handleAppJs() {
   String js = R"JS(
+// Browser cachen Tab-Favicons deutlich hartnaeckiger als normale Ressourcen
+// und pruefen sie nur bei einer echten Navigation/Neuladen erneut - obwohl
+// /favicon.svg serverseitig die aktuelle Preisfarbe live berechnet (siehe
+// handleFaviconSvg()), blieb das im Tab angezeigte Icon deshalb auf der
+// Farbe stehen, die beim letzten Seitenaufruf galt, und aktualisierte sich
+// nie waehrend eine Seite offen blieb (Kiosk-Seiten laden nie neu, die
+// Startseite auch nicht). Ein periodischer Cache-Buster in der URL zwingt
+// den Browser, den <link>-Inhalt regelmaessig neu abzurufen.
+(function(){
+  var link = document.querySelector("link[rel='icon']");
+  if (!link) return;
+  var baseHref = link.getAttribute('href').split('?')[0];
+  function refreshFavicon(){ link.href = baseHref + '?t=' + Date.now(); }
+  setInterval(refreshFavicon, 30000);
+})();
 function toggleTheme() {
   var isDark = document.documentElement.getAttribute('data-theme') === 'dark';
   if (isDark) {
